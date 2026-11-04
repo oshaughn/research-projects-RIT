@@ -1,8 +1,9 @@
 """Selectable waveform-free circular coordinates, including frozen EOB maps.
 
 The tabulated option is a coordinate definition, not an evolution accuracy
-claim. Outside its declared box it smoothly returns to full-e Peters. Native
-sampling keeps the original prior; no Jacobian is inserted in the integrand.
+claim. Outside its declared box it smoothly returns to full-e Peters. Fit-only
+mode keeps native sampling. The optional sampling adapter includes the inverse
+angular Jacobian for tabulated clocks.
 """
 import base64
 from functools import lru_cache

@@ -1026,10 +1026,10 @@ def test_bandlimited_runs_on_the_gpu_backend_and_matches_numpy():
                                                          simps=simps_cpu, xpy=np))
     rep_np = tmq.last_report()
 
-    from RIFT.likelihood import optimized_gpu_tools
+    from RIFT.likelihood import factored_likelihood as fl
     out_cp = cupy.asnumpy(tmq.time_marginalize_bandlimited(
         cupy.asarray(k), cupy.asarray(r), DELTAT, _lnL,
-        simps=optimized_gpu_tools.simps, xpy=cupy))
+        simps=fl.time_quadrature_rule('bandlimited', cupy), xpy=cupy))
     rep_cp = tmq.last_report()
 
     # Same classification and the same derived factors on both backends.
@@ -1044,30 +1044,21 @@ def test_bandlimited_runs_on_the_gpu_backend_and_matches_numpy():
         assert report['full_fft_fallback_rows'] == 0, report
         assert report['full_fft_fallback_reasons'] == {}, report
 
-    # The REFINED rows integrate with trapezoid on the dense grid, which has no
-    # even/odd Simpson ambiguity, so the two backends must agree to round-off.
-    # (Rows that fall back use each backend's OWN Simpson rule, and those two
-    # rules genuinely differ for even npts -- see the CPU/GPU note below.)
-    # Only the REFINED rows are required to agree: they integrate with trapezoid
-    # on the dense grid, which has no even/odd Simpson ambiguity.  Rows that fall
-    # back use each backend's OWN Simpson rule, and those two rules genuinely
-    # differ for even npts -- asserting agreement over all rows would be
-    # asserting the absence of a divergence this file documents as real.
+    # Every row must agree: refined rows integrate with trapezoid on the dense
+    # grid, and rows that fall back use the likelihood's Simpson rule, which is
+    # the same rule on both backends (factored_likelihood.time_quadrature_rule).
     refined = np.array([f > 1 for f in _row_factors(k, r)])
-    assert refined.any()
-    fin = np.isfinite(out_np) & np.isfinite(out_cp) & refined
+    assert refined.any() and not refined.all()
+    fin = np.isfinite(out_np) & np.isfinite(out_cp)
     assert np.max(np.abs(out_np[fin] - out_cp[fin])) < 1e-6
 
 
 def test_the_likelihood_hands_the_bandlimited_path_its_own_simpson_rule():
     """Rows that fall back must reproduce what THIS run would have returned.
 
-    `factored_likelihood` integrates with scipy on CPU and with
-    `optimized_gpu_tools.simps` on GPU, and the two are NOT interchangeable: the
-    vendored GPU copy is an old scipy with `even='avg'` while modern scipy uses
-    the Cartwright correction, so for EVEN npts -- production is 614 at srate
-    4096 -- they disagree.  A private scipy copy inside the module would be
-    bit-for-bit on CPU and quietly wrong on GPU.
+    The fallback rows must use the likelihood's own rule
+    (`factored_likelihood.time_quadrature_rule`), and scipy cannot consume a
+    device array, so the module must not substitute a private copy.
     """
     # Behavioural, not a source grep: a non-numpy backend with no `simps` must
     # REFUSE, because the scipy default cannot consume a device array and that

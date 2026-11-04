@@ -232,7 +232,7 @@ def test_driver_wires_continuous_draw_before_legacy_grid_choice():
     assert "validate_time_posterior_working_set(n_samples, n_dense)" in source
     assert "del lnLt_dense, tvals_dense, sigma_dense, measurable_dense" in source
     assert "not opts.gpu or opts.rotation_slow or opts.freqresponse" in source
-    assert "continuous_available=not (opts.rotation_slow or opts.freqresponse)" in source
+    assert "continuous_available=not (opts.rotation_slow or opts.freqresponse or _td_gs_requested)" in source
     assert "refusing before the expensive integration" in source
     assert 'opts._time_posterior_export == "continuous"' in source
     assert 'opts._time_posterior_export == "grid"' in source

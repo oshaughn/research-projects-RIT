@@ -37,6 +37,10 @@
       "decision": "NA",
       "reason": "Calibration-envelope internals; see the --calibration-* reason."
     },
+    "FUNC:_calibration_envelope_types": {
+      "decision": "NA",
+      "reason": "Ground-detector calibration-envelope handoff between FD prior conversion and the TDGS template FIR. LISA exposes neither calibration envelopes nor TDGS; see the --calibration-* and TD-option reasons."
+    },
     "FUNC:_draw_more_calibration_draws": {
       "decision": "NA",
       "reason": "Calibration-envelope internals; see the --calibration-* reason."
@@ -49,9 +53,17 @@
       "decision": "PORT",
       "reason": "Normalizes --interpolate-time argv forms. LISA exposes --interpolate-time, so the same normalization applies."
     },
+    "FUNC:_redraw_calibration_bank_for_point": {
+      "decision": "NA",
+      "reason": "Calibration-envelope internals; see the --calibration-* reason."
+    },
     "FUNC:_reparam_A_of_incl": {
       "decision": "PORT",
       "reason": "Implementation of --internal-reparam-dl-incl; ports with it, measured before default-on."
+    },
+    "FUNC:_series_deltaF": {
+      "decision": "PHYSICS",
+      "reason": "Frequency spacing of a loaded data series, used by the td-gs (finite-covariance time-domain) set-up. The LISA driver has no td-gs code path; see the TD option reason below."
     },
     "FUNC:_truthy_option": {
       "decision": "PORT",
@@ -65,7 +77,11 @@
       "decision": "NA",
       "reason": "Calibration Monte-Carlo error probe; see the --calibration-* reason."
     },
-    "FUNC:analyze_event._cal_error_probe._draw_dist": {
+    "FUNC:analyze_event._cal_error_probe_body": {
+      "decision": "NA",
+      "reason": "Calibration Monte-Carlo error probe; see the --calibration-* reason."
+    },
+    "FUNC:analyze_event._cal_error_probe_body._draw_dist": {
       "decision": "NA",
       "reason": "Calibration Monte-Carlo error probe; see the --calibration-* reason."
     },
@@ -89,6 +105,10 @@
       "decision": "PORT",
       "reason": "The --zero-likelihood stand-in, built with the SAME SIGNATURE as the likelihood it replaces and applying a --supplementary-likelihood-factor-*. LISA has the identical shape at both of its `like_to_integrate = zero_like` sites, the same supplementary hook and the same eight-signature likelihood_function, so it carries both defects this replaced: --zero-likelihood silently discards a supplementary factor, and a *args stand-in reports co_argcount 0 to mcsampler, which kills --sampler-method adaptive_cartesian. LISA's two sites additionally still read opts.internal_use_lnL rather than return_lnL as the convention, which is a separate, already-fixed-here defect they would need to take at the same time. Nothing in the helper is ground-based-specific: it is signature plumbing."
     },
+    "OPTION:--calibration-bank-per-point": {
+      "decision": "NA",
+      "reason": "LIGO/Virgo spline calibration-envelope marginalization. The LISA driver models no instrument calibration: it takes no envelope directory, has no cal nodes, and its response is applied analytically by factored_likelihood_LISA. LISA calibration, if it is ever modelled, will not have this data product or this spline parameterization, so porting the LIGO machinery would be actively misleading."
+    },
     "OPTION:--calibration-burn-in-neff": {
       "decision": "NA",
       "reason": "LIGO/Virgo spline calibration-envelope marginalization. The LISA driver models no instrument calibration: it takes no envelope directory, has no cal nodes, and its response is applied analytically by factored_likelihood_LISA. LISA calibration, if it is ever modelled, will not have this data product or this spline parameterization, so porting the LIGO machinery would be actively misleading."
@@ -98,6 +118,10 @@
       "reason": "LIGO/Virgo spline calibration-envelope marginalization. The LISA driver models no instrument calibration: it takes no envelope directory, has no cal nodes, and its response is applied analytically by factored_likelihood_LISA. LISA calibration, if it is ever modelled, will not have this data product or this spline parameterization, so porting the LIGO machinery would be actively misleading."
     },
     "OPTION:--calibration-conjugate-phase": {
+      "decision": "NA",
+      "reason": "LIGO/Virgo spline calibration-envelope marginalization. The LISA driver models no instrument calibration: it takes no envelope directory, has no cal nodes, and its response is applied analytically by factored_likelihood_LISA. LISA calibration, if it is ever modelled, will not have this data product or this spline parameterization, so porting the LIGO machinery would be actively misleading."
+    },
+    "OPTION:--calibration-correction-type": {
       "decision": "NA",
       "reason": "LIGO/Virgo spline calibration-envelope marginalization. The LISA driver models no instrument calibration: it takes no envelope directory, has no cal nodes, and its response is applied analytically by factored_likelihood_LISA. LISA calibration, if it is ever modelled, will not have this data product or this spline parameterization, so porting the LIGO machinery would be actively misleading."
     },
@@ -193,7 +217,43 @@
       "decision": "NA",
       "reason": "The .dslice export and its placement/tuning knobs. This is a data product for a downstream LIGO CIP distance workflow that the LISA pipeline does not run; there is no consumer. If a LISA distance workflow is ever built, note that the .dslice reweight core was the third Finding-2 site and must not be revived in its pre-#87 form."
     },
+    "OPTION:--distance-slice-refine-dlnL": {
+      "decision": "NA",
+      "reason": "The .dslice export and its placement/tuning knobs. This is a data product for a downstream LIGO CIP distance workflow that the LISA pipeline does not run; there is no consumer. If a LISA distance workflow is ever built, note that the .dslice reweight core was the third Finding-2 site and must not be revived in its pre-#87 form."
+    },
+    "OPTION:--distance-slice-refine-max": {
+      "decision": "NA",
+      "reason": "The .dslice export and its placement/tuning knobs. This is a data product for a downstream LIGO CIP distance workflow that the LISA pipeline does not run; there is no consumer. If a LISA distance workflow is ever built, note that the .dslice reweight core was the third Finding-2 site and must not be revived in its pre-#87 form."
+    },
     "OPTION:--distance-slice-skip-threshold": {
+      "decision": "NA",
+      "reason": "The .dslice export and its placement/tuning knobs. This is a data product for a downstream LIGO CIP distance workflow that the LISA pipeline does not run; there is no consumer. If a LISA distance workflow is ever built, note that the .dslice reweight core was the third Finding-2 site and must not be revived in its pre-#87 form."
+    },
+    "OPTION:--distance-slice-walkout-delta-lnL": {
+      "decision": "NA",
+      "reason": "The .dslice export and its placement/tuning knobs. This is a data product for a downstream LIGO CIP distance workflow that the LISA pipeline does not run; there is no consumer. If a LISA distance workflow is ever built, note that the .dslice reweight core was the third Finding-2 site and must not be revived in its pre-#87 form."
+    },
+    "OPTION:--distance-slice-walkout-max-steps": {
+      "decision": "NA",
+      "reason": "The .dslice export and its placement/tuning knobs. This is a data product for a downstream LIGO CIP distance workflow that the LISA pipeline does not run; there is no consumer. If a LISA distance workflow is ever built, note that the .dslice reweight core was the third Finding-2 site and must not be revived in its pre-#87 form."
+    },
+    "OPTION:--distance-slice-warm-block": {
+      "decision": "NA",
+      "reason": "The .dslice export and its placement/tuning knobs. This is a data product for a downstream LIGO CIP distance workflow that the LISA pipeline does not run; there is no consumer. If a LISA distance workflow is ever built, note that the .dslice reweight core was the third Finding-2 site and must not be revived in its pre-#87 form."
+    },
+    "OPTION:--distance-slice-warm-khat-max": {
+      "decision": "NA",
+      "reason": "The .dslice export and its placement/tuning knobs. This is a data product for a downstream LIGO CIP distance workflow that the LISA pipeline does not run; there is no consumer. If a LISA distance workflow is ever built, note that the .dslice reweight core was the third Finding-2 site and must not be revived in its pre-#87 form."
+    },
+    "OPTION:--distance-slice-warm-local-k": {
+      "decision": "NA",
+      "reason": "The .dslice export and its placement/tuning knobs. This is a data product for a downstream LIGO CIP distance workflow that the LISA pipeline does not run; there is no consumer. If a LISA distance workflow is ever built, note that the .dslice reweight core was the third Finding-2 site and must not be revived in its pre-#87 form."
+    },
+    "OPTION:--distance-slice-warm-seed-temper": {
+      "decision": "NA",
+      "reason": "The .dslice export and its placement/tuning knobs. This is a data product for a downstream LIGO CIP distance workflow that the LISA pipeline does not run; there is no consumer. If a LISA distance workflow is ever built, note that the .dslice reweight core was the third Finding-2 site and must not be revived in its pre-#87 form."
+    },
+    "OPTION:--distance-slice-warm-start": {
       "decision": "NA",
       "reason": "The .dslice export and its placement/tuning knobs. This is a data product for a downstream LIGO CIP distance workflow that the LISA pipeline does not run; there is no consumer. If a LISA distance workflow is ever built, note that the .dslice reweight core was the third Finding-2 site and must not be revived in its pre-#87 form."
     },
@@ -212,6 +272,18 @@
     "OPTION:--e-freq": {
       "decision": "NA",
       "reason": "TEOBResumS eccentric-frequency convention. Tied to a ground-based eccentric waveform path the LISA driver does not offer (it takes --modes / h5 frames)."
+    },
+    "OPTION:--early-time-multirate": {
+      "decision": "NA",
+      "reason": "Opt-in two-rate precompute (PR #436) for ground-based detector strain: it wraps PrecomputeLikelihoodTerms, decimates each IFO's C^-1 d, and builds lalsimulation FD modes per |m|. The LISA driver precomputes through PrecomputeAlignedSpinLISA with the TDI response and has no per-IFO strain to decimate. A LISA multirate path would be its own design, not a port of this one."
+    },
+    "OPTION:--early-time-multirate-backend": {
+      "decision": "NA",
+      "reason": "Opt-in two-rate precompute (PR #436) for ground-based detector strain: it wraps PrecomputeLikelihoodTerms, decimates each IFO's C^-1 d, and builds lalsimulation FD modes per |m|. The LISA driver precomputes through PrecomputeAlignedSpinLISA with the TDI response and has no per-IFO strain to decimate. A LISA multirate path would be its own design, not a port of this one."
+    },
+    "OPTION:--early-time-multirate-waveform": {
+      "decision": "NA",
+      "reason": "Opt-in two-rate precompute (PR #436) for ground-based detector strain: it wraps PrecomputeLikelihoodTerms, decimates each IFO's C^-1 d, and builds lalsimulation FD modes per |m|. The LISA driver precomputes through PrecomputeAlignedSpinLISA with the TDI response and has no per-IFO strain to decimate. A LISA multirate path would be its own design, not a port of this one."
     },
     "OPTION:--export-distance-slices": {
       "decision": "NA",
@@ -265,6 +337,18 @@
       "decision": "NA",
       "reason": "Finite light-travel-time transfer across the arms for 3G ground detectors (CE/ET), built on lalsimulation detector geometry and an arm-length override in metres. LISA's finite-size response is not an add-on: it is the whole point of the TDI response the LISA driver already applies."
     },
+    "OPTION:--glitch-basis": {
+      "decision": "PHYSICS",
+      "reason": "The ground-based Toeplitz/cropped-precision and Gaussian-glitch factory is not wired into the LISA driver. Porting requires a TDI-channel covariance, boundary and response-model decision with LISA-specific validation; copying the ground-based option passthrough would not establish that model."
+    },
+    "OPTION:--glitch-basis-file": {
+      "decision": "PHYSICS",
+      "reason": "The ground-based Toeplitz/cropped-precision and Gaussian-glitch factory is not wired into the LISA driver. Porting requires a TDI-channel covariance, boundary and response-model decision with LISA-specific validation; copying the ground-based option passthrough would not establish that model."
+    },
+    "OPTION:--glitch-sigma": {
+      "decision": "PHYSICS",
+      "reason": "The ground-based Toeplitz/cropped-precision and Gaussian-glitch factory is not wired into the LISA driver. Porting requires a TDI-channel covariance, boundary and response-model decision with LISA-specific validation; copying the ground-based option passthrough would not establish that model."
+    },
     "OPTION:--gwsignal-mode-conditioning": {
       "decision": "NA",
       "reason": "Selects native conditioning only for ground-based SEOBNRv5HM/PHM. The LISA mode/frame path does not offer this model-specific conditioning policy; unsupported LISA requests must not silently select a different waveform."
@@ -300,6 +384,10 @@
     "OPTION:--internal-gmm-sky-components": {
       "decision": "PORT",
       "reason": "mcsamplerEnsemble (GMM) tuning. LISA wires that sampler and exposes the same 'GMM' method string, so these knobs are reachable physics-wise but simply not plumbed. Pure pass-through. Caveat for whoever ports --internal-gmm-sky-components: the default grouping is (sky)(distance,inclination)(psi,phi), and 'sky' for LISA is the ecliptic pair -- the grouping still makes sense, the docstring does not."
+    },
+    "OPTION:--internal-ile-inner-product": {
+      "decision": "PHYSICS",
+      "reason": "The ground-based Toeplitz/cropped-precision and Gaussian-glitch factory is not wired into the LISA driver. Porting requires a TDI-channel covariance, boundary and response-model decision with LISA-specific validation; copying the ground-based option passthrough would not establish that model."
     },
     "OPTION:--internal-precompute-ignore-threshold": {
       "decision": "PORT",
@@ -460,6 +548,82 @@
     "OPTION:--srate-internal": {
       "decision": "NA",
       "reason": "Separate internal sampling rate for the ground-based precompute. LISA's precompute takes its rate from the h5 frame and P.deltaT; there is no second internal rate to set."
+    },
+    "OPTION:--td-acf-cond": {
+      "decision": "PHYSICS",
+      "reason": "The ground-based Toeplitz/cropped-precision and Gaussian-glitch factory is not wired into the LISA driver. Porting requires a TDI-channel covariance, boundary and response-model decision with LISA-specific validation; copying the ground-based option passthrough would not establish that model."
+    },
+    "OPTION:--td-acf-duration": {
+      "decision": "PHYSICS",
+      "reason": "The ground-based Toeplitz/cropped-precision and Gaussian-glitch factory is not wired into the LISA driver. Porting requires a TDI-channel covariance, boundary and response-model decision with LISA-specific validation; copying the ground-based option passthrough would not establish that model."
+    },
+    "OPTION:--td-acf-file": {
+      "decision": "PHYSICS",
+      "reason": "The ground-based Toeplitz/cropped-precision and Gaussian-glitch factory is not wired into the LISA driver. Porting requires a TDI-channel covariance, boundary and response-model decision with LISA-specific validation; copying the ground-based option passthrough would not establish that model."
+    },
+    "OPTION:--td-analysis-end": {
+      "decision": "PHYSICS",
+      "reason": "The ground-based Toeplitz/cropped-precision and Gaussian-glitch factory is not wired into the LISA driver. Porting requires a TDI-channel covariance, boundary and response-model decision with LISA-specific validation; copying the ground-based option passthrough would not establish that model."
+    },
+    "OPTION:--td-analysis-start": {
+      "decision": "PHYSICS",
+      "reason": "The ground-based Toeplitz/cropped-precision and Gaussian-glitch factory is not wired into the LISA driver. Porting requires a TDI-channel covariance, boundary and response-model decision with LISA-specific validation; copying the ground-based option passthrough would not establish that model."
+    },
+    "OPTION:--td-calibration-correction-type": {
+      "decision": "PHYSICS",
+      "reason": "The ground-based Toeplitz/cropped-precision and Gaussian-glitch factory is not wired into the LISA driver. Porting requires a TDI-channel covariance, boundary and response-model decision with LISA-specific validation; copying the ground-based option passthrough would not establish that model."
+    },
+    "OPTION:--td-calibration-fir-half-length": {
+      "decision": "PHYSICS",
+      "reason": "The ground-based Toeplitz/cropped-precision and Gaussian-glitch factory is not wired into the LISA driver. Porting requires a TDI-channel covariance, boundary and response-model decision with LISA-specific validation; copying the ground-based option passthrough would not establish that model."
+    },
+    "OPTION:--td-dense-max-n": {
+      "decision": "PHYSICS",
+      "reason": "The ground-based Toeplitz/cropped-precision and Gaussian-glitch factory is not wired into the LISA driver. Porting requires a TDI-channel covariance, boundary and response-model decision with LISA-specific validation; copying the ground-based option passthrough would not establish that model."
+    },
+    "OPTION:--td-gap": {
+      "decision": "PHYSICS",
+      "reason": "The ground-based Toeplitz/cropped-precision and Gaussian-glitch factory is not wired into the LISA driver. Porting requires a TDI-channel covariance, boundary and response-model decision with LISA-specific validation; copying the ground-based option passthrough would not establish that model."
+    },
+    "OPTION:--td-highpass": {
+      "decision": "PHYSICS",
+      "reason": "The ground-based Toeplitz/cropped-precision and Gaussian-glitch factory is not wired into the LISA driver. Porting requires a TDI-channel covariance, boundary and response-model decision with LISA-specific validation; copying the ground-based option passthrough would not establish that model."
+    },
+    "OPTION:--td-ifo-time-offset": {
+      "decision": "PHYSICS",
+      "reason": "The ground-based Toeplitz/cropped-precision and Gaussian-glitch factory is not wired into the LISA driver. Porting requires a TDI-channel covariance, boundary and response-model decision with LISA-specific validation; copying the ground-based option passthrough would not establish that model."
+    },
+    "OPTION:--td-mref": {
+      "decision": "PHYSICS",
+      "reason": "The ground-based Toeplitz/cropped-precision and Gaussian-glitch factory is not wired into the LISA driver. Porting requires a TDI-channel covariance, boundary and response-model decision with LISA-specific validation; copying the ground-based option passthrough would not establish that model."
+    },
+    "OPTION:--td-piece": {
+      "decision": "PHYSICS",
+      "reason": "The ground-based Toeplitz/cropped-precision and Gaussian-glitch factory is not wired into the LISA driver. Porting requires a TDI-channel covariance, boundary and response-model decision with LISA-specific validation; copying the ground-based option passthrough would not establish that model."
+    },
+    "OPTION:--td-solver": {
+      "decision": "PHYSICS",
+      "reason": "The ground-based Toeplitz/cropped-precision and Gaussian-glitch factory is not wired into the LISA driver. Porting requires a TDI-channel covariance, boundary and response-model decision with LISA-specific validation; copying the ground-based option passthrough would not establish that model."
+    },
+    "OPTION:--td-subsample": {
+      "decision": "PHYSICS",
+      "reason": "The ground-based Toeplitz/cropped-precision and Gaussian-glitch factory is not wired into the LISA driver. Porting requires a TDI-channel covariance, boundary and response-model decision with LISA-specific validation; copying the ground-based option passthrough would not establish that model."
+    },
+    "OPTION:--td-u-method": {
+      "decision": "PHYSICS",
+      "reason": "The ground-based Toeplitz/cropped-precision and Gaussian-glitch factory is not wired into the LISA driver. Porting requires a TDI-channel covariance, boundary and response-model decision with LISA-specific validation; copying the ground-based option passthrough would not establish that model."
+    },
+    "OPTION:--td-u-stride": {
+      "decision": "PHYSICS",
+      "reason": "The ground-based Toeplitz/cropped-precision and Gaussian-glitch factory is not wired into the LISA driver. Porting requires a TDI-channel covariance, boundary and response-model decision with LISA-specific validation; copying the ground-based option passthrough would not establish that model."
+    },
+    "OPTION:--td-u-svd-tol": {
+      "decision": "PHYSICS",
+      "reason": "The ground-based Toeplitz/cropped-precision and Gaussian-glitch factory is not wired into the LISA driver. Porting requires a TDI-channel covariance, boundary and response-model decision with LISA-specific validation; copying the ground-based option passthrough would not establish that model."
+    },
+    "OPTION:--td-whiteness-check": {
+      "decision": "PHYSICS",
+      "reason": "The ground-based Toeplitz/cropped-precision and Gaussian-glitch factory is not wired into the LISA driver. Porting requires a TDI-channel covariance, boundary and response-model decision with LISA-specific validation; copying the ground-based option passthrough would not establish that model."
     },
     "OPTION:--time-marginalization-quadrature": {
       "decision": "PORT",

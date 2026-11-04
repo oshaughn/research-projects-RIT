@@ -291,6 +291,7 @@ Choosing a starting point
 Related pages
 =============
 
+* :doc:`nr_best_effort`
 * :doc:`hyperpipe`
 * :doc:`using-pipeline`
 * :doc:`examples-ini`

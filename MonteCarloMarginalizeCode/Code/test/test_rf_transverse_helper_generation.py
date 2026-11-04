@@ -11,6 +11,15 @@ ROOT=Path(__file__).resolve().parents[1]
 class StageBuilt(Exception):
     pass
 
+MARK='--parameter-implied rf_total_azimuth'
+CHART={'geometric4':('rf_total_perp','rf_total_azimuth','rf_residual_parallel','rf_residual_perpendicular'),
+       'geometric4-phase-excess':('rf_phase_excess','rf_total_azimuth','rf_residual_parallel','rf_residual_perpendicular')}
+
+def chart_line(line, mode='geometric4'):
+    for old,new in zip(('s1x','s1y','s2x','s2y'),CHART[mode]):
+        line=line.replace('--parameter-implied '+old+' ','--parameter-implied '+new+' ')
+    return line
+
 def generate(monkeypatch,tmp_path, mode, mc=10, force_method=None, fref=35, extra=()):
     lal=pytest.importorskip('lal')
     monkeypatch.syspath_prepend(str(ROOT))
@@ -60,14 +69,15 @@ def generate(monkeypatch,tmp_path, mode, mc=10, force_method=None, fref=35, extr
 @pytest.mark.parametrize('mode,mc,expected',[('geometric4',10,'geometric4'),('auto',10,'geometric4'),('auto',25,None),('off',10,None),('auto',None,None)])
 def test_actual_helper_top_level_policy(monkeypatch,tmp_path,mode,mc,expected):
     result=generate(monkeypatch,tmp_path,mode,mc)
-    active=[line for line in result['lines'] if '--rf-transverse-spin-coordinates ' in line]
+    active=[line for line in result['lines'] if MARK in line]
     assert bool(active)==(expected is not None)
-    assert all('--rf-transverse-spin-coordinates '+expected in line for line in active)
     if active:
         assert result['fit_method']=='rf'
         for line in active:
-            for name in ['delta_mc','mu1','mu2','chiMinus','s1x','s1y','s2x','s2y']:
+            for name in ('delta_mc','mu1','mu2','chiMinus')+CHART[expected]:
                 assert name in line
+            for name in ('s1x','s1y','s2x','s2y'):
+                assert '--parameter-implied '+name not in line
             assert '--fref 35.0' in line
         assert '--reference-freq 35.0' in result['ile']
     if mc is None:assert result['placeholder']
@@ -75,7 +85,7 @@ def test_actual_helper_top_level_policy(monkeypatch,tmp_path,mode,mc,expected):
 def test_actual_helper_explicit_gp_is_preserved(monkeypatch,tmp_path):
     result=generate(monkeypatch,tmp_path,'auto',10,'gp')
     assert result['fit_method']=='gp'
-    assert not any('--rf-transverse-spin-coordinates ' in line for line in result['lines'])
+    assert not any(MARK in line for line in result['lines'])
 
 
 def test_actual_off_has_unchanged_generated_stages(monkeypatch,tmp_path):
@@ -99,10 +109,10 @@ def test_actual_helper_refuses_physics3(monkeypatch,tmp_path):
 def test_auto_declines_analyses_outside_the_native_basis(monkeypatch,tmp_path,extra):
     # pseudo_pipe or the helper adds fit coordinates (a6c, E0/p_phi0, tides) that geometric4 cannot carry.
     result=generate(monkeypatch,tmp_path,'auto',10,extra=extra)
-    assert not any('--rf-transverse-spin-coordinates' in line for line in result['lines'])
+    assert not any(MARK in line for line in result['lines'])
 
 
-ACTIVATION = ' --rf-transverse-spin-coordinates geometric4 --fref 35.0'
+ACTIVATION = ' --fref 35.0'
 
 def test_auto_effect_in_a_bare_helper_run(monkeypatch,tmp_path):
     # Without rf or phase options, auto switches every stage to rf in the mu1/mu2 basis,
@@ -119,6 +129,7 @@ def test_auto_effect_in_a_bare_helper_run(monkeypatch,tmp_path):
         assert '--fit-method rf' in line
         assert '--parameter-implied mu1 --parameter-implied mu2 --parameter-nofit mc' in line
     assert [line.endswith(ACTIVATION) for line in auto['lines']]==[False,False,True]
+    assert [MARK in line for line in auto['lines']]==[False,False,True]
     assert auto['ile']==default['ile']
 
 def test_auto_effect_in_the_asimov_configuration(monkeypatch,tmp_path):
@@ -131,7 +142,7 @@ def test_auto_effect_in_the_asimov_configuration(monkeypatch,tmp_path):
     assert off['lines']==default['lines']
     assert auto['lines'][:-1]==default['lines'][:-1]
     import shlex
-    assert shlex.split(auto['lines'][-1])==shlex.split(default['lines'][-1]+ACTIVATION)
+    assert shlex.split(auto['lines'][-1])==shlex.split(chart_line(default['lines'][-1])+ACTIVATION)
     assert auto['ile']==default['ile']
 
 @pytest.mark.parametrize('mc',[3,15])
@@ -149,11 +160,12 @@ def test_unforced_opt_in_builds_the_explicit_rf_initial_grid(monkeypatch,tmp_pat
 def test_actual_geometric4_helper(monkeypatch,tmp_path,mode):
     import shlex
     result=generate(monkeypatch,tmp_path,mode,25)
-    active=[shlex.split(line) for line in result['lines'] if ('--rf-transverse-spin-coordinates '+mode) in line]
+    active=[shlex.split(line) for line in result['lines'] if MARK in line]
     assert active, 'Explicit geometric4 must survive actual helper generation'
     for tokens in active:
-        i=tokens.index('--rf-transverse-spin-coordinates')
-        assert tokens[i+1]==mode
+        assert '--rf-transverse-spin-coordinates' not in tokens
+        implied=[tokens[i+1] for i,t in enumerate(tokens) if t=='--parameter-implied']
+        assert set(CHART[mode])<=set(implied) and not set(('s1x','s1y','s2x','s2y'))&set(implied)
         assert float(tokens[tokens.index('--fref')+1])==35.
     assert result['fit_method']=='rf'
 
@@ -162,3 +174,17 @@ def test_actual_geometric4_helper(monkeypatch,tmp_path,mode):
 def test_actual_geometric4_rejects_gp(monkeypatch,tmp_path,mode):
     with pytest.raises(ValueError,match='No complete two-spin RF stage'):
         generate(monkeypatch,tmp_path,mode,10,'gp')
+
+
+@pytest.mark.parametrize('mode',['geometric4','auto'])
+def test_volumetric_stage_activates(monkeypatch,tmp_path,mode):
+    # --assume-volumetric-spin samples and fits s1x..s2y with --parameter on the precessing stage.
+    import shlex
+    result=generate(monkeypatch,tmp_path,mode,10,extra=['--assume-volumetric-spin'])
+    active=[shlex.split(line) for line in result['lines'] if MARK in line]
+    assert active
+    for tokens in active:
+        fitted=[tokens[i+1] for i,t in enumerate(tokens[:-1]) if t=='--parameter']
+        nofit=[tokens[i+1] for i,t in enumerate(tokens[:-1]) if t=='--parameter-nofit']
+        assert not set(('s1x','s1y','s2x','s2y'))&set(fitted)
+        assert set(('s1x','s1y','s2x','s2y'))<=set(nofit)

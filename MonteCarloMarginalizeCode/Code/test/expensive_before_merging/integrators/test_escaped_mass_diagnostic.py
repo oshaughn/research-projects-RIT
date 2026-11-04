@@ -54,10 +54,13 @@ sr.TRUTH_POOL_N = 100000     # only feeds the box mass + the seed cloud; see the
 
 def _run(arm, offset, run_seed=13579, disable_diag=False, soften_av=False):
     """Integrate the TRUE target after warm-starting from a target displaced by `offset`."""
-    np.random.seed(run_seed)
     true_t = sr.MixtureTarget(NDIM, NCOMP, TSEED)
     seed_t = sr.MixtureTarget(NDIM, NCOMP, TSEED, offset=offset)
     s, members = _build_portfolio(arm, true_t, N_CHUNK)
+    # Reset every backend and the auxiliary stream counters, as the ILE does.
+    # A bare NumPy seed leaves warm-start/reserve RNGs outside this comparison.
+    from RIFT.integrators.seeding import seed_everything
+    seed_everything(run_seed, verbose=False)
     kw = {}
     if arm != "avav":
         _dims = tuple(range(NDIM))

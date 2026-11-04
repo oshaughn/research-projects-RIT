@@ -6,7 +6,10 @@ import os
 _cuda_code = None
 
 
-def Q_inner_product_cupy(Q, A, start_indices, window_size):
+def Q_inner_product_cupy(Q, A, start_indices, window_size, time_stride=1):
+    """sum_lm A[e, lm] Q[start_indices[e] + time_stride*t, lm] for t = 0..window_size-1
+    (zero outside the Q buffer).  ``time_stride`` = 1 is the contiguous window; the td-gs
+    sub-sample grid (K entries per time bin) uses time_stride = K."""
     num_time_points, num_lms = Q.shape
     num_extrinsic_samples, _ = A.shape
 
@@ -42,7 +45,7 @@ def Q_inner_product_cupy(Q, A, start_indices, window_size):
         0,
     )
     args = (
-        Q, A, start_indices, window_size,
+        Q, A, start_indices, window_size, int(time_stride),
         num_time_points, num_extrinsic_samples, num_lms,
         out,
     )
@@ -61,7 +64,9 @@ def Q_inner_product_cubic_cupy(Q, A, start_indices, fractional_offsets, window_s
     ``start_indices`` are the integer floor indices of the first requested time
     sample and ``fractional_offsets`` are the corresponding fractional parts in
     [0, 1).  The CUDA kernel uses a four-point cubic Lagrange stencil along the
-    time axis and zero extension outside the precomputed Q buffer.
+    time axis and zero extension outside the precomputed Q buffer.  Window entry
+    t is centred at start_indices + time_stride*t (``time_stride`` = 1: contiguous;
+    the td-gs sub-sample grid uses time_stride = K, the stencil then acting on that grid).
     """
     num_time_points, num_lms = Q.shape
     num_extrinsic_samples, _ = A.shape

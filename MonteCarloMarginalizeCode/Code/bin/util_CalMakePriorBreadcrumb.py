@@ -38,6 +38,8 @@ def main(argv=None):
     p.add_argument("--ifo", action="append", required=True,
                    help="Detector (repeatable), IN THE NODE-BLOCK ORDER the wide ILE uses "
                         "(== the IFO order of the analysis).")
+    p.add_argument("--calibration-correction-type", default=None,
+                   help="data, template, or IFO:data/IFO:template pairs (bilby-pipe defaults).")
     p.add_argument("--fmin", type=float, default=20.0, help="Spline fmin (all IFOs unless --fmin-ifo).")
     p.add_argument("--fmin-ifo", action="append", default=[],
                    help="Per-detector fmin override, IFO=fmin (repeatable).")
@@ -54,7 +56,8 @@ def main(argv=None):
 
     cal = genr.prior_cal_breadcrumb_dict(
         opts.calibration_envelope_directory, list(opts.ifo), opts.fmin, opts.fmax,
-        opts.calibration_spline_count, fmin_ifo=(fmin_ifo or None))
+        opts.calibration_spline_count, fmin_ifo=(fmin_ifo or None),
+        correction_types=opts.calibration_correction_type)
     breadcrumbs.save(opts.output, cal=cal, meta=dict(placeholder=True, iteration=-1,
                                                      dets=list(opts.ifo)))
     print("util_CalMakePriorBreadcrumb: wrote prior placeholder {} (dim {}, dets {})".format(

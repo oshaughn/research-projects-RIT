@@ -351,9 +351,12 @@ def hlmoft(P, Lmax=2,approx_string=None,no_trust_align_method=None,internal_phas
                 h = lal.ResizeCOMPLEX16TimeSeries(h,0,TDlen)
         # WARNING:  realistically, the GWSignal mode output was NEVER tapered, oddly -- so do it by hand, following lalsimutils choices
         if taper and conditioning is None:
-            ntaper = int(0.01*np.min([TDlen_orig,h.data.length]) ) # DO NOT TAPER BASED ON RESIZING/EXTENDING, otherwise we taper due to zero pad!
-            if P.fmin > 0: # avoid failure if waveform start frequency 0 is nominally specified
-                ntaper = np.max([ntaper, int(1./(P.fmin*P.deltaT))]) 
+            # Base the taper on actual signal support, not the FFT zero pad.
+            # deltaF is optional; short/truncated signals must also be safe.
+            ntaper = int(0.01 * min(TDlen_orig, h.data.length))
+            if P.fmin > 0:
+                ntaper = max(ntaper, int(1. / (P.fmin * P.deltaT)))
+            ntaper = min(h.data.length, max(1, ntaper))
             vectaper= 0.5 - 0.5*np.cos(np.pi*np.arange(ntaper)/(1.*ntaper))
             # Taper at the start of the segment
             h.data.data[:ntaper]*=vectaper
@@ -365,7 +368,7 @@ def hlmoft(P, Lmax=2,approx_string=None,no_trust_align_method=None,internal_phas
     # if no_trust_peak_method, we will change the epoch.  Standard option is 'peak', to find the peak value of |h|^2, summed over modes
     # Note there is *no interpolation* between samples, so the sampling rate will introduce some jitter.
     if no_trust_align_method == 'peak':
-        rhosq = np.zeros(TDlen)
+        rhosq = np.zeros(hlmT[(2, 2)].data.length)
         for mode in hlmT:
             rhosq += np.abs(hlmT[mode].data.data)**2
         indx_max =np.argmax(rhosq)

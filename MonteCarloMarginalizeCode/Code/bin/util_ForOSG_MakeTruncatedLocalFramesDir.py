@@ -12,6 +12,7 @@ from urllib.parse import unquote, urlparse
 
 from RIFT.misc.pipeline_arguments import parse_submit_arguments
 from gwpy.timeseries import TimeSeries, TimeSeriesList
+import lalframe
 
 
 def main():
@@ -21,6 +22,8 @@ def main():
     rundir = opts.rundir.resolve()
     cache = rundir / 'local.cache'
     output = rundir / 'frames_dir'
+    if any(char.isspace() for char in str(output)):
+        parser.error('LAL frame-cache output paths cannot contain whitespace; choose a run path without spaces')
     if output.exists():
         parser.error('frames_dir already exists; refusing to overwrite staged frames')
     args_file = rundir / 'args_ile.txt'
@@ -88,7 +91,15 @@ def main():
             if float(data.t0.value) != start or float(data.span.end) != end:
                 raise ValueError(f'{ifo}: frames do not cover the requested padded interval')
             data.write(str(staged / filename))
-            rows.append(f'{ifo} {name} {start} {end-start} {(output / filename).as_uri()}\n')
+            # ILE uses LAL's FrameL reader. Some supported builds accept a
+            # localhost authority but cannot open an empty-host file:/// URL.
+            staged_uri = (staged / filename).as_uri().replace('file:///', 'file://localhost/', 1)
+            checked = lalframe.FrFileOpenURL(staged_uri)
+            if checked is None:
+                raise ValueError(f'{ifo}: staged frame cannot be opened by the ILE reader')
+            del checked
+            uri = (output / filename).as_uri().replace('file:///', 'file://localhost/', 1)
+            rows.append(f'{ifo} {name} {start} {end-start} {uri}\n')
         # Every detector has been written before changing either public output.
         with tempfile.NamedTemporaryFile(mode='w', prefix='.cache-', dir=rundir, delete=False) as handle:
             handle.writelines(rows)

@@ -77,23 +77,60 @@ def test_unforced_opt_in_builds_flat_cip_workers(tmp_path,mode):
     subs = {p.name: p.read_text() for p in rundir.glob("CIP*.sub")}
     workers = [n for n in subs if n.startswith("CIP_worker")]
     assert workers
-    activated = [n for n in workers if ("--rf-transverse-spin-coordinates "+mode) in subs[n]]
+    chart = "--parameter-implied rf_phase_excess" if mode == "geometric4-phase-excess" else "--parameter-implied rf_total_perp"
+    activated = [n for n in workers if chart in subs[n]]
     assert activated, sorted(subs)
     for name, sub in subs.items():
-        assert not ("--rf-transverse-spin-coordinates " in sub and "--fit-load-gp" in sub), name
+        assert "--rf-transverse-spin-coordinates" not in sub, name
+        assert not ("rf_total_azimuth" in sub and "--fit-load-gp" in sub), name
     for name in workers:
         assert "--fit-method rf" in subs[name], name
 
 
-@pytest.mark.parametrize("option", ["cip-internal-use-eta-in-sampler=True",
-                                    "hierarchical-merger-prior-1g=True"])
-def test_geometric4_refuses_coordinate_rewrites_before_the_helper(tmp_path, option):
-    # These options replace delta_mc in every CIP stage after the helper runs.
+@pytest.mark.parametrize("option", ["cip-internal-use-eta-in-sampler=True"])
+def test_geometric4_builds_with_coordinate_rewrites(tmp_path, option):
+    # The chart is computed from physical masses and spins, so rewrites of the
+    # sampling coordinates after the helper no longer conflict with it.
     pytest.importorskip("lal")
     proc, rundir = _build(tmp_path, _opt_in_ini(tmp_path, extra=[option]))
+    assert proc.returncode == 0, proc.stdout[-3000:]
+    assert "rf_total_azimuth" in (rundir / "args_cip_list.txt").read_text()
+
+
+def _sampled_coordinates(line):
+    # CIP samples the --parameter and --parameter-nofit names (low_level_coord_names).
+    tokens = line.split()
+    return {b for a, b in zip(tokens, tokens[1:]) if a in ("--parameter", "--parameter-nofit")}
+
+
+@pytest.mark.parametrize("basis", ["mu1mu2", "standard"])
+def test_hierarchical_prior_samples_mtot_q(tmp_path, basis):
+    # The mu1/mu2 basis samples (mc as nofit, delta_mc), the standard basis (mc, delta_mc);
+    # the prior needs (mtot, q). CIP exits on any line that samples both mc and q.
+    pytest.importorskip("lal")
+    ini = _opt_in_ini(tmp_path, extra=["hierarchical-merger-prior-1g=True"])
+    if basis == "standard":
+        ini.write_text(re.sub(r'(?m)^(rf-transverse-spin-coordinates|internal-use-aligned-phase-coordinates)=.*\n',
+                              '', ini.read_text()))
+    proc, rundir = _build(tmp_path, ini)
+    assert proc.returncode == 0, proc.stdout[-3000:]
+    lines = (rundir / "args_cip_list.txt").read_text().splitlines()
+    assert lines and all(("--parameter-implied mu1" in line) == (basis == "mu1mu2") for line in lines), lines
+    for line in lines:
+        names = _sampled_coordinates(line)
+        assert {"mtot", "q"} <= names and not names & {"mc", "delta_mc"}, line
+        assert "--prior-tapered-mass-ratio" in line.split(), line
+
+
+@pytest.mark.parametrize("extra", [["hierarchical-merger-prior-2g=True"],  # CIP's spin1 prior needs chi1
+                                   ["hierarchical-merger-prior-1g=True", "use-quadratic-early=True"],
+                                   ["hierarchical-merger-prior-1g=True", "cip-internal-use-eta-in-sampler=True"]])
+def test_hierarchical_prior_without_its_coordinates_is_refused_at_build(tmp_path, extra):
+    # Otherwise CIP exits 0 with no samples after ILE has run.
+    pytest.importorskip("lal")
+    proc, rundir = _build(tmp_path, _opt_in_ini(tmp_path, extra=extra))
     assert proc.returncode != 0
-    assert "incompatible with --" + option.split("=")[0] in proc.stdout, proc.stdout[-3000:]
-    assert not (rundir / "helper_cip_arg_list.txt").exists()
+    assert "hierarchical merger prior needs CIP to sample" in proc.stdout, proc.stdout[-3000:]
 
 
 def test_physics3_is_refused_before_the_helper(tmp_path):
@@ -120,15 +157,13 @@ def test_auto_declines_eob_parameters(tmp_path):
     proc, rundir = _build(tmp_path, ini, _low_mass_coinc(tmp_path))
     assert proc.returncode == 0, proc.stdout[-3000:]
     cip = (rundir / "args_cip_list.txt").read_text()
-    assert "--parameter a6c" in cip and "--rf-transverse-spin-coordinates" not in cip
+    assert "--parameter a6c" in cip and "rf_total_azimuth" not in cip
 
 
-def test_auto_refuses_eta_sampler_once_it_activates(tmp_path):
-    # auto activation depends on the event mass, so pseudo_pipe checks the final CIP lines.
+def test_auto_activates_with_eta_sampler(tmp_path):
     pytest.importorskip("lal")
     ini = _opt_in_ini(tmp_path, "auto", ["cip-internal-use-eta-in-sampler=True"], (8, 16))
     proc, rundir = _build(tmp_path, ini, _low_mass_coinc(tmp_path))
-    assert proc.returncode != 0
-    assert "activated but CIP would refuse it" in proc.stdout, proc.stdout[-3000:]
-    assert "--cip-internal-use-eta-in-sampler" in proc.stdout
-    assert not (rundir / "args_cip_list.txt").exists()
+    assert proc.returncode == 0, proc.stdout[-3000:]
+    cip = (rundir / "args_cip_list.txt").read_text()
+    assert "rf_total_azimuth" in cip and "--rf-transverse-spin-coordinates" not in cip

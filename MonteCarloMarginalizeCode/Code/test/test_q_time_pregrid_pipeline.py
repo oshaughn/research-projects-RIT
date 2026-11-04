@@ -267,6 +267,6 @@ def test_argparse_choices_are_pinned_to_the_library_tuple(path):
 def test_prereqs_agree_with_the_library_directly():
     """Sanity link between this file's process-level tests and test_q_time_pregrid.py's
     library-level ones: the same GOOD_ILE_ARGS-shaped line should behave identically."""
-    good = "X --vectorized --gpu"
+    good = "X --time-marginalization --vectorized --gpu"
     assert q_time_pregrid_pipeline_prereqs(8, good) == []
     refuse_unless_q_time_pregrid_emitted(8, good + " --q-time-pregrid-factor 8", "args_ile.txt")

@@ -915,7 +915,7 @@ def test_builders_opt_in_only_non_extr_jobs():
             continue
         calls += re.findall(r"write_ILE_sub_simple\((.*?)\)\n", text)
     opted = [c for c in calls if "ile_profiles=True" in c]
-    assert {re.search(r"tag='([^']*)'", c).group(1) for c in opted} == {"ILE", "ILE_puff", "ILE_fetch"}
+    assert {re.search(r"tag='([^']*)'", c).group(1) for c in opted} == {"ILE", "ILE_puff", "ILE_fetch", "ILE_seed"}
     assert all("extr" not in c.lower() for c in opted)
 
 

@@ -16,21 +16,21 @@ from RIFT.likelihood.q_time_pregrid import (
     refuse_unhonourable_q_time_pregrid, refuse_unless_q_time_pregrid_emitted,
     find_q_time_pregrid_in_ile_args, find_interpolate_time_in_ile_args)
 
-GOOD_ILE_ARGS = "integrate_likelihood_extrinsic_batchmode --vectorized --gpu --srate 4096"
+GOOD_ILE_ARGS = "integrate_likelihood_extrinsic_batchmode --time-marginalization --vectorized --gpu --srate 4096"
 
 
 # --------------------------------------------------------------------------- validate
 
-def test_choices_are_1_and_8():
-    assert Q_TIME_PREGRID_CHOICES == (1, 8)
+def test_choices_are_1_2_4_and_8():
+    assert Q_TIME_PREGRID_CHOICES == (1, 2, 4, 8)
 
 
-@pytest.mark.parametrize("value,expected", [(1, 1), ("1", 1), (8, 8), ("8", 8)])
+@pytest.mark.parametrize("value,expected", [(v, v) for v in (1, 2, 4, 8)] + [(str(v), v) for v in (1, 2, 4, 8)])
 def test_validate_accepts_legal_values(value, expected):
     assert validate_q_time_pregrid_factor(value) == expected
 
 
-@pytest.mark.parametrize("value", [0, 2, 4, 16, "bandlimited", None, "eight"])
+@pytest.mark.parametrize("value", [0, -1, 3, 16, 2.9, True, False, float("inf"), "bandlimited", None, "eight"])
 def test_validate_rejects_illegal_values(value):
     with pytest.raises(ValueError):
         validate_q_time_pregrid_factor(value)
@@ -48,7 +48,7 @@ def test_factor_1_is_never_refused():
 def test_honourable_configuration_passes():
     assert q_time_pregrid_pipeline_prereqs(8, GOOD_ILE_ARGS) == []
     # optparse abbreviation: shortest unique spelling.
-    assert q_time_pregrid_pipeline_prereqs(8, "X --vec") == []
+    assert q_time_pregrid_pipeline_prereqs(8, "X --vec --time-marginalization --gpu") == []
 
 
 def test_required_flag_is_reported_when_missing():
@@ -192,3 +192,29 @@ def test_find_interpolate_time_handles_the_equals_form():
     assert find_interpolate_time_in_ile_args(
         "X --interpolate-t=cubic") == ['cubic']
     assert find_interpolate_time_in_ile_args("X --vectorized --gpu") == []
+
+
+@pytest.mark.parametrize("value", [True, False, 1.5, 2.0, 2.9, 8.1, float("inf"), float("nan")])
+def test_fractional_or_boolean_refinement_requests_are_rejected(value):
+    from RIFT.likelihood.q_time_pregrid import validate_q_time_pregrid_factor
+    with pytest.raises(ValueError, match="must be an integer"):
+        validate_q_time_pregrid_factor(value)
+
+
+@pytest.mark.parametrize("factor", [2, 4, 8])
+@pytest.mark.parametrize("conflict", [
+    "--srate-resample-time-marginalization 32768",
+    "--srate-resample-time-marginalization=0",
+    "--time-posterior-export grid",
+])
+def test_d4_bandlimited_profile_refuses_fixed_time_export(factor, conflict):
+    args = GOOD_ILE_ARGS + " --time-marginalization-quadrature bandlimited " + conflict
+    missing = q_time_pregrid_pipeline_prereqs(factor, args)
+    assert any("continuous time export" in item for item in missing)
+
+
+def test_d4_continuous_profile_and_last_option_precedence():
+    args = GOOD_ILE_ARGS + " --time-marginalization-quadrature bandlimited"
+    assert q_time_pregrid_pipeline_prereqs(2, args) == []
+    assert q_time_pregrid_pipeline_prereqs(2, args + " --time-posterior-export grid --time-posterior-export continuous") == []
+    assert q_time_pregrid_pipeline_prereqs(2, args + " --time-marginalization-quadrature simpson --srate-resample-time-marginalization 32768") == []

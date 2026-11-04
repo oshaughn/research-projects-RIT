@@ -69,6 +69,7 @@ Refusal = collections.namedtuple("Refusal", "kind options message enable_require
 #
 # (cli_flag, opts_attribute).
 CAL_OPT_IN_FLAGS = (
+    ("--calibration-correction-type", "calibration_correction_type"),
     ("--calibration-fused-kernel", "calibration_fused_kernel"),
     ("--calibration-conjugate-phase", "calibration_conjugate_phase"),
     ("--calibration-global-norm", "calibration_global_norm"),
@@ -77,6 +78,7 @@ CAL_OPT_IN_FLAGS = (
     ("--calibration-export-posterior", "calibration_export_posterior"),
     ("--calibration-burn-in-neff", "calibration_burn_in_neff"),
     ("--calibration-burn-in-nmax", "calibration_burn_in_nmax"),
+    ("--calibration-bank-per-point", "calibration_bank_per_point"),
 )
 
 _ENVELOPE = "--calibration-envelope-directory"
@@ -116,7 +118,8 @@ def calibration_refusals(calibration_envelope_directory=None,
                          burn_in_neff=None,
                          burn_in_nmax=None,
                          n_realizations=None,
-                         fused_kernel=False):
+                         fused_kernel=False,
+                         bank_per_point=False):
     """Return the list of Refusals for one resolved ILE configuration (possibly empty).
 
     Pure: booleans in, Refusals out.  No option namespace, no I/O, no raising.
@@ -148,6 +151,9 @@ def calibration_refusals(calibration_envelope_directory=None,
         --calibration-burn-in-neff and --calibration-burn-in-nmax.  The cap is a
         DEPENDENT option: the driver reads it only inside `if
         opts.calibration_burn_in_neff:`, so on its own it is silently ignored.
+    bank_per_point : bool
+        --calibration-bank-per-point.  Refused with the pilot, which accumulates
+        responsibilities across points by realization index and so needs one shared bank.
     n_realizations : int or None
         --calibration-n-realizations.  NOT an opt-in (it has a non-None default, so a rule
         over its mere presence would refuse every run), but it is a PREREQUISITE for the
@@ -220,6 +226,15 @@ def calibration_refusals(calibration_envelope_directory=None,
             "integration at the production sample budget, which is exactly the number of "
             "samples the cap was meant to hold down.  Add --calibration-burn-in-neff "
             "(the burn-in target), or drop --calibration-burn-in-nmax."))
+
+    if bank_per_point and dump_responsibilities:
+        out.append(_unimplemented(
+            ("--calibration-bank-per-point", "--calibration-dump-responsibilities"),
+            "--calibration-bank-per-point with --calibration-dump-responsibilities is not "
+            "implemented.  The pilot sums per-realization responsibilities across "
+            "intrinsic points by realization index, which is meaningful only when every "
+            "point shares one bank.  Drop one of the two options.",
+            "a pilot accumulation keyed by node vector rather than realization index."))
 
     # ---- the n_cal > 1 prerequisites -------------------------------------------------
     # Two opt-ins have consumers guarded by n_cal > 1, so ONE realization makes them inert
@@ -357,6 +372,7 @@ def refusals_from_opts(opts):
         burn_in_nmax=getattr(opts, "calibration_burn_in_nmax", None),
         n_realizations=getattr(opts, "calibration_n_realizations", None),
         fused_kernel=bool(getattr(opts, "calibration_fused_kernel", False)),
+        bank_per_point=bool(getattr(opts, "calibration_bank_per_point", False)),
     )
 
 

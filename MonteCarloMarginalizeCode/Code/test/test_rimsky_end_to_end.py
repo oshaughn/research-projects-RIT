@@ -226,14 +226,13 @@ def test_first_rimsky_result_creates_bootstrapped_rift_production(
         "PATH", "{}:{}".format(Path(sys.executable).parent, os.environ["PATH"])
     )
     project_dir = Path(settings.asimovdir)
-    with chdir(project_dir), patch("asimov.git.time.sleep"):
+    with chdir(project_dir):
         pipeline.before_config()
 
-    if Version(version("asimov")).release[:2] >= (0, 8):
-        environment = production.meta["environment"]
-        assert environment["captured_at"] is True
-        assert {"metadata", "pip"}.issubset(environment["files"])
-        assert all(Path(path).is_file() for path in environment["files"].values())
+    # Configuration must leave ownership to the native builder. ASIMOV 0.8
+    # provenance is captured only after successful workflow generation.
+    assert not Path(production.rundir).exists()
+    assert "environment" not in production.meta
 
     for detector in settings.detectors:
         xml_psd = Path(production.xml_psds[detector])
@@ -253,12 +252,14 @@ def test_first_rimsky_result_creates_bootstrapped_rift_production(
     commands = []
 
     class SchedulerBoundary:
+        returncode = 0
+
         def __init__(self, command, **kwargs):
             commands.append(command)
             executable = Path(command[0]).name
             if executable == "util_RIFT_pseudo_pipe.py":
                 rundir = Path(production.rundir)
-                rundir.mkdir(parents=True, exist_ok=True)
+                rundir.mkdir(parents=True)
                 dag = (
                     rundir
                     / "marginalize_intrinsic_parameters_BasicIterationWorkflow.dag"
@@ -275,17 +276,45 @@ def test_first_rimsky_result_creates_bootstrapped_rift_production(
         def communicate(self):
             return self.stdout, None
 
+    # Patching the module attribute also patches subprocess.run's global Popen.
+    # Forward unrelated subprocesses, including real ASIMOV pip/conda capture.
+    real_popen = rift_asimov.subprocess.Popen
+    converter_commands = []
+
+    def popen_at_scheduler_boundary(command, *args, **kwargs):
+        executable = Path(command[0]).name
+        if executable == "convert_output_format_inference2ile":
+            converter_commands.append(command)
+        if executable in ("util_RIFT_pseudo_pipe.py", "condor_submit_dag"):
+            return SchedulerBoundary(command, **kwargs)
+        return real_popen(command, *args, **kwargs)
+
     # Run Rimsky's real Asimov submission helper.  Only the heavyweight
     # pseudo-pipeline process and final scheduler process are replaced; PSD
     # conversion, config rendering, posterior reading, and bootstrap conversion
     # run for real against the synthetic files above.
-    with chdir(Path(settings.asimovdir)), patch("asimov.git.time.sleep"), patch(
-        "asimov.pipeline.Pipeline._capture_environment", create=True
-    ), patch("RIFT.asimov.rift.subprocess.Popen", SchedulerBoundary):
+    with chdir(Path(settings.asimovdir)), patch(
+        "RIFT.asimov.rift.subprocess.Popen", popen_at_scheduler_boundary
+    ):
         build_and_submit(event, production, ledger)
 
-    bootstrap = category_dir / "rift-online_bootstrap.xml.gz"
+    if Version(version("asimov")).release[:2] >= (0, 8):
+        environment = production.meta["environment"]
+        assert environment["captured_at"] is True
+        assert {"metadata", "pip"}.issubset(environment["files"])
+        for filename in environment["files"].values():
+            path = Path(filename)
+            assert path.parent.resolve() == Path(production.rundir).resolve()
+            assert path.is_file() and not path.is_symlink()
+            assert path.stat().st_size > 0
+
+    bootstraps = list(category_dir.glob(".rift-bootstrap-grid-*/grid.xml.gz"))
+    assert len(bootstraps) == 1
+    bootstrap = bootstraps[0]
     assert bootstrap.is_file()
+    assert len(converter_commands) == 1
+    converter = converter_commands[0]
+    assert (project_dir / converter[converter.index("--output-xml") + 1]).resolve() == bootstrap.resolve()
     assert (category_dir / "coinc.xml").is_file()
     configuration = category_dir / "rift-online.ini"
     assert configuration.is_file()

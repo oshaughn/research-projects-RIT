@@ -3796,6 +3796,83 @@ def write_init_sub(tag='gridinit', exe=None,arg_str=None,log_dir=None, use_eos=F
 
 
 
+def write_seed_climb_sub(tag='seed_climb', exe=None, arg_str='', log_dir=None, out_dir=None,
+                         request_memory=8192, request_gpus=0, request_disk='4G',
+                         use_singularity=False, singularity_image=None,
+                         universe='vanilla', condor_commands=None, **kwargs):
+    """
+    Submit file for the transverse-spin seed climb (util_TransverseSeedClimb.py).
+
+    Run the climber with explicit arg_str arguments in out_dir.  The caller
+    chooses prepend, parallel or composite inputs and outputs, and places the
+    node using DAG dependencies.  Inputs and outputs need a filesystem shared
+    with the worker: this helper does not stage input files.  request_gpus
+    reserves a device; the runtime arguments and backend determine its use.
+    """
+    exe = exe or which("util_TransverseSeedClimb.py")
+    job = CondorDAGJob(universe=universe, executable=exe)
+    sub_name = tag + '.sub'
+    job.set_sub_file(sub_name)
+    job.add_opt(arg_str.strip().lstrip('-'), '')   # add_opt prepends '--'
+    log_dir = log_dir or ((out_dir + "/") if out_dir else "")
+    uniq_str = "$(cluster)-$(process)"
+    job.set_log_file("%s%s-%s.log" % (log_dir, tag, uniq_str))
+    job.set_stderr_file("%s%s-%s.err" % (log_dir, tag, uniq_str))
+    job.set_stdout_file("%s%s-%s.out" % (log_dir, tag, uniq_str))
+    if out_dir:
+        job.add_condor_cmd('initialdir', out_dir)
+    env = "OMP_NUM_THREADS=1 JAX_ENABLE_X64=1 XLA_PYTHON_CLIENT_PREALLOCATE=false"
+    if use_singularity and singularity_image:
+        # getenv=* would carry the submit host's HOME, which the container
+        # runtime then fails to create on the worker.  Pass RIFT variables only,
+        # plus an explicit checkout for a climber not yet in the image.
+        job.add_condor_cmd('getenv', os.environ.get('RIFT_GETENV_OSG', '*RIFT*'))
+        if os.environ.get('RIFT_SEED_CLIMB_PYTHONPATH'):
+            env += " PYTHONPATH=" + os.environ['RIFT_SEED_CLIMB_PYTHONPATH']
+    else:
+        job.add_condor_cmd('getenv', default_getenv_value)
+    job.add_condor_cmd('request_memory', str(request_memory) + "M")
+    job.add_condor_cmd('request_disk', request_disk)
+    job.add_condor_cmd('environment', '"' + env + '"')
+    if request_gpus:
+        job.add_condor_cmd('request_GPUs', str(int(request_gpus)))
+    climb_requirements = None
+    if use_singularity and singularity_image:
+        # The climb reads and writes the run directory in place, so it must stay
+        # in the CIT pool, where /scratch is mounted; the executable is a path
+        # inside the container (or on a filesystem the container binds).
+        job.add_condor_cmd('MY.SingularityImage', '"' + singularity_image + '"')
+        job.add_condor_cmd('MY.SingularityBindCVMFS', 'True')
+        # No flock_local: the CIT schedd rewrites it to POOLS = "IGWN,CIT".
+        job.add_condor_cmd('MY.POOLS', '"CIT"')
+        # prebuilt jaxlib needs AVX; CIT's x86_64-v1 GPU hosts (GTX 1050 Ti) lack it
+        climb_requirements = '(HAS_SINGULARITY=?=TRUE) && (TARGET.Microarch =!= "x86_64-v1") && (TARGET.has_avx =!= False)'
+        job.add_condor_cmd('transfer_executable', 'False')
+        # A transfer sandbox gives the container a HOME; without one, Singularity
+        # tries to create the submit user's /home on the worker and fails.
+        job.add_condor_cmd('should_transfer_files', 'YES')
+        job.add_condor_cmd('when_to_transfer_output', 'ON_EXIT')
+        # stream logs: an evicted sandboxed job otherwise returns no output at all
+        job.add_condor_cmd('stream_output', 'True')
+        job.add_condor_cmd('stream_error', 'True')
+    if condor_commands is not None:
+        for cmd, value in condor_commands.items():
+            if climb_requirements is not None and cmd.lower() == 'requirements':
+                # Condor submit keys are case insensitive. Keep container and
+                # CPU eligibility when inheriting ILE GPU requirements.
+                climb_requirements += ' && (' + str(value).strip() + ')'   # ILE command values keep their newline
+                continue
+            job.add_condor_cmd(cmd, value)
+    if climb_requirements is not None:
+        job.add_condor_cmd('requirements', climb_requirements)
+    try:
+        job.add_condor_cmd('accounting_group', os.environ['LIGO_ACCOUNTING'])
+        job.add_condor_cmd('accounting_group_user', os.environ['LIGO_USER_NAME'])
+    except KeyError:
+        print(" LIGO accounting information not available.  You must add this manually to " + sub_name)
+    return job, sub_name
+
+
 def write_psd_sub_BW_monoblock(tag='PSD_BW_mono', exe=None, log_dir=None, ncopies=1,arg_str=None,request_memory=4096,arg_vals=None, transfer_files=None,transfer_output_files=None,use_singularity=False,use_osg=False,singularity_image=None,frames_dir=None,cache_file=None,psd_length=4,srate=4096,data_start_time=None,event_time=None,universe='local',no_grid=False,**kwargs):
     """
     Write a submit file for constructing the PSD using BW

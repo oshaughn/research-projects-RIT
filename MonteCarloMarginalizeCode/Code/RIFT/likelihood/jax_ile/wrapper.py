@@ -437,6 +437,8 @@ def build_data_from_precompute(P, data_dict, psd_dict, fiducial_epoch,
             factored_likelihood.PackLikelihoodDataStructuresAsArrays(
                 list(rholms[det].keys()), rholms_intp[det], rholms[det],
                 cross_terms[det], cross_terms_V[det])
+        if np.ndim(ctU) == 3:
+            raise NotImplementedError("jax_ile: time-indexed cross terms (shape {}) for {} are not supported; use DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop".format(np.shape(ctU), det))
         packed[det] = dict(lms=lookupNK, rholmArray=rholmArray,
                            U=ctU, V=ctV, epoch=epoch)
 

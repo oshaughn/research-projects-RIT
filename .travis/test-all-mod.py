@@ -76,6 +76,22 @@ IGNORE = re.compile("({})".format("|".join([
 ])))
 
 
+# These modules deliberately wrap dependency errors with actionable diagnostics.
+# Skip only an absent optional ROOT; a broken installed API must still fail.
+OPTIONAL_MODULE_DEPENDENCIES = {"RIFT.likelihood.td_gs_precompute": "tdanalysis"}
+
+
+def _missing_optional_module(modname, exc):
+    dependency = OPTIONAL_MODULE_DEPENDENCIES.get(modname)
+    seen = set()
+    while dependency and exc is not None and id(exc) not in seen:
+        seen.add(id(exc))
+        if isinstance(exc, ModuleNotFoundError) and exc.name == dependency:
+            return True
+        exc = exc.__cause__ or exc.__context__
+    return False
+
+
 def iter_all_modules(path, exclude=EXCLUDE):
     name = os.path.basename(path)
     for _, modname, ispkg in pkgutil.iter_modules(path=[path]):
@@ -92,7 +108,7 @@ def test_import(modname):
     try:
         import_module(modname)
     except Exception as exc:
-        if IGNORE.search(str(exc)):
+        if IGNORE.search(str(exc)) or _missing_optional_module(modname, exc):
             pytest.skip(str(exc))
         raise
 

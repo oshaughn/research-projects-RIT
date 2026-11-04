@@ -23,8 +23,8 @@
 #
 # The original manifest was run file by file on CIT (IGWN conda python 3.11, numpy 1.26.4,
 # lal 7.7.0) before it was added; the measured collection counts are the floors below.  Later
-# entries are verified by this gate itself, which collects every file individually before the
-# combined run, so an addition that collects nothing or fails is caught here rather than
+# entries are verified by this gate itself, which reports per-file counts from one joint collection
+# before the combined run, so an addition that collects nothing or fails is caught rather than
 # trusted on a quoted number.
 #
 # SHAPE.  Modelled on .travis/test-slowrot.sh, and it keeps that script's defences, because
@@ -63,6 +63,17 @@ export MPLBACKEND="${MPLBACKEND:-Agg}"
 C="MonteCarloMarginalizeCode/Code"
 
 FILES=(
+  "$C/test/test_posterior_compression.py"
+  "$C/test/test_raw_distance_contract.py"
+  # Experimental TD operators; only the public PCG backend test is optional.
+  "$C/test/test_td_calmarg_guard.py"
+  "$C/test/test_td_factory.py"
+  "$C/test/test_td_driver_normalization.py"
+  "$C/test/test_td_glitch.py"
+  "$C/test/test_td_inner_product.py"
+  "$C/test/test_td_rank_augmentation.py"
+  "$C/test/test_td_segment.py"
+  "$C/test/test_td_upstream_guards.py"
   # -- calibration marginalization (module-level suites the calmarg gate never picked up)
   "$C/RIFT/calmarg/test_cal_mc_error.py"
   "$C/RIFT/calmarg/test_seed_fallback.py"
@@ -86,11 +97,15 @@ FILES=(
   "$C/test/test_sky_rotations.py"
   # -- pseudo_pipe: per-class disk requests reach their own job class
   "$C/test/test_pseudo_pipe_request_disk.py"
+  "$C/test/test_auxiliary_grid_transfers.py"
   # The Bilby-convention noise evidence: its normalization is checked against the
   # 4/T sum |d|^2/S formula through the real ComplexIP, so a factor of two regresses
   # loudly instead of shifting every reported log evidence by a plausible amount.
   "$C/test/test_noise_evidence.py"
   # -- integrators: seeding, allocation, weight derivation
+  "$C/test/integrators/test_ladder_climber.py"
+  "$C/test/integrators/test_seed_climb_composite.py"
+  "$C/test/integrators/test_seed_climb_cli.py"
   "$C/test/integrators/test_convergence_sample_order.py"
   "$C/test/integrators/test_extrinsic_phase_group_uniform.py"
   "$C/test/integrators/test_gmm_adaptive.py"
@@ -114,6 +129,7 @@ FILES=(
   "$C/test/test_av_host_backend.py"
   "$C/test/test_av_kish_loop.py"
   "$C/test/test_av_retained_density.py"
+  "$C/test/test_av_coverage_diagnostic.py"
   "$C/test/test_matern_gp.py"
   "$C/test/integrators/test_seeding_public_paths.py"
   "$C/test/integrators/test_seeding_reproducibility.py"
@@ -127,6 +143,9 @@ FILES=(
   "$C/test/test_dgrid_retained_set.py"
   "$C/test/test_distance_tail.py"
   "$C/test/test_dslice_device_native.py"
+  "$C/test/test_dslice_walkout.py"
+  "$C/test/test_dslice_warm.py"
+  "$C/test/test_dslice_refine.py"
   "$C/test/test_dslice_bounds.py"
   # -- hyperpipe (paper4 area; the hydra leg is rostered OPTDEP, not here)
   "$C/test/hyperpipe/tests/test_config.py"
@@ -137,6 +156,9 @@ FILES=(
   # -- coordinate plugin through the hyperpipe post and puff stages; puffball ranges; CEP
   # get_bounds.  ~13 tests, about ten driver subprocesses.
   "$C/test/test_hyperpipe_coordinate_passing.py"
+  # -- coordinate-plugin API adapter: rift vs inplace (PR #434 shape) classification, the
+  # inplace wrapper, and the rotation demo through CEP and PUFF.  66 tests, about thirty subprocesses.
+  "$C/test/test_coordinate_plugin_api_adapter.py"
   # -- promoted out of the roster after roster-verify-check caught its reason being false ON
   # THE RUNNER: it was OPTDEP needs:glue,htcondor, and with htcondor absent there it still
   # collected 15 and passed 15.  Confirmed locally with BOTH blocked via a sys.meta_path
@@ -186,6 +208,7 @@ FILES=(
   # Its companion test_lalsim_eos_reviewed_integration.py needs a private reviewed LALSuite
   # and is rostered EXPENSIVE.
   "$C/test/test_lalsim_eos_compat.py"
+  "$C/test/test_waveform_sample_rejection.py"
   # -- packaging / config contracts / waveform conventions
   "$C/test/test_advanced_parameter_ports.py"
   "$C/test/test_container_manifest.py"
@@ -196,11 +219,22 @@ FILES=(
   # every caller indexes it.  A dict keyed the other way is still a populated dict: the
   # mode sum silently loses modes rather than raising.
   "$C/test/test_std_and_conj_hlmoff_sphharm.py"
+  # -- rotate_hlm_static: TimeSeries, FrequencySeries and ndarray inputs agree with a direct
+  # Wigner-D sum (FrequencySeries/ndarray inputs used to raise AttributeError).
+  "$C/test/test_rotate_hlm_static_types.py"
   # -- hlmoft ChooseFDModes end taper is capped in duration: long buffers keep the merger,
   # buffers <= 100 s are bit-identical to the uncapped 1% rule.
   "$C/test/test_fd_end_taper_cap.py"
+  # -- approximant fallback sentinels in lalsimutils are distinct (issue #488): a shared code
+  # routes a model missing from LALSuite down another model's hlmoft branch.
+  "$C/test/test_lalsimutils_fallback_codes.py"
   # Fixed-phase Phenom mode conventions: generic spins first, aligned boundaries.
   "$C/test/test_phenom_lframe_conventions.py"
+  # -- complex_hoff FD branch: two-sided packing matches DataFourier and writes every bin.
+  "$C/test/test_complex_hoff_fd_packing.py"
+  # -- hlmoft_IMRPv2_dict ignores garbage in its uninitialized mode buffers (#488).
+  "$C/test/test_imrpv2_mode_buffer_init.py"
+  "$C/test/test_efpe_buffer_init.py"
   # Native SEOB mode conditioning: linear shared-grid filtering, canonical
   # trimming before mode selection, zero modes, and explicit reference state.
   # Does not require the optional pySEOBNR waveform backend.
@@ -228,6 +262,14 @@ FILES=(
   "$C/test/test_eos_evidence_lnL_shift.py"
   # -- coordinates: per-row fallbacks convert each row independently of the others
   "$C/test/test_convert_coordinates_row_independence.py"
+  # -- opt-in early-time multirate precompute (PR #436): two-rate vs one-segment and full-rate
+  #    references, numpy backend vs CPU reference, xp templates vs lalsimulation, schedule and
+  #    job-level refusals (ILE exits nonzero).  The cupy legs are test_multirate_cupy.py (roster: GPU).
+  "$C/test/test_multirate_dsw_onesegment.py"
+  "$C/test/test_multirate_two_rate.py"
+  "$C/test/test_multirate_precompute.py"
+  "$C/test/test_multirate_xpy.py"
+  "$C/test/test_multirate_ile_refusal.py"
 )
 
 # A manifest entry that stops existing is a SILENT no-op: the gate keeps passing while
@@ -243,15 +285,15 @@ done
 # 1.26.4, scipy 1.14.1, lal 7.7.0), whole manifest in one run: 319 collected,
 # 307 passed, 12 skipped (11 pytest.skip + 1 xfail).
 #
-# COST: 363 s total on CIT for the 347-test manifest, of which the pytest run is ~145 s.  The
-# rest is the per-file collection loop below -- one interpreter per manifest entry, each
-# importing RIFT (lal, numpy, numba), so it grows linearly with the manifest and now dominates.
-# That is the price of the exit-5 defence and it is worth paying, but it is why this job's
-# timeout-minutes is 20 rather than something tight: measure before trimming the budget.
+# HISTORICAL COST: 363 s total on CIT for the 347-test manifest; pytest took ~145 s.
+# The remaining cost included one collection interpreter per manifest entry, each importing
+# RIFT (lal, numpy, numba). The current joint collector shares those imports while retaining
+# per-file floors and the exit-5 defence. Its timing must be measured in CI; the existing
+# 20-minute budget is unchanged.
 #
-# History.  Both branches of a merge have now moved these numbers twice, and the arithmetic is
-# NOT the way to combine them -- this gate collects every file individually before the combined
-# run, so the merged floor is RE-MEASURED, never added up:
+# History. Both branches of a merge have moved these numbers twice; arithmetic alone cannot
+# combine them. The gate measures per-file collection counts before the combined run, so the
+# merged floor is RE-MEASURED, never added up:
 #   278/266  original manifest
 #   296/284  + test_replica_pooling.py, test_marg_list.py (rostered BROKEN until fixed)
 #   299/287  + test_vectorized_lal_tools_split.py (from rift_O4d, then 3 -> 7 tests: its
@@ -400,7 +442,7 @@ done
 #            NaN-returning coordinate plugin, and the CIP route through
 #            --downselect-enforce-kerr).  The file defines exactly two test_* functions, has no
 #            parametrization and no skip or xfail marks, so the raise is +2/+2 over the row
-#            above; the per-file collection loop below is what confirms it on the runner, and it
+#            above; the per-file collection counts below confirm it on the runner, and it
 #            fails rather than reports if that is wrong.
 #            MEASURED on CIT (ldas-grid; `import cupy` FAILS there) 2026-10-03, IGWN conda
 #            python 3.11: junit 661 collected / 648 passed / 13 skipped / 0 failed, 3 subtests.
@@ -466,12 +508,42 @@ done
 # -> 878/858.
 # test_dslice_rf_tails.py adds 10 tests and no skips -> 888/868.
 # test_dslice_amplitude_model.py: +1 (_lognorm chunk memory bound), passes, no skips -> 889/869.
-# test_phenom_lframe_conventions.py adds 34 passing tests: generic-spin waveform
+# Symmetric XPNR reference-frame regression adds 20 tests (18 generic-spin
+# phase/reference-frequency cases, native-cutoff endpoint, explicit angle selection).
+# test_phenom_lframe_conventions.py originally added 34 passing tests: generic-spin waveform
 # and polarization controls, aligned boundaries, and SpinTaylor option transport.
 # test_dslice_bounds.py adds 2 tests and no skips.
 # test_gwsignal_seob_conditioning.py adds 8 passing tests with LALSuite 7.26.16:
 # shared-grid operator tests plus native/no_condition conflict refusal.
-EXPECTED_TESTS=933
+# test_av_coverage_diagnostic.py adds 2 tests and no skips -> 955.
+# PR #436: the five test_multirate_*.py files add 62 tests (4+6+6+35+11) and no skips.  RE-MEASURED
+# on 3cf152745 (rift_O4d 48acbd2f8 merged in) 2026-10-20: CI runner 1038 collected / 1019 passed /
+# 19 skipped; ldas-grid (IGWN python, cupy importable, CUDA_VISIBLE_DEVICES='') 1038 / 1018 / 20,
+# the 20th skip being the cupy-importable tempering leg as above.  Less 3 subtests -> 1035/1015.
+# The upstream 1035/1015 floors already include the rotation-type cases.
+# TD adds 90 collected cases (89 required passes; PCG is optional).
+# The startup TD/multirate refusal adds one case: measured collection is 1126.
+# PR #448 core census: auxiliary transfers 18 + ladder 7 + composite 1 + seed CLI 9
+# add 35 cases to 1126. The six multiapprox compatibility cases run in test-run,
+# not this manifest. CI's 105 per-file counts sum 1161; JUnit 1164 includes 3 subtests.
+# PR #446: test_dslice_walkout.py adds 15 tests and no skips -> 1176/1156.
+# PR #476: test_dslice_warm.py adds 11 tests and no skips -> 1187/1167.
+# The td-gs series adds six solver="gs" tests to test_td_inner_product.py -> 1193.
+# Seven merge-handoff regressions are mandatory without tdanalysis -> 1200.
+# Two TD pipeline-emitter cases add mandatory coverage -> 1202.
+# test_complex_hoff_fd_packing.py adds 2 tests and no skips -> 1204.
+# test_lalsimutils_fallback_codes.py adds 2 tests and no skips -> 1206.
+# #489: poisoned real IMRPv2 allocations (6) and EFPE buffer checks (6) -> 1218.
+# test_dslice_warm.py: collapsed-seed fallback and never-trusted tests add 2 -> 1220.
+# test_dslice_refine.py adds 10 tests and no skips -> 1230.
+# test_coordinate_plugin_api_adapter.py adds 55 tests and no skips -> 1336 (provisional: S1 refusal,
+# census, file-basis box, round-trip preflight and tolerance, PUFF reflect refusal tests added
+# after two reviews).
+# Review 3: round-trip preflight cases (10) and the inapplicable-option warning test (1) add 11
+# -> 1347 (provisional).
+# test_raw_distance_contract.py adds 44 tests and no skips -> 1391.
+# EOS rejection adds 13 EOS and 19 waveform regressions to the merged manifest.
+EXPECTED_TESTS=1423
 # Outcomes, not just exit status: a collection floor cannot see a test that collects, runs and
 # asserts nothing, and a pytest.skip can quietly absorb a lost gate.  The 13 skips are
 # environment legs -- cupy in test_seeding_reproducibility, device legs in
@@ -494,9 +566,33 @@ EXPECTED_TESTS=933
 # test_fd_end_taper_cap.py adds 3 tests and no skips; 878/858 (above).
 # test_dslice_rf_tails.py adds 10 tests and no skips; 888/868 (above).
 # test_dslice_bounds.py adds 2 tests; SEOB conditioning adds 8, all passing.
-EXPECTED_PASSED=913
+# test_av_coverage_diagnostic.py adds 2 tests, both passing -> 935.
+# PR #436 multirate files: re-measured 1035/1015 (above; the lower, ldas-grid, passed count).
+# TD adds 89 required passes and the startup refusal adds one -> 1105.
+# CI: 1144 JUnit passes minus 3 extra subtests = 1141 ordinary passes; 20 skipped
+# outcomes include one xfail. Preserve the full measured plugin-free pass floor.
+# PR #446: test_dslice_walkout.py adds 15 passes; 1176/1156 (above).
+# PR #476: test_dslice_warm.py adds 11 passes; 1187/1167 (above).
+# Seven merge-handoff regressions run in every core environment.
+# Two TD pipeline-emitter cases run in every core environment.
+# test_complex_hoff_fd_packing.py adds 2 passes -> 1178.
+# test_lalsimutils_fallback_codes.py adds 2 passes -> 1180.
+# #489: six IMRPv2 and six EFPE buffer cases, all required -> 1192.
+# test_dslice_warm.py: collapsed-seed fallback and never-trusted tests add 2 -> 1194.
+# test_dslice_refine.py adds 10 passes -> 1204.
+# test_coordinate_plugin_api_adapter.py adds 55 passes -> 1310 (provisional, as above).
+# Review 3 adds 11 passes -> 1321 (provisional).
+# test_raw_distance_contract.py adds 44 passes -> 1365.
+# EOS and waveform rejection regressions add 32 required passes.
+EXPECTED_PASSED=1397
 # PR #382: +1 skip, the CuPy leg of test_cached_matern_gp.py (no GPU on the CI runner).
-MAX_SKIPPED=19
+# The six solver="gs" tests in test_td_inner_product.py need tdanalysis >= 1.1, which this
+# job does not install, so they skip here; ci.yml's time-domain likelihood step runs them
+# with tdanalysis installed.  They do not count toward EXPECTED_PASSED.
+# The six td-gs startup checks in test_td_upstream_guards.py (non-native template generators,
+# five cases, and the native-generator case) import td_gs_precompute, so they also skip here;
+# ci.yml's time-domain likelihood step runs them with tdanalysis installed.
+MAX_SKIPPED=32 # the optional tdanalysis PCG test, the six GS tests and the six td-gs startup checks when the extra is absent
 
 # The floors must be INTEGERS, and this is checked rather than assumed.  `[ 347 -lt FOO ]` does
 # not fail the build: bash prints "integer expression expected", returns 2, and the `if` is
@@ -516,27 +612,84 @@ for _f in EXPECTED_TESTS EXPECTED_PASSED MAX_SKIPPED; do
   esac
 done
 
-# PER-FILE collection floor of 1.  A file that collects nothing is the exit-5 trap arriving
+# PER-FILE floor of 1; pin 17 GMM host cases and 18 auxiliary/container cases.
+# A file that collects nothing is the exit-5 trap arriving
 # through the front door: inside a multi-file run pytest's exit 5 never appears at all, so it
 # has to be checked per file.
-echo "== per-file collection floor =="
+echo "== joint collection with per-file floors =="
+collection_counts="$(mktemp -t core-unit-counts-XXXXXX.tsv)"
+if ! "${PYTHON_BIN}" .travis/core_unit_collection.py "$collection_counts" "${FILES[@]}"; then
+  rm -f "$collection_counts"
+  echo "test-core-units.sh: joint collection failed." >&2
+  exit 1
+fi
+exec 3< "$collection_counts"
+rm -f "$collection_counts"
 floor_rc=0
+collected_total=0
 for f in "${FILES[@]}"; do
-  n=$("${PYTHON_BIN}" -m pytest --collect-only -q -p no:cacheprovider "$f" 2>/dev/null | grep -c '::')
+  if ! IFS= read -r collection_row <&3; then
+    echo "test-core-units.sh: missing collection row for $f." >&2
+    exit 1
+  fi
+  collected_file=${collection_row%%$'\t'*}
+  n=${collection_row#*$'\t'}
+  if [ "$collected_file" != "$f" ] || [ "$collection_row" = "$collected_file" ]; then
+    echo "test-core-units.sh: missing or reordered collection row for $f." >&2
+    exit 1
+  fi
+  case "$n" in
+    ''|*[!0-9]*) echo "test-core-units.sh: invalid collection count for $f." >&2; exit 1 ;;
+  esac
   printf '  %-72s %3d\n' "$f" "$n"
-  if [ "$n" -lt 1 ]; then
-    echo "test-core-units.sh: $f collects 0 tests." >&2
-    echo "  pytest exits 5 on that ('no tests ran'), which reads as a pass.  Either it is not" >&2
-    echo "  a pytest target and belongs in .travis/ci_roster.txt, or its entry points broke." >&2
+  collected_total=$(( collected_total + n ))
+  file_floor=1
+  if [ "$f" = "$C/test/test_lalsim_eos_compat.py" ]; then file_floor=49; fi
+  if [ "$f" = "$C/test/test_waveform_sample_rejection.py" ]; then file_floor=19; fi
+  if [ "$f" = "$C/test/test_posterior_compression.py" ]; then file_floor=41; fi
+  if [ "$f" = "$C/test/test_raw_distance_contract.py" ]; then file_floor=44; fi
+  # Transfer matrix, container guards, and newline requirements must remain covered.
+  if [ "$f" = "$C/test/test_auxiliary_grid_transfers.py" ]; then file_floor=18; fi
+  if [ "$f" = "$C/test/integrators/test_gmm_sample_matches_score.py" ]; then file_floor=17; fi
+  if [ "$n" -lt "$file_floor" ]; then
+    echo "test-core-units.sh: $f collects $n tests; requires at least $file_floor." >&2
+    echo "  Restore the required test cases; reduced collection can hide a missing gate." >&2
     floor_rc=1
   fi
 done
+if IFS= read -r extra_row <&3 || [ -n "$extra_row" ]; then
+  echo "test-core-units.sh: unexpected trailing collection row." >&2
+  exit 1
+fi
+exec 3<&-
 [ "$floor_rc" -eq 0 ] || exit 1
+# Reuse collection already performed above; no additional pytest process.
+if [ "$collected_total" -lt "$EXPECTED_TESTS" ]; then
+  echo "test-core-units.sh: per-file collection totals ${collected_total}; requires ${EXPECTED_TESTS}." >&2
+  exit 1
+fi
 
+# RIFT_COREUNIT_WORKERS > 1 runs the same cases under pytest-xdist, one file per worker
+# (--dist loadfile keeps module fixtures and module-local scratch files on one process).
+# CI sets 4, the hosted runner's vCPU count: serial, the run took 737-1023 s there for the
+# same 1161 cases, too close to the 20-minute cap.  Default stays serial so a CIT head node,
+# with its 500-thread cap, is not handed extra interpreters.  junit counts are unchanged.
+XDIST_ARGS=()
+WORKERS="${RIFT_COREUNIT_WORKERS:-1}"
+case "${WORKERS}" in
+  ''|*[!0-9]*|0) echo "test-core-units.sh: RIFT_COREUNIT_WORKERS='${WORKERS}' is not a positive integer." >&2; exit 1 ;;
+esac
+if [ "${WORKERS}" -gt 1 ]; then
+  "${PYTHON_BIN}" -c 'import xdist' \
+    || { echo "test-core-units.sh: RIFT_COREUNIT_WORKERS=${WORKERS} needs pytest-xdist" >&2; exit 1; }
+  XDIST_ARGS=(-n "${WORKERS}" --dist loadfile)
+fi
 
 junit="$(mktemp -t core-units-junit-XXXXXX.xml)"
-echo "== running =="
-"${PYTHON_BIN}" -m pytest -q -p no:cacheprovider --durations=10 --junit-xml="${junit}" "${FILES[@]}"
+echo "== running (workers: ${WORKERS}) =="
+# ${XDIST_ARGS[@]+...} because under `set -u` Bash 3.2 -- still /bin/bash on macOS -- treats
+# "${XDIST_ARGS[@]}" as an unbound variable when the array is empty, i.e. in the serial default.
+"${PYTHON_BIN}" -m pytest -q -p no:cacheprovider --durations=10 ${XDIST_ARGS[@]+"${XDIST_ARGS[@]}"} --junit-xml="${junit}" "${FILES[@]}"
 rc=$?
 if [ "$rc" -ne 0 ]; then
   echo "test-core-units.sh: pytest exited ${rc}" >&2

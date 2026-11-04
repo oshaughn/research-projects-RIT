@@ -1,12 +1,24 @@
 # Low-mass RF transverse-spin fitting
 
 This is an opt-in change to the RF fit basis. `geometric4` replaces the four
-Cartesian transverse fit coordinates of a full two-spin RF stage with total
-transverse spin magnitude, its azimuth, and two sum-frame residuals. The stage
-still fits 8 coordinates: delta_mc, mu1, mu2, chiMinus and the four geometric
-ones. Priors, sampling coordinates, the L frame, ILE and the integrators are
-unchanged. With the option omitted, every pipeline and the bundled Asimov
-template behave as before.
+Cartesian transverse fit coordinates of a two-spin RF stage with total
+transverse spin magnitude, its azimuth, and two sum-frame residuals. Priors,
+sampling coordinates, the L frame, ILE and the integrators are unchanged. With
+the option omitted, every pipeline and the bundled Asimov template behave as
+before.
+
+The chart coordinates are ordinary CIP coordinates, defined in lalsimutils:
+
+| Name | Meaning |
+|---|---|
+| `rf_total_perp` | total transverse spin \|S_perp\|/M^2 |
+| `rf_phase_excess` | (J-\|J_parallel\|)/L_N, replaces `rf_total_perp` in geometric4-phase-excess |
+| `rf_total_azimuth` | azimuth of S_perp in the L plane |
+| `rf_residual_parallel`, `rf_residual_perpendicular` | sum-frame residuals |
+
+They depend on the reference frequency: `extract_param` uses `P.fref`, and
+`convert_waveform_coordinates` takes `fref=`. The helper option only decides
+which stages use them.
 
 ## Command line
 
@@ -30,9 +42,7 @@ eligible: `auto` leaves them unchanged and an explicit mode fails.
 ## Retired: physics3
 
 `physics3` appended three scalars to the eight native fit coordinates, so CIP fit
-11 coordinates for 8 degrees of freedom. RF transverse modes require a
-nonredundant fit basis; other CIP configurations, including matter fits, may fit
-more features than they sample. The asimov validator, helper, pseudo_pipe and CIP refuse it, in every
+11 coordinates for 8 degrees of freedom. The asimov validator, helper, pseudo_pipe and CIP refuse it, in every
 argument form, including through `--manual-extra-cip-args`.
 
 ## What activation changes
@@ -44,10 +54,13 @@ When a mode activates, the helper:
 2. Selects the native mu1/mu2 phase basis for every stage
    (`--internal-use-aligned-phase-coordinates`). This drops xi from the early
    stages and cuts the first stage from 3 to 2 iterations.
-3. Appends `--rf-transverse-spin-coordinates geometric4 --fref FREF` to each
-   complete two-spin RF stage. FREF is `engine.fref` for ini workflows, else the
-   ILE reference frequency. CIP also uses `--fref` for its other spin
-   conversions, so this stage no longer uses the CIP default of 20 Hz.
+3. On each RF stage that fits all four of s1x, s1y, s2x, s2y, replaces them by
+   the chart. An implied component (`--parameter-implied s1x`) becomes a chart
+   name. A sampled one (`--parameter s1x`, as in volumetric-spin stages) becomes
+   `--parameter-nofit s1x --parameter-implied <chart name>`, so the sampled set is
+   unchanged. The helper then sets `--fref FREF`. FREF is `engine.fref` for ini
+   workflows, else the ILE reference frequency. CIP also uses `--fref` for its
+   other spin conversions, so this stage no longer uses the CIP default of 20 Hz.
 
 Step 1 happens before the initial grid is built, so the grid matches an explicit
 rf run. Steps 2 and 3 happen after it, as they do for an explicit rf run.
@@ -55,8 +68,7 @@ rf run. Steps 2 and 3 happen after it, as they do for an explicit rf run.
 When pseudo_pipe finds that the helper switched the fit to RF, it builds the DAG
 as an explicit `--cip-fit-method rf` run: flat CIP workers
 (`--cip-explode-jobs-flat`), 15000 MB CIP memory, and twice the ILE points per
-iteration. CIP refuses RF transverse coordinates with `--fit-load-gp`, so
-non-flat workers cannot be used.
+iteration.
 
 | Starting configuration | Steps that change stages |
 |---|---|
@@ -65,11 +77,10 @@ non-flat workers cannot be used.
 
 `test_rf_transverse_helper_generation.py` pins both rows.
 
-pseudo_pipe refuses options that later replace delta_mc in CIP stages:
-`--cip-internal-use-eta-in-sampler`, `--hierarchical-merger-prior-1g/2g` and
-`--use-quadratic-early`. With an explicit mode it refuses them before running
-the helper. With `auto` it refuses once a stage has activated, before the DAG is
-built. A final check applies CIP's RF guard to every CIP line.
+The chart is computed from physical masses and spins, so options that later
+rewrite the sampling coordinates (for example `--cip-internal-use-eta-in-sampler`)
+do not conflict with it. pseudo_pipe still refuses `physics3` on every final CIP
+line, including `--manual-extra-cip-args`.
 
 ## Asimov
 
@@ -96,10 +107,15 @@ ledger that already sets them changes behavior:
 
 ## Direct CIP
 
-`--rf-transverse-spin-coordinates geometric4 --fref FREQ` requires a fresh RF fit
-with exactly delta_mc, mu1, mu2, chiMinus and the four transverse Cartesian
-coordinates, and at least as many sampled coordinates, with no sampled name
-repeated. Cached GP
-loading and incompatible models fail. Training, mirrored rows, predictions and
-diagnostic output use the same implementation (`RIFT/misc/rf_transverse_spin.py`,
-`geometric4`). The asimov README describes the chart.
+Name the chart with `--parameter-implied` and set `--fref`:
+
+```
+--parameter-implied rf_total_perp --parameter-implied rf_total_azimuth
+--parameter-implied rf_residual_parallel --parameter-implied rf_residual_perpendicular --fref FREQ
+```
+
+Any sampling coordinates that determine both spins work. RF fits handle the
+azimuth seam at +/-pi; other fit methods print a warning. CIP's
+`--rf-transverse-spin-coordinates` is a deprecated alias: it renames implied
+s1x, s1y, s2x, s2y to the chart and does nothing else. The chart math is in
+`RIFT/misc/rf_transverse_spin.py`. The asimov README describes the chart.

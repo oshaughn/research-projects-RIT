@@ -119,7 +119,7 @@ def get_polarizations(P, return_in_FD=False, use_ISCO_cutoff=use_ISCO_cutoff):
     hp_f = lal.CreateCOMPLEX16FrequencySeries("Template hp(f)",
             0.0, 0.0, P.deltaF, lal.HertzUnit,  # epoch set to 0.0 and so is f0. Will set epoch when in TD
             len(freqs_full))
-    hp_f.data.data *= 0.0
+    hp_f.data.data = np.zeros(len(freqs_full), dtype=complex)  # uninitialized buffer (#488)
     if use_ISCO_cutoff:
         hp_f.data.data[index_fmin:index_fmax+1] = hpf
     else:
@@ -129,7 +129,7 @@ def get_polarizations(P, return_in_FD=False, use_ISCO_cutoff=use_ISCO_cutoff):
     hc_f = lal.CreateCOMPLEX16FrequencySeries("Template hc(f)",
             0.0, 0.0, P.deltaF, lal.HertzUnit,  # epoch set to 0.0 and so is f0. Will set epoch when in TD
             len(freqs_full))
-    hc_f.data.data *= 0.0
+    hc_f.data.data = np.zeros(len(freqs_full), dtype=complex)  # uninitialized buffer (#488)
     if use_ISCO_cutoff:
         hc_f.data.data[index_fmin:index_fmax+1] = hcf
     else:
@@ -296,7 +296,8 @@ def hlmoft(P, Lmax=2, use_ISCO_cutoff=use_ISCO_cutoff, **kwargs):
         hlmT[(2,m)] = lal.CreateCOMPLEX16TimeSeries("Complex h(t)", hTC.epoch, hTC.f0,
             hTC.deltaT, lal.DimensionlessUnit, hTC.data.length)
         hlmT[(2,m)].epoch = float(hTC_list[0].epoch)
-        hlmT[(2,m)].data.data *=0   # this is needed, memory is not reliably cleaned
+        # Assign, do not scale: the lal buffer is uninitialized, and NaN*0 = NaN (#488).
+        hlmT[(2,m)].data.data = np.zeros(hTC.data.length, dtype=complex)
         for indx in np.arange(len(paramsForward)):
             hlmT[(2,m)].data.data += mtx[indx2,indx] * hTC_list[indx].data.data
     return hlmT

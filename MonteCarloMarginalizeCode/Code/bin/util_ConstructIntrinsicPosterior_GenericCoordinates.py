@@ -277,10 +277,11 @@ parser.add_argument("--n-chunk",default=1e5,type=int)
 parser.add_argument("--contingency-unevolved-neff",default=None,help="Contingency planning for when n_eff produced by CIP is small, and user doesn't want to have hard failures.  Note --fail-unless-n-eff will prevent this from happening. Options: quadpuff, ...")
 parser.add_argument("--not-worker",action='store_true',help="Nonworker jobs, IF we have workers present, don't have the 'fail unless' statement active")
 parser.add_argument("--fail-unless-n-eff",default=None,type=float,help="If nonzero, places a minimum requirement on n_eff. Code will exit if not achieved, with no sample generation")
-parser.add_argument("--rf-transverse-spin-coordinates", choices=["physics3","geometric4","geometric4-phase-excess"], help="Opt-in RF fitting basis: geometric4 replaces four transverse inputs; sampler/prior unchanged. physics3 is retired and refused (11 fit coordinates for 8 degrees of freedom)")
+parser.add_argument("--rf-transverse-spin-coordinates", choices=["physics3","geometric4","geometric4-phase-excess"], help="DEPRECATED alias: replaces the implied s1x,s1y,s2x,s2y with the geometric4 names (rf_total_perp, ...). Name those with --parameter-implied instead. physics3 is retired and refused")
 parser.add_argument("--fit-method",default="rf",help="rf (default) : rf|gp|gp-matern|gp-torch|quadratic|polynomial|gp_hyper|gp_lazy|cov|kde|gp-jax-svgp|gp-jax-rff|gp-jax-exact.  Note 'polynomial' with --fit-order 0  will fit a constant. The gp-jax-* methods use the optional JAX interpolators (RIFT.interpolators.jax_gp) and support a differentiable export via --fit-save-jax.")
 from RIFT.misc import eccentric_phase_models
 eccentric_phase_models.add_arguments(parser)
+parser.add_argument("--eccentric-phase-sampling", action="store_true", help="Sample one periodic sheared angle internally, preserving native physical priors and exports; implies --eccentric-phase-coordinates")
 parser.add_argument("--eccentric-phase-coordinates", action="store_true", help="Opt-in waveform-free effective eccentric phase sine/cosine fitting features; native sampling, priors and waveform reference frequencies unchanged")
 parser.add_argument("--eccentric-phase-reference-frequency", type=float, default=10., help="Reference frequency for the effective fitting/proposal coordinate only (Hz)")
 parser.add_argument("--eccentric-phase-target-frequency", type=float, default=20., help="Target frequency for the effective fitting/proposal coordinate only (Hz)")
@@ -540,10 +541,11 @@ if  not(opts.input_eos_index) and (opts.tabular_eos_file):
 # ensure using_eos_index valid for eos file length
 if opts.using_eos and opts.using_eos.startswith('file:') and not(opts.using_eos_index is None):
     fname = opts.using_eos.replace('file:', '')
-    try:
-        dat = np.loadtxt(fname)[opts.using_eos_index]
-    except Exception as e:
-        print(" Fail: EOS index out of range:\n   ",e)
+    grid = np.atleast_2d(np.loadtxt(fname))  # bad files remain configuration errors
+    if opts.using_eos_index < 0:
+        parser.error("--using-eos-index must be nonnegative")
+    if opts.using_eos_index >= len(grid):
+        print(" Fail: EOS index out of range:", opts.using_eos_index)
         sys.exit(0)
 from RIFT.physics.lalsim_eos_compat import (
     mass_in_eos_support, validate_fixed_eos_branch_request)
@@ -557,9 +559,75 @@ if (opts.using_eos_dirty_phase_transitions or opts.using_eos_extended_family) an
         "require --using-eos lalsim_file:<path>"
     )
 
+class _RejectedEOSProposal(Exception):
+    """One proposed EOS has no usable stellar family; other proposals can run."""
+
+
+def _construct_eos_proposal(factory, *args, **kwargs):
+    try:
+        eos = factory(*args, **kwargs)
+        if eos is None:
+            raise ValueError("EOS constructor returned no model")
+        limits = [getattr(eos, name, None) for name in ("mMinMsun", "mMaxMsun")]
+        for value in limits:
+            if value is not None and not np.isfinite(float(value)):
+                raise ValueError("EOS returned an invalid stellar mass limit")
+        if all(value is not None for value in limits) and limits[0] >= limits[1]:
+            raise ValueError("EOS stellar mass limits are not increasing")
+        return eos
+    except Exception as error:
+        raise _RejectedEOSProposal(str(error)) from error
+
+
+def _write_rejected_eos_proposal(error):
+    """Use the existing grid evidence schema, without inventing posterior draws."""
+    fname = opts.using_eos.replace('file:', '', 1)
+    params = np.atleast_2d(np.loadtxt(fname))[opts.using_eos_index][2:]
+    with open(fname) as stream:
+        header = stream.readline()[2:].rstrip('\n')
+    row = [-np.inf, 0.] + list(params)
+    print(" Rejecting proposed EOS row {}: {}".format(opts.using_eos_index, error))
+    if opts.chunk_save and '_chunk_rows' in globals():
+        global _chunk_header
+        _chunk_rows.append(row)
+        _chunk_dat.append(-np.inf)
+        _chunk_header = header
+    else:
+        np.savetxt(opts.fname_output_integral+"+annotation.dat", [row], header=header)
+        if not opts.save_hyperfile_only:
+            np.savetxt(opts.fname_output_integral+".dat", [-np.inf])
+
+
+def _exhausted_rejected_eos_proposal(error):
+    """Recognize only the base sampler's exhausted zero-contribution signal."""
+    counts = globals().get('_eos_sampling_status')
+    return (type(error) is Exception and
+            str(error) == "mcsampler: Too many iterations with no contribution to integral, hard fail" and
+            opts.sampler_method == 'adaptive_cartesian' and
+            opts.using_eos is not None and opts.using_eos.startswith('file:') and
+            opts.using_eos_index is not None and counts is not None and
+            counts['seen'] > 0 and counts['all_rejected'])
+
+
 def _eos_from_grid_row(eos_name, dat):
     """EOS for one row of a --using-eos file:<grid> (columns: lnL, sigma_lnL, EOS parameters)."""
     spec_param_array = dat[2:]  # drop first two as lnL, sigma_lnL
+    if opts.eos_param not in ('spectral', 'cs_spectral', 'PP'):
+        raise ValueError("Unknown parametric EOS method: {}".format(opts.eos_param))
+    if (opts.eos_param == 'spectral' and len(spec_param_array) not in (2,) and len(spec_param_array) < 4) or (opts.eos_param != 'spectral' and len(spec_param_array) < 4):
+        raise ValueError("Wrong number of parameters for {} EOS grid".format(opts.eos_param))
+    required = {'spectral': 'SimNeutronStarEOS4ParameterSpectralDecomposition',
+                'cs_spectral': 'SimNeutronStarEOS4ParamCausalSpectralDecomposition',
+                'PP': 'SimNeutronStarEOS4ParameterPiecewisePolytrope'}[opts.eos_param]
+    if (opts.eos_param != 'spectral' or not opts.no_use_lal_eos) and not callable(getattr(lalsim, required, None)):
+        raise RuntimeError("LALSimulation lacks required EOS API: "+required)
+    # These known grid constructors all create a LAL family, including the
+    # table-generating spectral path selected by --no-use-lal-eos. Check only
+    # API availability here; native stellar-model failures stay sample-local.
+    from RIFT.physics.lalsim_eos_compat import LALSimNeutronStarFamilyAdapter
+    LALSimNeutronStarFamilyAdapter._family_api(lalsim, False)
+    if not np.isfinite(spec_param_array).all():
+        raise _RejectedEOSProposal("Nonfinite proposed EOS parameters")
     if opts.eos_param == 'spectral':
         spec_params ={}
         spec_params['gamma1']=spec_param_array[0]
@@ -569,7 +637,7 @@ def _eos_from_grid_row(eos_name, dat):
         else:
             spec_params['gamma3']=spec_param_array[2]
             spec_params['gamma4']=spec_param_array[3]
-        eos_base = EOSManager.EOSLindblomSpectral(name=eos_name,spec_params=spec_params,use_lal_spec_eos=not opts.no_use_lal_eos)
+        eos_base = _construct_eos_proposal(EOSManager.EOSLindblomSpectral, name=eos_name,spec_params=spec_params,use_lal_spec_eos=not opts.no_use_lal_eos)
         my_eos=eos_base
     elif opts.eos_param == 'cs_spectral' and len(spec_param_array) >= 4:
         spec_params ={}
@@ -578,7 +646,7 @@ def _eos_from_grid_row(eos_name, dat):
         spec_params['gamma3']=spec_params['gamma4']=0
         spec_params['gamma3']=spec_param_array[2]
         spec_params['gamma4']=spec_param_array[3]
-        eos_base = EOSManager.EOSLindblomSpectralSoundSpeedVersusPressure(name=eos_name,spec_params=spec_params,use_lal_spec_eos=not opts.no_use_lal_eos)
+        eos_base = _construct_eos_proposal(EOSManager.EOSLindblomSpectralSoundSpeedVersusPressure, name=eos_name,spec_params=spec_params,use_lal_spec_eos=not opts.no_use_lal_eos)
         my_eos = eos_base
     elif opts.eos_param == 'PP' and len(spec_param_array) >= 4:
         spec_params ={}
@@ -586,7 +654,7 @@ def _eos_from_grid_row(eos_name, dat):
         spec_params['gamma1'] = spec_param_array[1]
         spec_params['gamma2'] = spec_param_array[2]
         spec_params['gamma3'] = spec_param_array[3]
-        eos_base = EOSManager.EOSPiecewisePolytrope(name=eos_name,param_dict=spec_params)
+        eos_base = _construct_eos_proposal(EOSManager.EOSPiecewisePolytrope, name=eos_name,param_dict=spec_params)
         my_eos = eos_base
     else:
         raise Exception("Unknown method for parametric EOS data file {} : {} ".format(eos_name,opts.eos_param))
@@ -621,8 +689,12 @@ elif opts.using_eos!=None and not(opts.using_eos_for_prior):
             # Load in filename
             fname = eos_name.replace('file:', '')
             # Retrieve row with parameters
-            dat = np.loadtxt(fname)[opts.using_eos_index]
-            my_eos = _eos_from_grid_row(eos_name, dat)
+            dat = np.atleast_2d(np.loadtxt(fname))[opts.using_eos_index]
+            try:
+                my_eos = _eos_from_grid_row(eos_name, dat)
+            except _RejectedEOSProposal as error:
+                _write_rejected_eos_proposal(error)
+                sys.exit(0)
     elif opts.eos_param == 'spectral':
         # Will not work yet -- need to modify to parse command-line arguments
         spec_param_packed=eval(opts.eos_param_values) # two lists: first are 'fixed' and second are specific
@@ -868,8 +940,20 @@ if opts.parameter_nofit:
     else:
         low_level_coord_names = opts.parameter+opts.parameter_nofit # Used for Monte Carlo
 from RIFT.misc import rf_transverse_spin, eccentric_phase
-if set(rf_transverse_spin.FEATURE_NAMES + rf_transverse_spin.GEOMETRIC4_NAMES + rf_transverse_spin.PHASE_EXCESS_NAMES).intersection(coord_names + low_level_coord_names):
-    raise ValueError('RF fitting scalars are enabled only through the opt-in flag')
+from RIFT.misc import eccentric_phase_sampling
+if opts.eccentric_phase_sampling:
+    opts.eccentric_phase_coordinates = True
+    eccentric_phase_sampling.validate_options(opts)
+if opts.rf_transverse_spin_coordinates in rf_transverse_spin.RETIRED_MODES:
+    raise ValueError(rf_transverse_spin.RETIRED_MESSAGE)
+if opts.rf_transverse_spin_coordinates:
+    if sorted(p for p in coord_names if p in rf_transverse_spin.TRANSVERSE) != sorted(rf_transverse_spin.TRANSVERSE):
+        raise ValueError('--rf-transverse-spin-coordinates needs s1x, s1y, s2x, s2y once each among the fit coordinates')
+    print(" DEPRECATED: --rf-transverse-spin-coordinates; use --parameter-implied with the geometric4 names")
+    coord_names = [p for p in coord_names if p not in rf_transverse_spin.TRANSVERSE] + list(rf_transverse_spin.geometric_names(opts.rf_transverse_spin_coordinates))
+rf_chart_names = set(rf_transverse_spin.GEOMETRIC4_NAMES + rf_transverse_spin.PHASE_EXCESS_NAMES)
+if rf_chart_names.intersection(coord_names) and opts.fit_method != 'rf':
+    print(" WARNING: rf_total_azimuth wraps at +/-pi; fit method {} may not fit across that seam (rf does)".format(opts.fit_method))
 if set(eccentric_phase.FEATURE_NAMES).intersection(coord_names + low_level_coord_names):
     raise ValueError('Eccentric phase fitting features are enabled only through the opt-in flag')
 if opts.eccentric_phase_coordinates:
@@ -880,38 +964,18 @@ if opts.eccentric_phase_coordinates:
     eccentric_phase_models.freeze(opts,opts.eccentric_phase_reference_frequency,opts.eccentric_phase_target_frequency)
     if (not opts.use_eccentricity or not opts.use_meanPerAno or opts.using_eos
             or opts.input_tides or opts.input_eos_index or opts.tabular_eos_file
-            or opts.rf_transverse_spin_coordinates or opts.fit_load_gp or opts.fit_load_quadratic
+            or rf_chart_names.intersection(coord_names) or opts.fit_load_gp or opts.fit_load_quadratic
             or opts.contingency_unevolved_neff == 'quadpuff' or opts.report_best_point
             or set(('lambda1', 'lambda2', 'LambdaTilde', 'DeltaLambdaTilde', 'eos_table_index')).intersection(coord_names + low_level_coord_names)):
         raise ValueError('Eccentric phase fitting requires eccentricity/anomaly input columns and a fresh BBH fit; EOS/tides, stored fits, RF transverse coordinates, report-best-point and internal quadpuff are unsupported')
     coord_names = eccentric_phase.fitting_names(coord_names, low_level_coord_names)
-if opts.rf_transverse_spin_coordinates in rf_transverse_spin.RETIRED_MODES:
-    raise ValueError(rf_transverse_spin.RETIRED_MESSAGE)
-if opts.rf_transverse_spin_coordinates:
-    if not np.isfinite(opts.fref) or opts.fref <= 0:
-        raise ValueError('RF reference frequency must be finite and positive')
-    if (opts.fit_method != 'rf' or opts.fit_load_gp or not opts.use_precessing
-            or opts.input_tides or opts.using_eos or opts.use_eccentricity
-            or not set(rf_transverse_spin.NATIVE_FEATURES).issubset(coord_names)):
-        raise ValueError('RF transverse coordinates require a fresh RF fit with delta_mc, mu1, mu2, chiMinus, s1x, s1y, s2x, s2y in a precessing BBH L-frame analysis')
-    if len(coord_names) != 8 or set(coord_names) != set(rf_transverse_spin.NATIVE_FEATURES):
-        raise ValueError('geometric4 requires exactly the eight native mass/aligned/transverse fitting coordinates')
-    # Preserve physical sampling coordinates: only replace the fitting basis.
-    coord_names = [p for p in coord_names if p not in rf_transverse_spin.TRANSVERSE] + list(rf_transverse_spin.geometric_names(opts.rf_transverse_spin_coordinates))
-    def extract_fit_param(P, name):
-        return rf_transverse_spin.extract(P, name)
-elif opts.eccentric_phase_coordinates:
+if opts.eccentric_phase_coordinates:
     def extract_fit_param(P, name):
         return eccentric_phase.extract(P, name, opts.eccentric_phase_reference_frequency,
                                        opts.eccentric_phase_target_frequency,**eccentric_phase_models.worker_options(opts))
 else:
     def extract_fit_param(P, name):
         return P.extract_param(name)
-# An RF transverse fit basis must not fit more coordinates than are sampled.
-if opts.rf_transverse_spin_coordinates:
-    sampling_problem = rf_transverse_spin.sampling_problem(coord_names, low_level_coord_names)
-    if sampling_problem:
-        raise ValueError(sampling_problem)
 # SANITY COMPATIBILITY CHECK
 if 'q' in low_level_coord_names and 'mc' in low_level_coord_names:
     print(" Coordinate compatibility error: mc,eta or mc,delta_mc or M,q are compatible coordinates for masses. Do not mix!")
@@ -925,8 +989,6 @@ if opts.fit_uses_reported_error:
     error_factor=physical_fit_dimension*opts.fit_uses_reported_error_factor
 # TeX dictionary
 tex_dictionary = dict(lalsimutils.tex_dictionary)
-if opts.rf_transverse_spin_coordinates:
-    tex_dictionary.update(zip(rf_transverse_spin.FEATURE_NAMES + rf_transverse_spin.GEOMETRIC4_NAMES + rf_transverse_spin.PHASE_EXCESS_NAMES, rf_transverse_spin.FEATURE_NAMES + rf_transverse_spin.GEOMETRIC4_NAMES + rf_transverse_spin.PHASE_EXCESS_NAMES))
 if opts.eccentric_phase_coordinates:
     tex_dictionary.update(zip(eccentric_phase.FEATURE_NAMES, (r'$\sin\theta_{\rm eff}$', r'$\cos\theta_{\rm eff}$')))
 # The effective shear is invariant under component exchange, so both features
@@ -981,12 +1043,16 @@ if opts.supplementary_likelihood_factor_code and opts.supplementary_likelihood_f
           if hasattr(external_likelihood_module,'retrieve_eos'):
               fake_eos = False  # using EOS hyperparameter conversion! 
               supplemental_eos = getattr(external_likelihood_module, 'retrieve_eos')
-              my_eos = supplemental_eos(**args_init)
+              my_eos = _construct_eos_proposal(supplemental_eos, **args_init)
   if opts.using_eos_for_prior and not _multi_row:   # several rows: initialized per row in the row loop
           # Load in filename
           fname = opts.using_eos.replace('file:', '')
           dat = np.genfromtxt(fname,names=True)[opts.using_eos_index]   # Parse file for them, to reduce need for burden parsing, and avoid burden/confusion.
-          _initialize_plugin_for_row(dat)
+          try:
+              _initialize_plugin_for_row(dat)
+          except _RejectedEOSProposal as error:
+              _write_rejected_eos_proposal(error)
+              sys.exit(0)
 
 
   if hasattr(external_likelihood_module,name_prep):
@@ -1013,7 +1079,7 @@ if opts.supplementary_likelihood_factor_code and opts.supplementary_likelihood_f
 def M_prior(x):  # not normalized; see section II.C of https://arxiv.org/pdf/1701.01137.pdf
     return 2*x/(mc_max**2-mc_min**2)
 def q_prior(x,norm_factor=1.):
-    return norm_factor/(1+x)**2  # not normalized; see section II.C of https://arxiv.org/pdf/1701.01137.pdf
+    return 1./(1+x)**2/norm_factor  # normalized only by the norm_factor --eta-range supplies; see section II.C of https://arxiv.org/pdf/1701.01137.pdf
 def m1_prior(x):
     return 1./200
 def m2_prior(x):
@@ -1041,10 +1107,11 @@ def eta_prior(x,norm_factor=1.44):
 def delta_mc_prior(x,norm_factor=1.44):
     """
     delta_mc = sqrt(1-4eta)  <-> eta = 1/4(1-delta^2)
-    Transform the prior above
+    Transform the prior above: |d eta/d delta| = delta/2, and the 1/sqrt(1-4eta) = 1/delta
+    of eta_prior cancels the delta, leaving eta^(-6/5)/(2 norm_factor)
     """
     eta_here = 0.25*(1 -x*x)
-    return 2./np.power(eta_here, 6./5.)/norm_factor
+    return 0.5/np.power(eta_here, 6./5.)/norm_factor
 
 def m_prior(x):
     return 1/(1e3-1.)  # uniform in mass, use a square.  Should always be used as m1,m2 in pairs. Note this does NOT restrict m1>m2.
@@ -2654,6 +2721,8 @@ for line in dat:
             if low_level_coord_names[x] in ['mc']:
                 mc_index = x
         dat_out_low_level_coord_names.append(line_out)
+        if opts.contingency_unevolved_neff == "quadpuff":
+            P_list_in.append(P.manual_copy())  # mirrored row: keep P_list_in aligned with dat_out
 
 Pref_default = P.copy()  # keep this around to fix the masses, if we don't have an inj
 
@@ -2661,6 +2730,7 @@ Pref_default = P.copy()  # keep this around to fix the masses, if we don't have 
 dat_out = np.array(dat_out,dtype=internal_dtype)
 print(" Stripped size  = ", dat_out.shape,  " with memory usage (bytes) ", sys.getsizeof(dat_out))
 dat_out_low_level_coord_names = np.array(dat_out_low_level_coord_names)
+indx_P_in = np.arange(len(dat_out_low_level_coord_names))  # input row of each retained row; cut in step with it
  # scale out mass units
 for p in ['mc', 'm1', 'm2', 'mtot']:
     if p in coord_names:
@@ -2749,6 +2819,7 @@ elif sum(indx_ok) < 5*len(X[0])**2: # and max_lnL > 30:
     Y_err = Y_err[indx_ok]
     X = X[indx_ok]
     dat_out_low_level_coord_names =     dat_out_low_level_coord_names[indx_ok]
+    indx_P_in = indx_P_in[indx_ok]
     # Reset indx_ok, so it operates correctly later
     indx_ok = np.ones(len(Y), dtype=bool)
 X_raw = X.copy()
@@ -2770,6 +2841,7 @@ elif opts.fit_method == "quadratic":
     Y=Y[indx_ok] - lnL_shift
     Y_err = Y_err[indx_ok]
     dat_out_low_level_coord_names =     dat_out_low_level_coord_names[indx_ok]
+    indx_P_in = indx_P_in[indx_ok]
     # Cap the total number of points retained, AFTER the threshold cut
     if opts.cap_points< len(Y) and opts.cap_points> 100:
         n_keep = opts.cap_points
@@ -2778,6 +2850,7 @@ elif opts.fit_method == "quadratic":
         X=X[indx]
         Y_err=Y_err[indx]
         dat_out_low_level_coord_names = dat_out_low_level_coord_names[indx]
+        indx_P_in = indx_P_in[indx]
     if opts.report_best_point:
         my_fit = fit_quadratic_alt(X,Y,y_err=Y_err,symmetry_list=symmetry_list,verbose=opts.verbose)
         pt_best_X = np.loadtxt("lnL_bestpt.dat")
@@ -2801,6 +2874,7 @@ elif opts.fit_method == "polynomial":
     Y=Y[indx_ok] - lnL_shift
     Y_err = Y_err[indx_ok]
     dat_out_low_level_coord_names =     dat_out_low_level_coord_names[indx_ok]
+    indx_P_in = indx_P_in[indx_ok]
     # Cap the total number of points retained, AFTER the threshold cut
     if opts.cap_points< len(Y) and opts.cap_points> 100:
         n_keep = opts.cap_points
@@ -2809,6 +2883,7 @@ elif opts.fit_method == "polynomial":
         X=X[indx]
         Y_err=Y_err[indx]
         dat_out_low_level_coord_names = dat_out_low_level_coord_names[indx]
+        indx_P_in = indx_P_in[indx]
     my_fit = fit_polynomial(X,Y,symmetry_list=symmetry_list,y_errors=Y_err)
 elif opts.fit_method == 'gp_hyper':
     print(" FIT METHOD ", opts.fit_method, " IS GP with hypercube rescaling")
@@ -2818,6 +2893,7 @@ elif opts.fit_method == 'gp_hyper':
     Y=Y[indx_ok] - lnL_shift
     Y_err = Y_err[indx_ok]
     dat_out_low_level_coord_names =     dat_out_low_level_coord_names[indx_ok]
+    indx_P_in = indx_P_in[indx_ok]
     # Cap the total number of points retained, AFTER the threshold cut
     if opts.cap_points< len(Y) and opts.cap_points> 100:
         n_keep = opts.cap_points
@@ -2826,6 +2902,7 @@ elif opts.fit_method == 'gp_hyper':
         X=X[indx]
         Y_err=Y_err[indx]
         dat_out_low_level_coord_names = dat_out_low_level_coord_names[indx]
+        indx_P_in = indx_P_in[indx]
     my_fit = fit_gp(X,Y,y_errors=Y_err,hypercube_rescale=True)
 elif opts.fit_method == 'gp-matern':
     print(" FIT METHOD gp-matern: bounded standardized Matérn5/2")
@@ -2833,6 +2910,7 @@ elif opts.fit_method == 'gp-matern':
     Y=Y[indx_ok] - lnL_shift
     Y_err=Y_err[indx_ok]
     dat_out_low_level_coord_names=dat_out_low_level_coord_names[indx_ok]
+    indx_P_in = indx_P_in[indx_ok]
     from RIFT.interpolators.matern_gp import native_rho1
     # Known actual native geometry, never assume final-stage feature order.
     rho1=native_rho1(dat_out_low_level_coord_names,low_level_coord_names)
@@ -2845,6 +2923,7 @@ elif opts.fit_method == 'gp':
     Y=Y[indx_ok] - lnL_shift
     Y_err = Y_err[indx_ok]
     dat_out_low_level_coord_names =     dat_out_low_level_coord_names[indx_ok]
+    indx_P_in = indx_P_in[indx_ok]
     # Cap the total number of points retained, AFTER the threshold cut
     if opts.cap_points< len(Y) and opts.cap_points> 100:
         n_keep = opts.cap_points
@@ -2853,6 +2932,7 @@ elif opts.fit_method == 'gp':
         X=X[indx]
         Y_err=Y_err[indx]
         dat_out_low_level_coord_names = dat_out_low_level_coord_names[indx]
+        indx_P_in = indx_P_in[indx]
     my_fit = fit_gp(X,Y,y_errors=Y_err)
 elif opts.fit_method == 'gp-pool':
     print(" FIT METHOD ", opts.fit_method, " IS GP (pooled) with pool size ", opts.pool_size)
@@ -2862,6 +2942,7 @@ elif opts.fit_method == 'gp-pool':
     Y=Y[indx_ok] - lnL_shift
     Y_err = Y_err[indx_ok]
     dat_out_low_level_coord_names =     dat_out_low_level_coord_names[indx_ok]
+    indx_P_in = indx_P_in[indx_ok]
     # Cap the total number of points retained, AFTER the threshold cut
     if opts.cap_points< len(Y) and opts.cap_points> 100:
         n_keep = opts.cap_points
@@ -2870,6 +2951,7 @@ elif opts.fit_method == 'gp-pool':
         X=X[indx]
         Y_err=Y_err[indx]
         dat_out_low_level_coord_names = dat_out_low_level_coord_names[indx]
+        indx_P_in = indx_P_in[indx]
     if opts.pool_size == None:
         opts.pool_size = np.max([2,np.round(4000/len(X))])  # pick a pool size that has no more than 4000 members per pool
     my_fit = fit_gp_pool(X,Y,y_errors=Y_err,n_pool=opts.pool_size)
@@ -2880,6 +2962,7 @@ elif opts.fit_method == 'gp-torch':
     Y=Y[indx_ok] - lnL_shift
     Y_err = Y_err[indx_ok]
     dat_out_low_level_coord_names =     dat_out_low_level_coord_names[indx_ok]
+    indx_P_in = indx_P_in[indx_ok]
     # Cap the total number of points retained, AFTER the threshold cut
     if not opts.fit_load_gp and 0 < opts.cap_points < len(Y):
         n_keep = opts.cap_points
@@ -2888,6 +2971,7 @@ elif opts.fit_method == 'gp-torch':
         X=X[indx]
         Y_err=Y_err[indx]
         dat_out_low_level_coord_names = dat_out_low_level_coord_names[indx]
+        indx_P_in = indx_P_in[indx]
     my_fit = fit_gpytorch(X,Y,y_errors=Y_err)
 elif opts.fit_method == 'gp-xgboost':
     print( " FIT METHOD ", opts.fit_method, " IS xgboost ")
@@ -2896,6 +2980,7 @@ elif opts.fit_method == 'gp-xgboost':
     Y=Y[indx_ok] - lnL_shift
     Y_err = Y_err[indx_ok]
     dat_out_low_level_coord_names =     dat_out_low_level_coord_names[indx_ok]
+    indx_P_in = indx_P_in[indx_ok]
     # Cap the total number of points retained, AFTER the threshold cut
     if opts.cap_points< len(Y) and opts.cap_points> 100:
         n_keep = opts.cap_points
@@ -2904,6 +2989,7 @@ elif opts.fit_method == 'gp-xgboost':
         X=X[indx]
         Y_err=Y_err[indx]
         dat_out_low_level_coord_names = dat_out_low_level_coord_names[indx]
+        indx_P_in = indx_P_in[indx]
     my_fit = fit_xg(X,Y,y_errors=Y_err)
 elif opts.fit_method == 'gp_lazy':
     print(" FIT METHOD ", opts.fit_method, " IS lazy GP")
@@ -2913,6 +2999,7 @@ elif opts.fit_method == 'gp_lazy':
     Y=Y[indx_ok] - lnL_shift
     Y_err = Y_err[indx_ok]
     dat_out_low_level_coord_names =     dat_out_low_level_coord_names[indx_ok]
+    indx_P_in = indx_P_in[indx_ok]
     # Cap the total number of points retained, AFTER the threshold cut
     if opts.cap_points< len(Y) and opts.cap_points> 100:
         n_keep = opts.cap_points
@@ -2921,6 +3008,7 @@ elif opts.fit_method == 'gp_lazy':
         X=X[indx]
         Y_err=Y_err[indx]
         dat_out_low_level_coord_names = dat_out_low_level_coord_names[indx]
+        indx_P_in = indx_P_in[indx]
     my_fit = fit_gp_lazy(X,Y,y_errors=Y_err)
 elif opts.fit_method == 'cov':
     print(" FIT METHOD ", opts.fit_method, " IS cov (a placement-only approximation!). No errors used")
@@ -2931,6 +3019,7 @@ elif opts.fit_method == 'cov':
     Y=Y[indx_ok] - lnL_shift
     Y_err = Y_err[indx_ok]
     dat_out_low_level_coord_names =     dat_out_low_level_coord_names[indx_ok]
+    indx_P_in = indx_P_in[indx_ok]
     my_fit = fit_cov(X,Y)
 elif opts.fit_method == 'nn':
     print( " FIT METHOD ", opts.fit_method, " IS NN ")
@@ -2939,6 +3028,7 @@ elif opts.fit_method == 'nn':
     Y=Y[indx_ok] - lnL_shift
     Y_err = Y_err[indx_ok]
     dat_out_low_level_coord_names =     dat_out_low_level_coord_names[indx_ok]
+    indx_P_in = indx_P_in[indx_ok]
     # Cap the total number of points retained, AFTER the threshold cut
     if opts.cap_points< len(Y) and opts.cap_points> 100:
         n_keep = opts.cap_points
@@ -2947,6 +3037,7 @@ elif opts.fit_method == 'nn':
         X=X[indx]
         Y_err=Y_err[indx]
         dat_out_low_level_coord_names = dat_out_low_level_coord_names[indx]
+        indx_P_in = indx_P_in[indx]
     my_fit = fit_nn(X,Y,y_errors=Y_err)
 elif opts.fit_method == 'rf':
     print( " FIT METHOD ", opts.fit_method, " IS RF ")
@@ -2955,6 +3046,7 @@ elif opts.fit_method == 'rf':
     Y=Y[indx_ok] - lnL_shift
     Y_err = Y_err[indx_ok]
     dat_out_low_level_coord_names =     dat_out_low_level_coord_names[indx_ok]
+    indx_P_in = indx_P_in[indx_ok]
     # Cap the total number of points retained, AFTER the threshold cut
     if opts.cap_points< len(Y) and opts.cap_points> 100:
         n_keep = opts.cap_points
@@ -2963,6 +3055,7 @@ elif opts.fit_method == 'rf':
         X=X[indx]
         Y_err=Y_err[indx]
         dat_out_low_level_coord_names = dat_out_low_level_coord_names[indx]
+        indx_P_in = indx_P_in[indx]
     my_fit = fit_rf(X,Y,y_errors=Y_err)
 elif opts.fit_method == 'rf_pca':
     print( " FIT METHOD ", opts.fit_method, " IS RF-pca ")
@@ -2970,6 +3063,7 @@ elif opts.fit_method == 'rf_pca':
     Y=Y[indx_ok] - lnL_shift
     Y_err = Y_err[indx_ok]
     dat_out_low_level_coord_names = dat_out_low_level_coord_names[indx_ok]
+    indx_P_in = indx_P_in[indx_ok]
     if opts.cap_points< len(Y) and opts.cap_points> 100:
         n_keep = opts.cap_points
         indx = np.random.choice(np.arange(len(Y)),size=n_keep,replace=False)
@@ -2977,6 +3071,7 @@ elif opts.fit_method == 'rf_pca':
         X=X[indx]
         Y_err=Y_err[indx]
         dat_out_low_level_coord_names = dat_out_low_level_coord_names[indx]
+        indx_P_in = indx_P_in[indx]
     my_fit = fit_rf_pca(X,Y,y_errors=Y_err)
 elif opts.fit_method == 'rbf':
     print( " FIT METHOD ", opts.fit_method, " IS RBF; **errors not used! **")
@@ -2984,6 +3079,7 @@ elif opts.fit_method == 'rbf':
     Y=Y[indx_ok] - lnL_shift
     Y_err = Y_err[indx_ok]
     dat_out_low_level_coord_names = dat_out_low_level_coord_names[indx_ok]
+    indx_P_in = indx_P_in[indx_ok]
     if opts.cap_points< len(Y) and opts.cap_points> 100:
         n_keep = opts.cap_points
         indx = np.random.choice(np.arange(len(Y)),size=n_keep,replace=False)
@@ -2991,6 +3087,7 @@ elif opts.fit_method == 'rbf':
         X=X[indx]
         Y_err=Y_err[indx]
         dat_out_low_level_coord_names = dat_out_low_level_coord_names[indx]
+        indx_P_in = indx_P_in[indx]
     my_fit = fit_rbf(X,Y,y_errors=Y_err)
 elif opts.fit_method == 'nn_rfwrapper':
     print( " FIT METHOD ", opts.fit_method, " IS NN with RF wrapper ")
@@ -2999,6 +3096,7 @@ elif opts.fit_method == 'nn_rfwrapper':
     Y=Y[indx_ok] - lnL_shift
     Y_err = Y_err[indx_ok]
     dat_out_low_level_coord_names =     dat_out_low_level_coord_names[indx_ok]
+    indx_P_in = indx_P_in[indx_ok]
     # Cap the total number of points retained, AFTER the threshold cut
     if opts.cap_points< len(Y) and opts.cap_points> 100:
         n_keep = opts.cap_points
@@ -3007,6 +3105,7 @@ elif opts.fit_method == 'nn_rfwrapper':
         X=X[indx]
         Y_err=Y_err[indx]
         dat_out_low_level_coord_names = dat_out_low_level_coord_names[indx]
+        indx_P_in = indx_P_in[indx]
     my_fit = fit_nn_rfwrapper(X,Y,y_errors=Y_err)
 elif opts.fit_method == 'kde':
     print( " FIT METHOD ", opts.fit_method, " IS KDE ")
@@ -3016,6 +3115,7 @@ elif opts.fit_method == 'kde':
     Y=Y[indx_ok] - lnL_shift
     Y_err = Y_err[indx_ok]
     dat_out_low_level_coord_names =     dat_out_low_level_coord_names[indx_ok]
+    indx_P_in = indx_P_in[indx_ok]
     # Cap the total number of points retained, AFTER the threshold cut
     if opts.cap_points< len(Y) and opts.cap_points> 100:
         n_keep = opts.cap_points
@@ -3024,6 +3124,7 @@ elif opts.fit_method == 'kde':
         X=X[indx]
         Y_err=Y_err[indx]
         dat_out_low_level_coord_names = dat_out_low_level_coord_names[indx]
+        indx_P_in = indx_P_in[indx]
     my_fit = fit_kde(X,Y)
 elif opts.fit_method == 'gp_sparse':
     print( " FIT METHOD ", opts.fit_method, " IS gp_sparse ")
@@ -3035,6 +3136,7 @@ elif opts.fit_method == 'gp_sparse':
     Y=Y[indx_ok] - lnL_shift
     Y_err = Y_err[indx_ok]
     dat_out_low_level_coord_names =     dat_out_low_level_coord_names[indx_ok]
+    indx_P_in = indx_P_in[indx_ok]
     # Cap the total number of points retained, AFTER the threshold cut
     if opts.cap_points< len(Y) and opts.cap_points> 100:
         n_keep = opts.cap_points
@@ -3043,6 +3145,7 @@ elif opts.fit_method == 'gp_sparse':
         X=X[indx]
         Y_err=Y_err[indx]
         dat_out_low_level_coord_names = dat_out_low_level_coord_names[indx]
+        indx_P_in = indx_P_in[indx]
     my_fit = fit_gp_sparse(X,Y,y_errors=Y_err)
 elif opts.fit_method == 'weighted_nearest':
     print( " FIT METHOD ", opts.fit_method, " IS weighted_nearest ")
@@ -3051,6 +3154,7 @@ elif opts.fit_method == 'weighted_nearest':
     Y=Y[indx_ok] - lnL_shift
     Y_err = Y_err[indx_ok]
     dat_out_low_level_coord_names =     dat_out_low_level_coord_names[indx_ok]
+    indx_P_in = indx_P_in[indx_ok]
     # Cap the total number of points retained, AFTER the threshold cut
     if opts.cap_points< len(Y) and opts.cap_points> 100:
         n_keep = opts.cap_points
@@ -3059,6 +3163,7 @@ elif opts.fit_method == 'weighted_nearest':
         X=X[indx]
         Y_err=Y_err[indx]
         dat_out_low_level_coord_names = dat_out_low_level_coord_names[indx]
+        indx_P_in = indx_P_in[indx]
     my_fit = fit_nearest(X,Y,y_errors=Y_err)
 elif opts.fit_method.startswith('gp-jax'):
     # RFF is the chosen default jax method (fast, accurate, cheapest to export);
@@ -3069,6 +3174,7 @@ elif opts.fit_method.startswith('gp-jax'):
     Y=Y[indx_ok] - lnL_shift
     Y_err = Y_err[indx_ok]
     dat_out_low_level_coord_names =     dat_out_low_level_coord_names[indx_ok]
+    indx_P_in = indx_P_in[indx_ok]
     # Cap the total number of points retained, AFTER the threshold cut
     if opts.cap_points< len(Y) and opts.cap_points> 100:
         n_keep = opts.cap_points
@@ -3077,6 +3183,7 @@ elif opts.fit_method.startswith('gp-jax'):
         X=X[indx]
         Y_err=Y_err[indx]
         dat_out_low_level_coord_names = dat_out_low_level_coord_names[indx]
+        indx_P_in = indx_P_in[indx]
     my_fit = fit_jax(X,Y,y_errors=Y_err,method=jax_method,coord_names=coord_names)
 else:
     print(" NO KNOWN FIT METHOD ")
@@ -3089,6 +3196,7 @@ indx = Y.argsort()#[::-1]
 X=X[indx]
 Y=Y[indx]
 dat_out_low_level_coord_names =dat_out_low_level_coord_names[indx]
+indx_P_in = indx_P_in[indx]
 
 # Make grid plots for all pairs of points, to facilitate direct validation of where posterior support lies
 if not no_plots:
@@ -3192,6 +3300,8 @@ def _run_row_passes():
                     if opts.using_eos_branch is not None:
                         my_eos = _apply_eos_branch(my_eos)
             exec(row_pass, globals())
+        except _RejectedEOSProposal as error:
+            _write_rejected_eos_proposal(error)
         except SystemExit as row_exit:
             status = row_exit.code
             if status not in (None, 0):
@@ -3235,12 +3345,9 @@ if not opts.using_eos or (fake_eos):
             target_frequency=opts.eccentric_phase_target_frequency,
             **eccentric_phase_models.worker_options(opts),
             source_redshift=source_redshift, enforce_kerr=opts.downselect_enforce_kerr)
-    if opts.rf_transverse_spin_coordinates:
-        return rf_transverse_spin.convert(x_in, coord_names, low_level_coord_names, opts.fref,
-            lalsimutils.convert_waveform_coordinates, source_redshift=source_redshift,
-            enforce_kerr=opts.downselect_enforce_kerr)
-    return lalsimutils.convert_waveform_coordinates(x_in, coord_names=coord_names,low_level_coord_names=low_level_coord_names,source_redshift=source_redshift,enforce_kerr=opts.downselect_enforce_kerr)
+    return lalsimutils.convert_waveform_coordinates(x_in, coord_names=coord_names,low_level_coord_names=low_level_coord_names,source_redshift=source_redshift,enforce_kerr=opts.downselect_enforce_kerr,fref=opts.fref)
 else:
+ _eos_sampling_status = None
  def eos_mass_support_mask(x_in):
     """Per-row test: does every matter object in this draw have a stable star?
 
@@ -3277,6 +3384,10 @@ else:
     if np.any(indx_bad):
         x_out = np.array(x_out, dtype=float, copy=True)
         x_out[indx_bad] = -np.inf
+    if _eos_sampling_status is not None:
+        rows = np.atleast_2d(x_out)
+        _eos_sampling_status['seen'] += len(rows)
+        _eos_sampling_status['all_rejected'] &= bool(np.isneginf(rows).all())
     return x_out
 
  # --protect-coordinate-conversions offers the same guard for the general case,
@@ -3305,6 +3416,12 @@ if opts.sampler_method == 'portfolio' and not(opts.sampler_oracle is None):
         print('ORACLE: adding {} '.format(name))
         oracle_realizations.append(my_oracle)
     
+
+# The phase adapter and fit predictors operate on host arrays, even on GPU hosts.
+if opts.eccentric_phase_sampling and (opts.sampler_method == 'AV' or
+        (opts.sampler_method == 'portfolio' and 'AV' in opts.sampler_portfolio)):
+    from RIFT.misc.av_backend import configure_host_av
+    configure_host_av(mcsamplerAdaptiveVolume)
 
 # Sampler
 sampler = mcsampler.MCSampler()
@@ -3402,6 +3519,20 @@ elif mcsampler_Portfolio_ok and opts.sampler_method in mcsamplerPortfolio.known_
 if supplemental_ln_likelihood_prep:
     supplemental_ln_likelihood_prep(config=supplemental_ln_likelihood_parsed_ini,coords=low_level_coord_names)
 
+# Keep native coordinate declarations for callbacks and exports.
+# Only the sampler's angular slot is renamed.
+phase_sampling_chart = None
+sampling_coord_names = list(low_level_coord_names)
+if opts.eccentric_phase_sampling:
+    phase_sampling_chart = eccentric_phase_sampling.SamplingChart(
+        low_level_coord_names, lalsimutils.convert_waveform_coordinates,
+        prior_map['meanPerAno'], prior_range_map['meanPerAno'],
+        opts.eccentric_phase_reference_frequency, opts.eccentric_phase_target_frequency,
+        **eccentric_phase_models.worker_options(opts),
+        source_redshift=source_redshift, enforce_kerr=opts.downselect_enforce_kerr)
+    sampling_coord_names = phase_sampling_chart.names
+    print(" Internal sheared sampling coordinates: ", sampling_coord_names)
+
 ##
 ## Loop over param names
 ##
@@ -3434,7 +3565,13 @@ for p in low_level_coord_names:
         adapt_me=False
     # sampling prior initial normalization: normally not used, provided for sanity's sake just in case it is
     fac = (range_here[1] - range_here[0])
-    sampler.add_parameter(p, pdf=np.vectorize(lambda x,z=fac:1./z), prior_pdf=prior_here,left_limit=range_here[0],right_limit=range_here[1],adaptive_sampling=adapt_me)
+    sampling_name = p
+    if phase_sampling_chart is not None and p == 'meanPerAno':
+        sampling_name = eccentric_phase_sampling.ANGLE
+        range_here = [0., 2*np.pi]
+        fac = 2*np.pi
+        prior_here = lambda x: np.ones_like(x, dtype=float)/(2*np.pi)
+    sampler.add_parameter(sampling_name, pdf=np.vectorize(lambda x,z=fac:1./z), prior_pdf=prior_here,left_limit=range_here[0],right_limit=range_here[1],adaptive_sampling=adapt_me)
 
 
 ###
@@ -3642,10 +3779,13 @@ if len(low_level_coord_names) ==10:
 
 # Native scalar shortcuts above bypass coordinate conversion. An effective fit
 # has one extra feature, so scalar and vector calls must use the same projection.
-if opts.eccentric_phase_coordinates:
+if opts.eccentric_phase_coordinates or (opts.using_eos and not fake_eos):
     def log_likelihood_function(*args):
         x_native = np.column_stack([np.atleast_1d(x) for x in args])
-        return my_fit(convert_coords(x_native)) + my_log_prior_scale(x_native)
+        result = my_fit(convert_coords(x_native)) + my_log_prior_scale(x_native)
+        if (opts.using_eos and not fake_eos) and all(np.ndim(x) == 0 for x in args):
+            return np.asarray(result).reshape(-1)[0]
+        return result
     def likelihood_function(*args):
         return np.exp(log_likelihood_function(*args))
 
@@ -3775,6 +3915,8 @@ if opts.internal_use_lnL:
     extra_args.update({"use_lnL":True,"return_lnI":True})
 if opts.internal_temper_log:
     extra_args.update({'temper_log':True})
+if phase_sampling_chart is not None:
+    fn_passed = phase_sampling_chart.wrap(fn_passed, log_space=opts.internal_use_lnL)
 if hasattr(sampler, 'setup'):
     extra_args_here = {}
     extra_args_here.update(extra_args)
@@ -3822,7 +3964,15 @@ if sampler_oracle:  # NON-PORTFOLIO SCENARIO TARGET
 
     
 
-res, var, neff, dict_return = sampler.integrate(fn_passed, *low_level_coord_names,  verbose=True,nmax=int(opts.n_max),n=n_step,neff=opts.n_eff, save_intg=True,tempering_adapt=tempering_adapt, floor_level=1e-3,igrand_threshold_p=1e-3,convergence_tests=test_converged,tempering_exp=my_exp,no_protect_names=True, **extra_args)  # weight ecponent needs better choice. We are using arbitrary-name functions
+# Count only the actual sampling attempt, not training/oracle conversions.
+_eos_sampling_status = dict(seen=0, all_rejected=True) if (opts.using_eos and not fake_eos) else None
+try:
+    res, var, neff, dict_return = sampler.integrate(fn_passed, *sampling_coord_names,  verbose=True,nmax=int(opts.n_max),n=n_step,neff=opts.n_eff, save_intg=True,tempering_adapt=tempering_adapt, floor_level=1e-3,igrand_threshold_p=1e-3,convergence_tests=test_converged,tempering_exp=my_exp,no_protect_names=True, **extra_args)  # weight ecponent needs better choice. We are using arbitrary-name functions
+except Exception as error:
+    if not _exhausted_rejected_eos_proposal(error):
+        raise
+    _write_rejected_eos_proposal(error)
+    sys.exit(0)
 # result value:  be careful, if return lnL, then must not take log twice!
 ln_integrand_value =  None
 if opts.internal_use_lnL:  # eg, AV integrator, etc
@@ -3855,6 +4005,16 @@ if not (opts.fail_unless_n_eff is None):
     if cip_acceptance_neff < opts.fail_unless_n_eff   and not(opts.not_worker):     # if we need the output to continue:
         print(" FAILURE: n_eff too small")
         sys.exit(1)
+def _assignable(name):
+    """True if P.assign_param(name, ...) works (it exits on names it cannot set)."""
+    import contextlib, io
+    P = lalsimutils.ChooseWaveformParams(fref=opts.fref)
+    try:
+        with contextlib.redirect_stdout(io.StringIO()):
+            P.assign_param(name, P.extract_param(name))
+        return True
+    except (Exception, SystemExit):
+        return False
 if cip_acceptance_neff < opts.n_eff:
     print(" ==> neff (={}) is low <==".format(neff))
     if opts.contingency_unevolved_neff == 'quadpuff'  and cip_acceptance_neff < np.min([500,opts.n_eff]): # we can usually get by with about 500 points
@@ -3866,10 +4026,13 @@ if cip_acceptance_neff < opts.n_eff:
 
         puff_names = coord_names
         X_puff = X
-        if opts.rf_transverse_spin_coordinates:
-            # RF features (and chiMinus, mu1, ...) are not assignable: puff physical components instead.
-            puff_names = ['m1','m2','s1x','s1y','s1z','s2x','s2y','s2z']
-            X_puff = np.array([[P.extract_param(p)/(lal.MSUN_SI if p in ('m1','m2') else 1) for p in puff_names] for P in P_list_in])
+        puff_sampled = not all(_assignable(p) for p in coord_names)
+        if puff_sampled:
+            # Some fit coordinates (chiMinus, chi_p, rf_*, ...) cannot be assigned: puff the sampling coordinates.
+            # Retained rows only: dat_out_low_level_coord_names is cut in step with X.
+            keep = [i for i,p in enumerate(low_level_coord_names) if p != 'chi_pavg']
+            puff_names = [low_level_coord_names[i] for i in keep]
+            X_puff = np.asarray(dat_out_low_level_coord_names, dtype=float)[:,keep]
         my_cov = np.cov(X_puff.T)  # covariance of data points
         rv = scipy.stats.multivariate_normal(mean=np.zeros(len(X_puff[0])), cov=my_cov,allow_singular=True)  # they are just complaining about dynamic range
         delta_X = rv.rvs(size=len(X_puff))
@@ -3877,17 +4040,19 @@ if cip_acceptance_neff < opts.n_eff:
         P_out_list = []
         # Loop over points 
         # Jitter using the parameters we use to fit with (physical components in RF modes)
-        for indx_P in np.arange(np.min([len(P_list_in),len(X_puff)])):   # make sure no past-limits errors
+        # Retained rows are sorted by lnL: visit them in random order, so a truncated output
+        # does not keep only the lowest-lnL rows.  indx_P_in maps each back to its input P.
+        for indx_P in np.random.permutation(len(X_puff)):
             include_item=True
-            P = P_list_in[indx_P].manual_copy()   # copy: P_list_in is reused by later rows of a --n-events-to-analyze job
+            P = P_list_in[indx_P_in[indx_P]].manual_copy()   # copy: P_list_in is reused by later rows of a --n-events-to-analyze job
             for indx in np.arange(len(puff_names)):
                 param  = puff_names[indx]
                 fac = 1
                 if puff_names[indx] in ['mc', 'mtot', 'm1', 'm2']:
                     fac = lal.MSUN_SI
                 P.assign_param(param, (X_new[indx_P,indx]*fac))
-            if opts.rf_transverse_spin_coordinates and (P.m1 <= 0 or P.m2 <= 0
-                    or P.s1x**2+P.s1y**2+P.s1z**2 > 1 or P.s2x**2+P.s2y**2+P.s2z**2 > 1):
+            if puff_sampled and not (P.m1 > 0 and P.m2 > 0
+                    and P.s1x**2+P.s1y**2+P.s1z**2 <= 1 and P.s2x**2+P.s2y**2+P.s2z**2 <= 1):
                 continue
             for p in downselect_dict.keys():
                 val = P.extract_param(p) 
@@ -3897,6 +4062,8 @@ if cip_acceptance_neff < opts.n_eff:
                     include_item = False
             if include_item:
                 P_out_list.append(P)
+                if len(P_out_list) >= n_output_size:
+                    break
 
         # Save output
         # Hyperpipeline ASCII grid writer (opt-in via env var).  Emits the
@@ -3943,7 +4110,7 @@ if opts.using_eos and not(opts.using_eos.startswith('file:')):
         annotation_header += "gamma1 gamma2 gamma3 gamma4 p0 epsilon0 xmax"
 elif opts.using_eos and opts.using_eos.startswith('file:'):
     fname = opts.using_eos.replace('file:','')
-    params_here = np.loadtxt(fname)[opts.using_eos_index][2:]
+    params_here = np.atleast_2d(np.loadtxt(fname))[opts.using_eos_index][2:]
     linefirst =''
     with open(fname) as f:
         linefirst = f.readline()
@@ -3981,6 +4148,8 @@ if neff < len(low_level_coord_names):
 
 
 samples = sampler._rvs
+if phase_sampling_chart is not None:
+    phase_sampling_chart.restore_samples(samples, log_space=opts.internal_use_lnL)
 samples_type_names = list(samples.keys())
 print(samples_type_names)
 n_params = len(coord_names)

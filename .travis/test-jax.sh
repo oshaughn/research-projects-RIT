@@ -677,6 +677,10 @@ FILES=(
   "${JAXDIR}/test_time_log_hermite.py"
   "${JAXDIR}/test_time_log_hermite_selectable.py"
   "${JAXDIR}/test_jax_ile_waveform_extra_kwargs.py"
+  "${JAXDIR}/test_intrinsic_objective.py"
+  "${JAXDIR}/test_relative_binning.py"
+  "${JAXDIR}/test_ripple_modes.py"
+  "${JAXDIR}/test_seed_batch_kernel_refresh.py"
 )
 
 # EXCLUDED: files in JAXDIR matching test_*.py that are deliberately NOT gated.  The
@@ -694,6 +698,11 @@ DESELECTED_TESTS=(
   "${JAXDIR}/test_multipeak_planner.py::test_hm_two_tier_integral_matches_overcomplete_oracle"
   "${JAXDIR}/test_multipeak_planner.py::test_real_low_snr_declines_to_finite_reserve"
   "${JAXDIR}/test_multipeak_planner.py::test_real_high_snr_two_tier_path_matches_overcomplete_oracle"
+  # Optional ripple waveform validation runs by hand with rippleGW installed.
+  # Keep the dependency-free Q/U/V reduction test in this file gated here.
+  "${JAXDIR}/test_ripple_modes.py::test_ripple_modes_smoke"
+  "${JAXDIR}/test_ripple_modes.py::test_ripple_modes_rebuild_native_polarizations"
+  "${JAXDIR}/test_ripple_modes.py::test_ripple_matches_lalsim_raw_inner_product"
 )
 EXCLUDED=(
   # test_angle_marg_exact.py -- the angle-marginalization VALIDATION suite.
@@ -725,6 +734,11 @@ EXCLUDED=(
   "${JAXDIR}/test_angle_marg_exact.py"
   "${JAXDIR}/test_nuts_phimarg_injection.py"
   "${JAXDIR}/test_flow_reuse.py"
+  # Requires rippleGW and flatbuffers. Its full, RB, scalar and batch programs
+  # each incur a waveform compile. Run this physical fallback/cache regression
+  # on both CPU and GPU when changing the seed objective or relative binning,
+  # with a compilation/export cache and enough time for a cold compile.
+  "${JAXDIR}/test_seed_rb_fallback.py"
 )
 
 # DESELECT: individual tests inside a GATED file that cannot run on this CPU runner.
@@ -1238,7 +1252,12 @@ fi
 # "collected 1032 tests from 58 files" (the base already collected 1017); review
 # fixes and the compat-option type parity tests added 12 more.  1032 + 12 = 1044.
 # SEOB conditioning selector: +5 numpy/JAX routing and refusal parity tests.
-EXPECTED_TESTS=1049
+# 2026-10-19: whole manifest measured on CI merge 010bb870 plus seed-climb
+# scientific, CLI, and compatibility fixes, CVMFS IGWN Python 3.11 on CIT.
+# Measured collection: 1078 selected tests from 62 files; nine deselected.
+# Follow-up: +6 RB mesh/support cases and +2 initial automatic-fallback cases.
+# Full1078 baseline plus separately verified8 new cases; same62 files/9 deselections.
+EXPECTED_TESTS=1086
 
 echo "== collection floor check (expect >= ${EXPECTED_TESTS} tests) =="
 collect_out="$("${PYTHON_BIN}" -m pytest --collect-only -q -p no:cacheprovider "${DESELECT[@]}" "${FILES[@]}" 2>&1)"

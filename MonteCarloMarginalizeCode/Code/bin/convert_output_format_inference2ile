@@ -28,6 +28,7 @@
 import sys
 from optparse import OptionParser
 import numpy as np
+from RIFT.misc.bootstrap import normalize_samples
 from igwn_ligolw import utils, table, lsctables, ligolw
 
 import lal
@@ -54,6 +55,7 @@ optp.add_option("--use-extrinsic",action='store_true')
 optp.add_option("--use-no-spin",action='store_true')
 optp.add_option("--use-aligned-spin",action='store_true')
 optp.add_option("--add-eccentricity-params",action='store_true')
+optp.add_option("--ecc-min",type=float,default=0.0)
 optp.add_option("--ecc-max",type=float,default=0.1)
 opts, args = optp.parse_args()
 opts.output_xml = opts.output_xml.replace('.xml.gz', '') # Strip trailing xml, as it will be added later
@@ -62,7 +64,14 @@ opts.output_xml = opts.output_xml.replace('.xml.gz', '') # Strip trailing xml, a
 ###
 ### Import file. Verify required columns
 ###
-samples_in = np.genfromtxt(opts.posterior_samples,names=True)
+try:
+    samples_in = normalize_samples(np.atleast_1d(np.genfromtxt(opts.posterior_samples,names=True)))
+except ValueError as exc:
+    optp.error(str(exc))
+if opts.target_size < 1:
+    optp.error("--target-size must be positive")
+if opts.add_eccentricity_params and not (0 <= opts.ecc_min < opts.ecc_max < 1):
+    optp.error("eccentricity fallback requires 0 <= ecc-min < ecc-max < 1")
 
 if opts.target_size > len(samples_in["m1"]):
 	opts.target_size = len(samples_in["m1"])
@@ -72,7 +81,6 @@ if opts.target_size > len(samples_in["m1"]):
 ###
 
 P_list =[]
-n_samples_in = len(samples_in["mc"])
 fac_reduce = 1; #int(n_samples_in/(opts.target_size+1))
 
 for indx in np.arange(opts.target_size):
@@ -93,10 +101,11 @@ for indx in np.arange(opts.target_size):
      P.tref = samples_in["tref"][fac_reduce*indx]
     else:
             print( "Failure")
-#    P.fmin = opts.fmin
-#    P.fref = opts.fref
+    P.fmin = opts.fmin
+    P.fref = opts.fref
     if 'flow' in samples_in.dtype.names:
             P.fmin =  samples_in["flow"][fac_reduce*indx]  # REFERENCE FREQUENCY IS NOT YET RELIABLE
+    if 'f_ref' in samples_in.dtype.names:
             P.fref = samples_in["f_ref"][fac_reduce*indx]  # a field now !  MAY NOT BE RELIABLE
     if P.approx == lalsim.SEOBNRv3:
             P.fref = P.fmin
@@ -112,8 +121,13 @@ for indx in np.arange(opts.target_size):
      print( ' No phase in ', samples_in.dtype.names)
      P.phiref = 0  # does not actually matter
     P.approx = lalsim.GetApproximantFromString(opts.approx)
-    if opts.use_no_spin:
-           True; 
+    # Bilby's no-spin eccentric model does not emit any spin columns.
+    if opts.use_no_spin or not any(name in samples_in.dtype.names
+            for name in ('a1', 'a2', 'a1z', 'a2z', 'a1x', 'a2x')):
+           if 'incl' in samples_in.dtype.names:
+               P.incl = samples_in['incl'][fac_reduce*indx]
+           elif 'theta_jn' in samples_in.dtype.names:
+               P.incl = samples_in['theta_jn'][fac_reduce*indx]
     elif 'a1x' in samples_in.dtype.names and 'a2x' in samples_in.dtype.names:
             True  # we have already parsed in what we need or pesummary has provided it for us, so we can align the spins
             P.s1x = samples_in['a1x'][fac_reduce*indx]
@@ -180,14 +194,16 @@ for indx in np.arange(opts.target_size):
             P.s1x=0
             P.s2y=0
             P.s2x=0
-    # Posterior columns win: only synthesize eccentricity if the samples have none
+    # Lange PR #186: preserve supplied eccentric coordinates, including e=0.
+    # Each fallback is independent: never overwrite a sampled mean anomaly/e.
     if "eccentricity" in samples_in.dtype.names:
             P.eccentricity = samples_in["eccentricity"][fac_reduce*indx]
-            if "meanPerAno" in samples_in.dtype.names:
-                    P.meanPerAno = samples_in["meanPerAno"][fac_reduce*indx]
+    elif opts.add_eccentricity_params:
+            P.eccentricity = np.random.uniform(opts.ecc_min,opts.ecc_max)
+    if "meanPerAno" in samples_in.dtype.names:
+            P.meanPerAno = samples_in["meanPerAno"][fac_reduce*indx]
     elif opts.add_eccentricity_params:
             P.meanPerAno = np.random.uniform(0,2*np.pi)
-            P.eccentricity = np.random.uniform(0,opts.ecc_max) # some convervative range
     if "a6c" in samples_in.dtype.names:
             P.a6c = samples_in["a6c"][fac_reduce*indx]
     if "E0" in samples_in.dtype.names:

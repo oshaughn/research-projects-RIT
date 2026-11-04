@@ -1,15 +1,15 @@
 """Pipeline-side validation and emission-refusal for --q-time-pregrid-factor.
 
 WHAT THIS IS.  bin/integrate_likelihood_extrinsic_batchmode carries a certified, opt-in
-Q_lm pregrid (PR #261): factor 8 reflects each finite Q window, FFT-interpolates it onto
-an 8x finer grid once after packing, and evaluates detector arrival times off that dense
+Q_lm pregrid (PR #261): factor >1 reflects each finite Q window, FFT-interpolates it onto
+a finer grid once after packing, and evaluates detector arrival times off that dense
 grid with four-tap cubic interpolation, while leaving the geocentric time-integration grid
 at the data deltaT.  Factor 1 (the default) is the historical, unchanged path.  The driver
 enforces this itself, at first-job time:
 
     if opts.q_time_pregrid_factor not in Q_TIME_PREGRID_CHOICES:   # imported from this module
         raise ValueError(...)
-    if opts.q_time_pregrid_factor == 8:
+    if opts.q_time_pregrid_factor > 1:
         if not opts.vectorized or opts.rotation_slow or opts.freqresponse or opts.calibration_envelope_directory:
             raise NotImplementedError(...)
         if not opts._interp_time_from_default and opts._noloop_time_interp != "cubic":
@@ -27,7 +27,7 @@ convention.  The exact conflict wording (STENCIL_CONFLICT_MESSAGE below) is repr
 the driver's raise rather than imported, since it is a string inside a conditional the driver
 never delegates.
 
-THE ONE ENTANGLEMENT.  Factor 8 forces the arrival-time stencil to cubic.  That is silent
+THE ONE ENTANGLEMENT.  Refinement forces the arrival-time stencil to cubic.  That is silent
 and harmless when the caller never named a stencil (the driver's own default path), but it
 is refused when the caller passed an EXPLICIT --interpolate-time that is not itself cubic --
 "remove the explicit --interpolate-time option or set it to cubic" -- because silently
@@ -46,10 +46,16 @@ guard) to resolve abbreviations, and reject exactly the tokens optparse itself w
 """
 
 import ast
+from numbers import Integral
 import os
 import sysconfig
 
-Q_TIME_PREGRID_CHOICES = (1, 8)
+Q_TIME_PREGRID_CHOICES = (1, 2, 4, 8)
+
+Q_TIME_PREGRID_RESTRICTION = (
+    "--q-time-pregrid-factor >1 is currently restricted to ordinary vectorized "
+    "NoLoop with --time-marginalization and --gpu, without rotation, "
+    "frequency-dependent response, calibration marginalization, td-gs, or --zero-likelihood")
 
 ILE_Q_TIME_PREGRID_FLAG = '--q-time-pregrid-factor'
 ILE_INTERPOLATE_TIME_FLAG = '--interpolate-time'
@@ -63,23 +69,28 @@ _LEGACY_TRUTHY = ("1", "true", "t", "yes", "y", "on")
 _LEGACY_FALSY = ("0", "false", "f", "no", "n", "off", "none")
 
 # The driver's own wording (bin/integrate_likelihood_extrinsic_batchmode, q_time_pregrid_factor
-# == 8 branch), reproduced VERBATIM so a workflow-build-time refusal and the driver's own
+# >1 branch), reproduced VERBATIM so a workflow-build-time refusal and the driver's own
 # first-job refusal read identically.
 STENCIL_CONFLICT_MESSAGE = (
-    "--q-time-pregrid-factor 8 uses four-tap cubic interpolation; remove the "
+    "--q-time-pregrid-factor >1 uses four-tap cubic interpolation; remove the "
     "explicit --interpolate-time option or set it to cubic")
 
 _PIPELINE_REQUIRED_ILE_FLAGS = (
+    ('--time-marginalization',
+     'Q refinement requires the ordinary time-marginalized NoLoop likelihood'),
+    ('--gpu',
+     'Q refinement requires NoLoop dispatch (--force-xpy selects it on CPU)'),
     ('--vectorized',
-     'the driver restricts --q-time-pregrid-factor 8 to ordinary vectorized NoLoop'),
+     'the driver restricts --q-time-pregrid-factor >1 to ordinary vectorized NoLoop'),
 )
 # Pure boolean flags: the driver reads these as opts.rotation_slow / opts.freqresponse
 # directly, so presence on the command line is exactly the excluded condition.
 _PIPELINE_EXCLUDING_ILE_FLAGS = (
+    ('--zero-likelihood', 'Q refinement requires an evaluated NoLoop likelihood'),
     ('--rotation-slow',
-     'the driver restricts --q-time-pregrid-factor 8 to ordinary vectorized NoLoop without rotation'),
+     'the driver restricts --q-time-pregrid-factor >1 to ordinary vectorized NoLoop without rotation'),
     ('--freqresponse',
-     'the driver restricts --q-time-pregrid-factor 8 to ordinary vectorized NoLoop without '
+     'the driver restricts --q-time-pregrid-factor >1 to ordinary vectorized NoLoop without '
      'frequency-dependent response'),
 )
 # --calibration-envelope-directory takes a VALUE, and the driver's own guard
@@ -91,20 +102,27 @@ _PIPELINE_EXCLUDING_ILE_FLAGS = (
 # a stricter one.
 _PIPELINE_EXCLUDING_VALUE_ILE_FLAGS = (
     (ILE_CALIBRATION_ENVELOPE_DIRECTORY_FLAG,
-     'the driver restricts --q-time-pregrid-factor 8 to ordinary vectorized NoLoop without '
+     'the driver restricts --q-time-pregrid-factor >1 to ordinary vectorized NoLoop without '
      'calibration marginalization'),
 )
+
+
+class QTimePregridError(RuntimeError):
+    """Requested Q refinement failed; never skip the point or reduce accuracy."""
 
 
 def validate_q_time_pregrid_factor(value):
     """Return the canonical int factor, or raise ValueError.
 
-    Mirrors the driver's own ``if opts.q_time_pregrid_factor not in (1, 8): raise`` exactly,
+    Mirrors the driver's own ``if opts.q_time_pregrid_factor not in (1, 2, 4, 8): raise`` exactly,
     so this module and the driver can never disagree about the legal set.
     """
+    if isinstance(value, bool) or not isinstance(value, (str, Integral)):
+        raise ValueError(
+            "--q-time-pregrid-factor must be an integer, got %r" % (value,))
     try:
         factor = int(value)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         raise ValueError(
             "--q-time-pregrid-factor must be an integer, got %r" % (value,))
     if factor not in Q_TIME_PREGRID_CHOICES:
@@ -321,6 +339,27 @@ def q_time_pregrid_pipeline_prereqs(factor, ile_args):
         # ile_args / find_interpolate_time_in_ile_args elsewhere in this module.
         if values and values[-1]:
             missing.append("incompatible {} (value {!r}) ({})".format(flag, values[-1], why))
+    inner_products = [toks[n + 1] if n + 1 < len(toks) else None
+                      for n, token in enumerate(toks)
+                      if _matches('--internal-ile-inner-product', token)]
+    if inner_products and inner_products[-1] == 'td-gs':
+        missing.append("incompatible --internal-ile-inner-product td-gs "
+                       "(Q refinement cannot use a time-indexed self term)")
+    # O4d bandlimited time export is continuous. A fixed export lattice is
+    # a different branch's input contract and must not survive into a worker.
+    def values_for(flag):
+        return [toks[n + 1] if n + 1 < len(toks) else None
+                for n, token in enumerate(toks) if _matches(flag, token)]
+    quadrature = values_for('--time-marginalization-quadrature')
+    if quadrature and quadrature[-1] == 'bandlimited':
+        fixed_rate = values_for('--srate-resample-time-marginalization')
+        exported = values_for('--time-posterior-export')
+        if fixed_rate:
+            missing.append("bandlimited quadrature requires continuous time export; "
+                           "omit --srate-resample-time-marginalization in source setup inputs")
+        if exported and exported[-1] == 'grid':
+            missing.append("bandlimited quadrature requires continuous time export; "
+                           "--time-posterior-export grid cannot honour it")
     interp_values = find_interpolate_time_in_ile_args(ile_args)
     if interp_values:
         # optparse takes the LAST occurrence, so that is the one the driver will actually see.

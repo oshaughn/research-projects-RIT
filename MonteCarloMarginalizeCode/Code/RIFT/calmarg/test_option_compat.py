@@ -258,6 +258,160 @@ def test_burn_in_nmax_with_neff_is_accepted():
     assert oc.refusals_from_opts(_honoured(calibration_burn_in_neff=100.)) == []
 
 
+def test_bank_per_point_with_the_pilot_is_refused():
+    """The pilot sums responsibilities across points by realization index; a per-point
+    bank breaks that alignment.  Its nearest legal neighbours, each option alone, pass."""
+    r = oc.refusals_from_opts(_honoured(calibration_bank_per_point=True,
+                                        calibration_dump_responsibilities='resp.npz'))
+    assert len(r) == 1 and r[0].kind == oc.KIND_UNIMPLEMENTED, r
+    assert r[0].options == ('--calibration-bank-per-point',
+                            '--calibration-dump-responsibilities'), r
+    assert oc.refusals_from_opts(_honoured(calibration_bank_per_point=True)) == []
+    assert oc.refusals_from_opts(_honoured(calibration_dump_responsibilities='resp.npz')) == []
+
+
+def _pilot_stage():
+    import importlib.machinery, importlib.util
+    path = os.path.join(CODE_ROOT, 'bin', 'util_CalPilotStage.py')
+    loader = importlib.machinery.SourceFileLoader('util_CalPilotStage', path)
+    spec = importlib.util.spec_from_loader('util_CalPilotStage', loader)
+    mod = importlib.util.module_from_spec(spec)
+    loader.exec_module(mod)
+    return mod
+
+
+# An abridged wide args_ile.txt line from util_RIFT_pseudo_pipe.py --calmarg-pilot
+# --manual-extra-ile-args "--calibration-bank-per-point", including the per-iteration
+# breadcrumb (an unexpanded DAG macro) that --calmarg-pilot adds.
+_WIDE_BREADCRUMB = '/home/run/cal_consolidated_$(macroiterationprev).npz'
+_WIDE_ARGS_WITH_BANK_PER_POINT = (
+    'X --calibration-envelope-directory %s --vectorized --gpu --force-xpy '
+    '--time-marginalization --calibration-bank-per-point --calibration-export-posterior '
+    '--calibration-proposal-breadcrumb %s '
+    '--sim-xml overlap-grid.xml.gz --n-events-to-analyze 20 --output-file out'
+    % (ENV_DIR, _WIDE_BREADCRUMB))
+
+
+def _opts_from_cli(tokens):
+    """The driver options this gate reads, from a CLI token list."""
+    kw = dict(calibration_envelope_directory=None, time_marginalization=False,
+              vectorized=False, gpu=False)
+    for flag in ('--time-marginalization', '--vectorized', '--gpu'):
+        kw[flag[2:].replace('-', '_')] = flag in tokens
+    valued = {'--calibration-envelope-directory', '--calibration-dump-responsibilities',
+              '--calibration-burn-in-neff', '--calibration-burn-in-nmax'}
+    for flag in [f for f, _ in oc.CAL_OPT_IN_FLAGS] + ['--calibration-envelope-directory']:
+        if flag in tokens:
+            i = tokens.index(flag)
+            kw[flag[2:].replace('-', '_')] = tokens[i + 1] if flag in valued else True
+    return _Opts(**kw)
+
+
+def test_pilot_stage_drops_bank_per_point_from_the_wide_args():
+    """util_CalPilotStage.py copies the wide ILE args and adds
+    --calibration-dump-responsibilities.  With --calibration-bank-per-point inherited,
+    every pilot node would be refused at startup."""
+    stage = _pilot_stage()
+    cmd = stage.pilot_ile_command(_WIDE_ARGS_WITH_BANK_PER_POINT, 'ILE', 'grid.xml.gz', 3,
+                                  'pilot_out', 'resp.npz')
+    assert '--calibration-bank-per-point' not in cmd, cmd
+    assert _WIDE_BREADCRUMB not in cmd, cmd   # the pilot supplies its own breadcrumb
+    assert cmd[-2:] == ['--calibration-dump-responsibilities', 'resp.npz'], cmd
+    # ... also for a hand-written args file without the leading placeholder token
+    rest = _WIDE_ARGS_WITH_BANK_PER_POINT.split(' ', 1)[1]
+    for line in (rest, '/opt/bin/integrate_likelihood_extrinsic_batchmode ' + rest):
+        other = stage.pilot_ile_command(line, 'ILE', 'grid.xml.gz', 3, 'pilot_out', 'resp.npz')
+        assert other == cmd, (line, other, cmd)
+    # the flag is valueless: the option after it survives
+    assert '--calibration-export-posterior' in cmd, cmd
+    assert oc.refusals_from_opts(_opts_from_cli(cmd[1:])) == []
+    # the wide args themselves keep it, and are accepted on the wide stage
+    wide = _WIDE_ARGS_WITH_BANK_PER_POINT.split()[1:]
+    assert oc.refusals_from_opts(_opts_from_cli(wide)) == []
+    assert _opts_from_cli(wide).calibration_bank_per_point is True
+    # strip_opts on its own: flag last, and the abbreviations optparse would accept
+    assert stage.strip_opts('--vectorized --calibration-bank-per-point') == '--vectorized'
+    for abbrev in ('--calibration-ba', '--calibration-bank-per'):
+        assert stage.strip_opts('--gpu %s --vectorized' % abbrev) == '--gpu --vectorized'
+    assert stage.strip_opts('--calibration-b --gpu') == '--calibration-b --gpu'  # ambiguous
+    # each recorded prefix is unambiguous among the driver's options
+    with open(DRIVER) as f:
+        names = [n for line in f if 'add_option(' in line
+                 for n in re.findall(r"""["'](--[A-Za-z0-9-]+)["']""", line)]
+    for flag, prefix in stage._STRIP_FLAGS.items():
+        assert [n for n in names if n.startswith(prefix)] == [flag], (flag, prefix)
+    # main() builds its command through pilot_ile_command
+    import ast
+    with open(stage.__file__) as f:
+        tree = ast.parse(f.read())
+    main = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == 'main')
+    calls = [n for n in ast.walk(main) if isinstance(n, ast.Call)
+             and getattr(n.func, 'id', None) == 'pilot_ile_command']
+    assert len(calls) == 1
+    assert ast.unparse(calls[0].args[-1]) == 'opts.prev_breadcrumb', ast.unparse(calls[0])
+
+
+def test_pilot_command_keeps_the_refinement_breadcrumb():
+    """pilot_ile_command still appends --prev-breadcrumb when that file exists (refinement),
+    and leaves it out when it does not, with the option on or off."""
+    import tempfile
+    stage = _pilot_stage()
+    tmp = tempfile.mkdtemp()
+    prev = os.path.join(tmp, 'cal_consolidated_1.npz')
+    open(prev, 'wb').close()
+    for wide in (_WIDE_ARGS_WITH_BANK_PER_POINT,
+                 _WIDE_ARGS_WITH_BANK_PER_POINT.replace(' --calibration-bank-per-point', '')):
+        cmd = stage.pilot_ile_command(wide, 'ILE', 'grid.xml.gz', 3, 'pilot_out', 'resp.npz',
+                                      prev)
+        assert cmd[-4:] == ['--calibration-dump-responsibilities', 'resp.npz',
+                            '--calibration-proposal-breadcrumb', prev], cmd
+        missing = stage.pilot_ile_command(wide, 'ILE', 'grid.xml.gz', 3, 'pilot_out',
+                                          'resp.npz', os.path.join(tmp, 'absent.npz'))
+        assert missing == cmd[:-2], missing
+    os.remove(prev); os.rmdir(tmp)
+
+
+def test_pilot_main_issues_the_dump_command():
+    """main() end to end, subprocesses and the grid read stubbed: the DUMP command is the
+    one the pre-refactor main() built, minus --calibration-bank-per-point."""
+    import tempfile
+    import RIFT.lalsimutils as lalsimutils
+    stage = _pilot_stage()
+    calls = []
+
+    class _Sub(object):
+        @staticmethod
+        def check_call(cmd):
+            calls.append(list(cmd))
+    tmp = tempfile.mkdtemp()
+    args_file, prev = os.path.join(tmp, 'args_ile.txt'), os.path.join(tmp, 'prev.npz')
+    with open(args_file, 'w') as f:
+        f.write(_WIDE_ARGS_WITH_BANK_PER_POINT + '\n')
+    open(prev, 'wb').close()
+    saved = (stage.subprocess, stage._which, lalsimutils.xml_to_ChooseWaveformParams_array)
+    stage.subprocess, stage._which = _Sub, (lambda name: '/opt/bin/' + name)
+    lalsimutils.xml_to_ChooseWaveformParams_array = lambda fname: [None] * 3
+    try:
+        stage.main(['--composite', 'all.composite', '--ile-args-file', args_file,
+                    '--iteration', '4', '--output-breadcrumb', 'out.npz',
+                    '--prev-breadcrumb', prev, '--workdir', tmp])
+    finally:
+        stage.subprocess, stage._which, lalsimutils.xml_to_ChooseWaveformParams_array = saved
+        for fn in (args_file, prev):
+            os.remove(fn)
+        os.rmdir(tmp)
+    dump = [c for c in calls if '--calibration-dump-responsibilities' in c]
+    assert len(dump) == 1, calls
+    assert dump[0] == [
+        '/opt/bin/integrate_likelihood_extrinsic_batchmode',
+        '--calibration-envelope-directory', ENV_DIR, '--vectorized', '--gpu', '--force-xpy',
+        '--time-marginalization', '--calibration-export-posterior',
+        '--sim-xml', os.path.join(tmp, 'cal_pilot_grid_4.xml.gz'), '--n-events-to-analyze', '3',
+        '--output-file', os.path.join(tmp, 'cal_pilot_out_4'),
+        '--calibration-dump-responsibilities', os.path.join(tmp, 'cal_pilot_resp_4.npz'),
+        '--calibration-proposal-breadcrumb', prev], dump[0]
+
+
 # ------------------------------------------------------ R6: opt-ins without the envelope
 
 def test_each_opt_in_without_the_envelope_directory_is_refused():
@@ -414,6 +568,9 @@ def test_driver_refuses_through_the_real_cli():
         (['--calibration-envelope-directory', ENV_DIR,
           '--calibration-burn-in-nmax', '4000'] + _HONOURED_CLI,
          '--calibration-burn-in-neff', 'no burn-in for the cap to cap'),
+        (['--calibration-envelope-directory', ENV_DIR, '--calibration-bank-per-point',
+          '--calibration-dump-responsibilities', '/tmp/resp_unused.npz'] + _HONOURED_CLI,
+         '--calibration-bank-per-point', 'pilot needs one shared bank'),
     ]
     for args, expect, why in cases:
         out = _run(args)
@@ -447,6 +604,18 @@ def test_driver_accepts_the_pilot_without_time_marginalization():
                 '--calibration-dump-responsibilities', '/tmp/resp_unused.npz'])
     assert _REFUSED not in out, out[-600:]
     print('driver accepts the cal pilot on --vectorized alone : OK')
+
+
+def test_driver_accepts_the_pilot_built_from_bank_per_point_wide_args():
+    """The same pilot command through the real CLI."""
+    cmd = _pilot_stage().pilot_ile_command(_WIDE_ARGS_WITH_BANK_PER_POINT, 'ILE',
+                                           'grid.xml.gz', 3, 'pilot_out', '/tmp/resp_unused.npz')
+    # --event-time: so the driver prints a line from past the gate (it fails later, on
+    # the data it was not given); a crash before the gate cannot pass this test.
+    out = _run(cmd[1:] + ['--event-time', '1000000000'])
+    assert _REFUSED not in out, out[-600:]
+    assert 'Event time from command line' in out, out[-600:]
+    print('driver accepts the cal pilot built from bank-per-point wide args : OK')
 
 
 if __name__ == '__main__':

@@ -34,9 +34,10 @@ Use `--eccentric-phase-procedure` (or the same key under Asimov's
 
 These are fitting and proposal coordinates. Invertibility and useful ridge
 geometry are the acceptance criteria; exact alignment between waveform
-approximations is neither required nor expected. The fitting model sees sine
-and cosine features, while CIP samples the original parameters with the
-original prior. No transformed-density Jacobian enters that native integral.
+approximations is neither required nor expected. By default the fitting model
+sees sine and cosine features, while CIP samples the original parameters with the
+original prior. The optional sampling mode below also changes the internal
+angular sampling variable and accounts for its inverse Jacobian.
 Puffing first assigns all proposed masses, spins and eccentricity, then inverts
 at those proposed values. It never reuses the seed's phase shift.
 
@@ -151,9 +152,11 @@ remain optional overrides, not a requirement for bootstrapped files.
 These are build-time event mass estimates, not sample-by-sample anchor choices.
 Each coordinate uses the proposed point's detector masses at that fixed anchor.
 
-The native epoch is inferred when template start and waveform reference agree.
-For SEOBNRv5EHM it follows template start when they differ. Other ambiguous
-backend conventions require an explicit `eccentric-phase-reference-frequency`.
+When `eccentric-phase-reference-frequency` is omitted, the helper uses the
+waveform reference frequency `fref`, including when peconfigurator selects a
+different template start frequency. Asimov passes its waveform reference
+frequency through `engine.fref`; an explicit coordinate reference still overrides
+this default.
 Missing/placeholder event masses are refused; manual builds can provide
 `--eccentric-phase-detector-mass M` (detector total mass) or a fixed target.
 
@@ -175,8 +178,9 @@ retune. These frequencies configure **only the coordinate**, never waveform
 fref/fmin or the physical priors. Direct CIP/puff calls continue requiring a
 fixed numerical configuration (their legacy defaults remain10/20Hz).
 
-CIP continues sampling native `meanPerAno` and the selected native eccentricity
-coordinate, with the original bounds/prior options. Only its fitted angle is
+Without `--eccentric-phase-sampling`, CIP continues sampling native `meanPerAno`
+and the selected native eccentricity coordinate, with the original bounds/prior
+options. Only its fitted angle is
 replaced with `sin(theta), cos(theta)`; the two features are constrained to a
 circle and are not two sampled physical parameters. Scalar, vector, diagnostic
 and training feature conversions use the same map. Early stages configured with
@@ -211,9 +215,11 @@ previous random behavior.
 
 The Peters procedures are angular shears with determinant one. The EOB clock
 map generally has a nonunit angular Jacobian, so a uniform native anomaly
-need not be uniform in the transformed angle. All procedures nevertheless
-preserve the original physical prior because sampling and integration stay
-in native coordinates. Fitting sine/cosine features adds no Jacobian to that
+need not be uniform in the transformed angle. All procedures preserve the original
+physical prior. Fit-only mode integrates
+in native coordinates; sheared-angle sampling applies the inverse angular
+Jacobian and native anomaly support explicitly. Fitting sine/cosine features adds
+no Jacobian to that
 native integral. Grid proposals are not posterior draws. The code does not sample
 a flat Cartesian eccentricity disk or impose a new prior.
 
@@ -245,3 +251,62 @@ mass law, LVK bounds, high-mass identity fallback, real Asimov Liquid rendering,
 explicit overrides, actual helper hook, saved decision and consistent CIP/puff
 arguments. Production-readiness also requires supported-runtime checks of the
 actual generated DAG/submit files, not just accepting new options.
+
+## Optional internal sheared-angle sampling
+
+Enable both fitting and internal Monte Carlo sampling in the phase chart with:
+
+```yaml
+sampler:
+  extra eccentric arguments:
+    eccentric-phase-sampling: true
+    eccentric-phase-procedure: peters-full-e
+    eccentric-phase-reference-frequency: 10
+    eccentric-phase-target-frequency: 20
+```
+
+`eccentric-phase-sampling` implies `eccentric-phase-coordinates`. The numerical
+endpoints above are an explicit diagnostic choice, not the automatic LVK mass
+policy. Omitting them retains that policy, including its high-mass identity
+fallback. No waveform fref/fmin is changed. Direct CIP accepts the same sampling
+flag, its existing numeric endpoint options, and native `--parameter meanPerAno`.
+
+The helper adds the new flag only to stages fitting both eccentricity and anomaly.
+Early `--parameter-nofit meanPerAno` stages stay unchanged. PUFF receives its
+existing chart options; ILE and physical XML inputs receive no sampling flags.
+
+CIP registers a single periodic scalar `eccentric_phase_angle` on [0,2pi),
+replacing only the internal angle slot. The fit still uses sine/cosine features.
+Do not declare the internal name with `--parameter`, and do not sample sine and
+cosine as independent variables. Eccentricity may still be linear, squared or
+logarithmic, with its existing prior; the new flag adds no mass-coordinate shear.
+
+Each proposed point is inverted at its own detector-frame masses, eccentricity
+and (for the EOB map) aligned spins. Native source-redshift and Kerr conversion
+remain active. The sampler's separable angular reference prior is uniform;
+the integrand multiplies by `2pi * p_native(ell) * abs(dell/dtheta)`, including
+native restricted-angle support. The Peters angular Jacobian is one; the EOB
+clock derivative is evaluated analytically, including taper/regularization.
+The prior-only integral applies the same transformation.
+
+Before posterior export, CIP restores native anomaly, removes this correction
+from reported likelihoods, and converts both physical-prior and proposal densities
+to native measure. Importance weights and evidence are preserved. All existing
+native downselection and XML/ASCII writers therefore continue receiving physical
+parameters. Supplemental likelihood callbacks still receive their native basis.
+
+Supported samplers are CPU AV, GMM, adaptive_cartesian, and AV/GMM portfolios.
+This mode explicitly selects NumPy AV sampling even when CuPy/CUDA is available;
+deterministic fit-prediction backends retain their own configuration.
+Native oracle seeds, saved/separable external prior dictionaries, GPU/flow/plugin
+samplers are refused in this mode until their coordinate contracts are adapted.
+The existing fit-only exclusions also apply. The opt-in is off by default.
+
+`test_eccentric_phase_sampling.py` checks normalization, restricted native anomaly
+support, all eccentricity aliases, source redshift, moving masses/spins, EOB
+Jacobians, unchanged importance weights, Asimov/helper propagation, and actual CIP
+fit/integration/native XML recovery of a seam-crossing ~0.05-radian posterior.
+
+The helper owns sampling-mode activation and emits the sampling option on
+eligible CIP stages. Pseudo-pipe forwards the coordinate request and preserves
+the helper's stage options; it does not select or inject sampling mode.

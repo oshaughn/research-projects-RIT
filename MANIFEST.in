@@ -3,3 +3,6 @@ include MonteCarloMarginalizeCode/Code/bin/*
 include MonteCarloMarginalizeCode/Code/RIFT/physics/*  
 include MonteCarloMarginalizeCode/Code/RIFT/integrators/*  
 include MonteCarloMarginalizeCode/Code/RIFT/asimov/*
+
+include docs/source/nr_best_effort.rst
+recursive-include MonteCarloMarginalizeCode/Code/demo/nr_best_effort *.py *.rst

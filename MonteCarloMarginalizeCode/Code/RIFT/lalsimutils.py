@@ -298,27 +298,20 @@ except:
     lalNRSur7dq2 = -9
     lalNRHybSur3dq8 = -10
 
-try:
-   lalIMRPhenomHM = lalsim.IMRPhenomHM
-   lalIMRPhenomXHM = lalsim.IMRPhenomXHM
-   lalSEOBNRv4HM_ROM = lalsim.SEOBNRv4HM_ROM
-   lalIMRPhenomXP = lalsim.IMRPhenomXP
-   lalIMRPhenomXPHM = lalsim.IMRPhenomXPHM
-   lalIMRPhenomXO4a = lalsim.IMRPhenomXO4a
-   lalIMRPhenomXPNR = lalsim.IMRPhenomXPNR
-   
-except:
-   lalIMRPhenomXP = -11
-   lalIMRPhenomHM = -14
-   lalIMRPhenomXHM = -15
-   lalSEOBNRv4HM_ROM = -16
-   lalIMRPhenomXPHM = -17
-   lalIMRPhenomXO4a = -18
-   lalIMRPhenomXPNR = -19
+# Resolve optional approximants independently: an older LALSuite lacking a
+# newer model must retain the native mode route for models it does provide.
+lalIMRPhenomHM = getattr(lalsim, 'IMRPhenomHM', -14)
+lalIMRPhenomXHM = getattr(lalsim, 'IMRPhenomXHM', -15)
+lalSEOBNRv4HM_ROM = getattr(lalsim, 'SEOBNRv4HM_ROM', -16)
+lalIMRPhenomXP = getattr(lalsim, 'IMRPhenomXP', -11)
+lalIMRPhenomXPHM = getattr(lalsim, 'IMRPhenomXPHM', -17)
+lalIMRPhenomXO4a = getattr(lalsim, 'IMRPhenomXO4a', -18)
+lalIMRPhenomXPNR = getattr(lalsim, 'IMRPhenomXPNR', -19)
 
 pending_FD_approx = ['IMRPhenomXP_NRTidalv2','IMRPhenomXP_NRTidalv3']
 pending_approx_code = {}
-pending_default_code = -19
+# Below every other sentinel in this module (lowest: lalIMRPhenomTHM = -22).
+pending_default_code = -23
 for name in pending_FD_approx:
     if hasattr(lalsim, name):
         pending_approx_code[name] = getattr(lalsim, name)
@@ -348,8 +341,7 @@ except:
 # hlmoft_FromFD_dict branch, and if left out of the ChooseTDModes list they fall
 # through to a fallback that conditions them with a different epoch/merger placement
 # (which breaks time-sensitive likelihoods).
-# Sentinels: -2..-19 are used above and the pending_FD_approx block can consume
-# -19,-20, so start at -21.
+# Sentinels: -1..-19 are used above; the pending_FD_approx block starts at -23.
 try:
    lalIMRPhenomT = lalsim.IMRPhenomT
    lalIMRPhenomTHM = lalsim.IMRPhenomTHM
@@ -420,6 +412,7 @@ valid_params = ['m1', 'm2', 's1x', 's1y', 's1z', 's2x', 's2y', 's2z', 'chi1_perp
 #   - note we also provide for extrinsic: RA (phi), phiref, psi, just in case we need it in the future
 periodic_params = {'phi1':2*np.pi, 'phi2':2*np.pi, 'phi12':2*np.pi, 'phiref':2*np.pi, 'psi':np.pi, 'meanPerAno':2*np.pi, 'phi':2*np.pi, 'phiJL':2*np.pi, 'psiJ':2*np.pi}
 
+rf_transverse_param_names = ('rf_total_perp','rf_total_azimuth','rf_residual_parallel','rf_residual_perpendicular','rf_phase_excess')
 tex_dictionary  = {
  "mtot": r'$M$',
  "mc": r'${\cal M}_c$',
@@ -487,6 +480,12 @@ tex_dictionary  = {
   'distance':r'$d_L$',
   'mu1':r'$\mu_1$',
   'mu2':r'$\mu_2$',
+  # geometric4 transverse-spin chart (RIFT.misc.rf_transverse_spin); depends on fref
+  'rf_total_perp':r'$|S_\perp|/M^2$',
+  'rf_total_azimuth':r'$\phi_{S_\perp}$',
+  'rf_residual_parallel':r'$r_\parallel$',
+  'rf_residual_perpendicular':r'$r_\perp$',
+  'rf_phase_excess':r'$H_\perp$',
 }
 
 # Exponent used to define the u coordinate scaling
@@ -945,38 +944,8 @@ class ChooseWaveformParams:
             self.lambda1, self.lambda2 = tidal_lambda_from_tilde(self.m1, self.m2, Lt, dLt)
             return self
         if p == 'chieff_aligned':
-            chieff = self.extract_param('xi')
-            chieff_new  = val
-            mtot = self.extract_param('mtot')
-            m1 = self.extract_param('m1')
-            m2 = self.extract_param('m2')
-            if np.abs(m1/m2 -1) > 1e-5:
-            # only works for aligned system. Note aligned convention changes from iteration to iteration -- will eventually be aligned with z, but..
-            # This assumes chiminus is a good and useful parameter.  
-            # This parameterization was designed to be more stable for extreme mass ratio systems, where the usual chi- becomes highly degenerate
-            # Note that by construction, in the limit of large mass ratio, chi1 -> xi and chi2 -> - chiminus, so the parameterization is not degenerate
-            # Note we have chosen an exchange-antisymmetric combination (!), changing from prior use
-            # Note that this transformation can as a side effect change spins to be > 1
-# {(m1 c1 +     m2 c2 ) == (m1 + m2) \[Xi], (m2 c1 - m1 c2)/(m1 +      m2) == \[Chi]Diff}
-# {c1, c2} /. Solve[%, {c1, c2}][[1]] // Simplify
-# Collect[%[[2]], {\[Xi], \[Chi]Diff}]
-# % - \[Xi] // Simplify // FullSimplify
-                chi1 = self.s1z
-                chi2 = self.s2z
-                chiminus =  (m2*chi1 - m1*chi2)/(m1 + m2)  # change to be consistent with the 'chiMinus' use elsewhere, avoid extremes
-                # Solve equations for M xi, M chiminus.  
-                chi1_new = (m1+m2)/(m1**2+m2**2) * (m1*chieff_new + m2*chiminus)
-                chi2_new = (m1+m2)/(m1**2+m2**2) * (m2*chieff_new + m1*chiminus)
-#                chi1_new = chieff_new + (m1 - m2)*m2*(chieff_new + chiminus)/(m1**2 + m2**2)
-#                chi2_new = chieff_new - (m1 - m2)*m1*(chieff_new + chiminus)/(m1**2 + m2**2)
-                self.s1z = chi1_new
-                self.s2z = chi2_new
-                #self.assign_param('chi1', chi1_new)
-                #self.assign_param('chi2', chi2_new)
-            else:
-                # for equal mass, require them to have the same value
-                self.assign_param('chi1', chieff_new)
-                self.assign_param('chi2', chieff_new)                
+            # Changes only s1z, s2z, so it inverts extract_param('xi') only for spin_convention == 'L' (default).
+            self.s1z, self.s2z = chieff_aligned_spins(self.m1, self.m2, self.s1z, self.s2z, val)
             return self
         # Soichiro's coordinates : mu1, mu2, q_mu, chi2z_mu
         if p == 'mu1':
@@ -1422,6 +1391,14 @@ class ChooseWaveformParams:
             chi2Vec = np.array([self.s2x,self.s2y,self.s2z])
             S0 = (chi1Vec*self.m1+chi2Vec*self.m2)/(self.m1+self.m2)
             return S0  # VECTOR
+        if p in rf_transverse_param_names:
+            # geometric4 chart of the L-frame transverse spins at self.fref
+            from RIFT.misc import rf_transverse_spin
+            if not (self.fref and self.fref > 0):
+                raise ValueError("{} requires a positive reference frequency (P.fref)".format(p))
+            fac_scale = lal.MSUN_SI if self.m1 > 1e10 else 1
+            return rf_transverse_spin.extract_physical(p, self.m1/fac_scale, self.m2/fac_scale,
+                [self.s1x,self.s1y,self.s1z], [self.s2x,self.s2y,self.s2z], self.fref)
         if p == 'chi_p':
             # see e.g.,https://journals.aps.org/prd/pdf/10.1103/PhysRevD.91.024043 Eq. 3.3, 3.4
             # Reviewed implementation  (note horrible shift in names for A1, A2 !)
@@ -3765,7 +3742,7 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False, sil
           WARNING: internal_hlm_generator will CHANGE this factor to 0.9, to better match complex_hoft.  I'm keeping the default of this function here to match the nominal documentaiton of SimInspiralTD, while internal_hlm_generator has a different factor, chosen to match its actual output.
     
 
-    no_condition: disable conditioning (for ChooseFDModes specifically). For diagnostic plots on impact of/need for conditioning.
+    no_condition: disable conditioning: the ChooseFDModes high-pass/taper, the start tapers of the SEOB, SEOBv3 and IMRPhenomP branches, and the start taper applied to ChooseTDModes / TDModesFromPolarizations output at the end of this function. Used by the td-gs likelihood code path (no windows, no tapers) and for diagnostic plots on impact of/need for conditioning. Does not touch lalsuite's own internal conditioning of FD-generated models.
     fd_L_frame: rotate hlmoft to L frame from J frame for return values from ChooseFDModes (XO4/XPHM).
     fd_end_taper_max_time: cap (seconds) on the ChooseFDModes end taper, which is otherwise 1% of the
           buffer.  With fd_alignment_postevent_time=2 an uncapped end taper covers the merger once the
@@ -3797,6 +3774,7 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False, sil
        # Keep LAL's default reference at the requested start frequency,
        # before applying our lower generation standoff frequency.
        if P.fref==0 and (P.approx == lalIMRPhenomXPHM or
+                         (fd_L_frame and P.approx == lalIMRPhenomXPNR) or
                          (fd_L_frame and not is_precessing and P.approx in
                           (lalIMRPhenomXO4a, lalIMRPhenomXPNR))):
           P.fref=P.fmin
@@ -3829,7 +3807,9 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False, sil
            # center-DC grid, and the default (RIFT reversed) convention would shift the
            # high-pass window by one bin between (l,m) and (l,-m), breaking the
            # conjugate-pair identity at the percent level.  See evaluate_fvals docs.
-           our_fvals = evaluate_fvals(hlmsdict[(2,2)], lal_convention=True)
+           # all modes share one grid; a ModeArray without (2,2) (per-|m| calls) uses any mode's
+           our_fvals = evaluate_fvals(hlmsdict[(2,2)] if (2,2) in hlmsdict else next(iter(hlmsdict.values())),
+                                      lal_convention=True)
            vectaper_symmetric  = np.ones(len(our_fvals))
            indx_below = np.logical_and(np.abs(our_fvals)<P.fmin, np.abs(our_fvals)>=P.fmin*fd_standoff_factor)
            vectaper_symmetric[indx_below] = 0.5 + 0.5*np.cos(np.pi* (np.abs(our_fvals[indx_below])/P.fmin - 1)/(1-fd_standoff_factor))
@@ -3892,7 +3872,12 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False, sil
        # Rotate if requested, and if P.fref is specified
        # see discussion in https://git.ligo.org/lscsoft/lalsuite/-/blob/master/lalsimulation/lib/LALSimInspiral.c
        if is_precessing and fd_L_frame and P.fref:
-             alpha,beta,gamma =extract_JL_angles(P,return_inverse=True)
+             opening_angle = None
+             if P.approx == lalIMRPhenomXPNR:
+                 opening_angle = _xpnr_reference_opening_angle(
+                     P, extra_params, P.fmin*fd_standoff_factor, fNyq)
+             alpha,beta,gamma = extract_JL_angles(
+                 P, return_inverse=True, opening_angle=opening_angle)
              # The modes must remain intrinsic: hoft_from_hlm applies P.psi when
              # constructing the strain.  A further alpha += pi changes odd-m
              # modes relative to even-m modes, rather than supplying a global
@@ -3926,12 +3911,13 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False, sil
 
     if (P.approx == lalsim.SEOBNRv2 or P.approx == lalsim.SEOBNRv1 or P.approx == lalSEOBv4 or P.approx==lalsim.SEOBNRv4_opt or P.approx == lalsim.EOBNRv2 or P.approx == lalTEOBv2 or P.approx==lalTEOBv4 or P.approx == lalSEOBNRv4HM):
         hlm_out = hlmoft_SEOB_dict(P,Lmax=Lmax)
-        if True: #not (P.taper == lsu_TAPER_NONE): #True: #P.taper:
+        for key in hlm_out.keys():
+            hlm_out[key].data.data *= sign_factor
+        if not(no_condition): #not (P.taper == lsu_TAPER_NONE): #True: #P.taper:
             ntaper = int(0.01*hlm_out[(2,2)].data.length)  # fixed 1% of waveform length, at start
             ntaper = np.max([ntaper, int(1./(P.fmin*P.deltaT))])  # require at least one waveform cycle of tapering; should never happen
             vectaper= 0.5 - 0.5*np.cos(np.pi*np.arange(ntaper)/(1.*ntaper))
             for key in hlm_out.keys():
-                hlm_out[key].data.data *= sign_factor
                 # Apply a naive filter to the start. Ideally, use an earlier frequency to start with
                 hlm_out[key].data.data[:ntaper]*=vectaper
         return hlm_out
@@ -3940,13 +3926,14 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False, sil
         if not hlm_out:
             print( " Failed generation: SEOBNRv3 ")
             sys.exit(0)
-        if True: #P.taper:
+        for key in hlm_out.keys():
+            hlm_out[key].data.data *= sign_factor
+        if not(no_condition): #P.taper:
             ntaper = int(0.01*hlm_out[(2,2)].data.length)  # fixed 1% of waveform length, at start
             ntaper = np.max([ntaper, int(1./(P.fmin*P.deltaT))])  # require at least one waveform cycle of tapering; should never happen
             vectaper= 0.5 - 0.5*np.cos(np.pi*np.arange(ntaper)/(1.*ntaper))
             for key in hlm_out.keys():
                 # Apply a naive filter to the start. Ideally, use an earlier frequency to start with
-                hlm_out[key].data.data *= sign_factor
                 hlm_out[key].data.data[:ntaper]*=vectaper
         return hlm_out
 
@@ -3961,13 +3948,14 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False, sil
                     hlms[mode] = lal.ResizeCOMPLEX16TimeSeries(hlms[mode],0,TDlen)
                 if TDlen < hlms[mode].data.length:  # we have generated too long a signal!...truncate from LEFT. Danger!
                     hlms[mode] = lal.ResizeCOMPLEX16TimeSeries(hlms[mode],hlms[mode].data.length-TDlen,TDlen)
-        if True: #P.taper:
+        for key in hlms.keys():
+            hlms[key].data.data *= sign_factor
+        if not(no_condition): #P.taper:
             ntaper = int(0.01*np.min([hlms[(2,2)].data.length,TDlen_orig]))  # fixed 1% of waveform length, at start, be consistent with other methods
             ntaper = np.max([ntaper, int(1./(P.fmin*P.deltaT))])  # require at least one waveform cycle of tapering; should never happen
             vectaper= 0.5 - 0.5*np.cos(np.pi*np.arange(ntaper)/(1.*ntaper))
             for key in hlms.keys():
                 # Apply a naive filter to the start. Ideally, use an earlier frequency to start with
-                hlms[key].data.data *= sign_factor
                 hlms[key].data.data[:ntaper]*=vectaper
 
         return hlms
@@ -4697,7 +4685,8 @@ def hlmoft_IMRPv2_dict(P,sgn=-1):
         hlmT[(2,m)] = lal.CreateCOMPLEX16TimeSeries("Complex h(t)", hTC.epoch, hTC.f0, 
             hTC.deltaT, lsu_DimensionlessUnit, hTC.data.length)
         hlmT[(2,m)].epoch = float(hTC_list[0].epoch)
-        hlmT[(2,m)].data.data *=0   # this is needed, memory is not reliably cleaned
+        # Assign, do not scale: the lal buffer is uninitialized, and NaN*0 = NaN (#488).
+        hlmT[(2,m)].data.data = np.zeros(hTC.data.length, dtype=complex)
         for indx in np.arange(len(paramsForward)):
             hlmT[(2,m)].data.data += mtx[indx2,indx] * hTC_list[indx].data.data
     
@@ -5040,9 +5029,10 @@ def complex_hoff(P, sgn=-1, fwdplan=None,**kwargs):
             hptilde.epoch, hptilde.f0, 1./P.deltaT/TDlen, lsu_HertzUnit, 
             TDlen)
 
-        # create the 2-sided hoff
+        # create the 2-sided hoff (RIFT packing, see evaluate_fvals): bin N/2+j holds tmp[j].
+        # The lower-half write below sets DC; together the two writes cover every bin.
         tmp  = hptilde.data.data + sgn*1j*hctilde.data.data
-        hoff.data.data[-int(TDlen/2)-2:-1] = tmp
+        hoff.data.data[int(TDlen/2):] = tmp[:TDlen-int(TDlen/2)]
         tmp= np.conj(hptilde.data.data) + sgn*1j*np.conj(hctilde.data.data)
         hoff.data.data[0:int(TDlen/2)+1] = tmp[::-1]
 
@@ -5991,7 +5981,19 @@ def DataRollTime(ht,DeltaT):  # ONLY FOR TIME DOMAIN. ACTS IN PLACE
     return DataRollBins(ht, nL)            
 
 
-def convert_waveform_coordinates(x_in,coord_names=['mc', 'eta'],low_level_coord_names=['m1','m2'],enforce_kerr=False,source_redshift=0):
+def chieff_aligned_spins(m1, m2, s1z, s2z, xi):
+    """s1z, s2z with xi = (m1 s1z + m2 s2z)/M and chiminus = (m2 s1z - m1 s2z)/M held from the inputs.
+
+    The inverse used by assign_param('chieff_aligned'); accepts arrays.  Exchange-antisymmetric; for large
+    mass ratio s1z -> xi, s2z -> -chiminus.  Can give |s_iz| > 1.
+    """
+    mtot = m1 + m2
+    chiminus = (m2*s1z - m1*s2z)/mtot
+    norm = mtot/(m1**2 + m2**2)
+    return norm*(m1*xi + m2*chiminus), norm*(m2*xi - m1*chiminus)
+
+
+def convert_waveform_coordinates(x_in,coord_names=['mc', 'eta'],low_level_coord_names=['m1','m2'],enforce_kerr=False,source_redshift=0,fref=None):
     """
     A wrapper for ChooseWaveformParams() 's coordinate tools (extract_param, assign_param) providing array-formatted coordinate changes.  BE VERY CAREFUL, because coordinates may be defined inconsistently (e.g., holding different variables constant: M and eta, or mc and q).  Note that if ChooseWaveformParam structuers are built ,the loops can be quite slow
 
@@ -5999,7 +6001,12 @@ def convert_waveform_coordinates(x_in,coord_names=['mc', 'eta'],low_level_coord_
       - coordinates in x_out already in x_in are copied over directly
       - xi==chi_eff, chiMinus, mu1,mu2 : transformed directly from mc, delta_mc, s1z,s2z coordinates, using fast vectorized transformations.
       - source_redshift: if nonzero, convert m1 -> m1 (1+z)=m_z, as fit is done in the detector frame.  We are **assuming source-frame sampling**
+      - rf_* (geometric4) coordinates: computed from the physical components; require fref.
     """
+    if set(rf_transverse_param_names).intersection(coord_names):
+        from RIFT.misc import rf_transverse_spin
+        return rf_transverse_spin.convert(x_in, list(coord_names), list(low_level_coord_names), fref,
+            convert_waveform_coordinates, enforce_kerr=enforce_kerr, source_redshift=source_redshift)
     x_out = np.zeros( (len(x_in), len(coord_names) ) )
     kerr_violation_ring = None   # set by the vectorized in-plane block, which can end the conversion early
     # Vectorized branches need detector-frame masses. Keep the original source-frame
@@ -6463,6 +6470,20 @@ def convert_waveform_coordinates(x_in,coord_names=['mc', 'eta'],low_level_coord_
                 coord_names_reduced.remove('DeltaLambdaTilde')
 
 
+    # Spin magnitudes from Cartesian components; a component missing from low_level_coord_names is 0, as on
+    # the per-row loop's fresh P.  Only when no other low-level name sets a spin.
+    cart = ['s1x', 's1y', 's1z', 's2x', 's2y', 's2z']
+    no_spin_setter = set(low_level_coord_names) <= set(cart) | {'m1', 'm2', 'mc', 'eta', 'delta_mc', 'mtot', 'q',
+        'lambda1', 'lambda2', 'LambdaTilde', 'DeltaLambdaTilde', 'dist', 'eccentricity', 'meanPerAno', 'a6c', 'E0', 'p_phi0'}
+    if no_spin_setter and not enforce_kerr and ('chi1' in coord_names_reduced or 'chi2' in coord_names_reduced):
+        xf = np.asarray(x_in, dtype=float)
+        sc = {n: (xf[:, low_level_coord_names.index(n)] if n in low_level_coord_names else 0.) for n in cart}
+        for k in ('1', '2'):
+            p = 'chi' + k
+            if p in coord_names_reduced:
+                x_out[:, coord_names.index(p)] = np.sqrt(sc['s%sx' % k]**2 + sc['s%sy' % k]**2 + sc['s%sz' % k]**2)
+                coord_names_reduced.remove(p)
+
     # Mass-ratio, total-mass and aligned-spin coordinates from component masses (a data file's m1, m2)
     # or from (mc, delta_mc|eta), and xi/chiMinus/mu1/mu2 from Cartesian s1z, s2z: vectorized forms of
     # the extract_param definitions the per-row loop below applies (L frame).  Not used with
@@ -6559,6 +6580,7 @@ def convert_waveform_coordinates_with_eos(x_in,coord_names=['mc', 'eta'],low_lev
     """
     A wrapper for ChooseWaveformParams() 's coordinate tools (extract_param, assign_param) providing array-formatted coordinate changes.  BE VERY CAREFUL, because coordinates may be defined inconsistently (e.g., holding different variables constant: M and eta, or mc and q)
     """
+    from RIFT.physics.lalsim_eos_compat import evaluate_eos_lambda, mass_in_eos_support
     try:
         import RIFT.physics.EOSManager  as EOSManager # be careful to avoid recursive dependence!
     except:
@@ -6576,16 +6598,22 @@ def convert_waveform_coordinates_with_eos(x_in,coord_names=['mc', 'eta'],low_lev
         # Extract individual masses
         x_out_temp_mass = convert_waveform_coordinates(x_in, coord_names=['m1','m2'], low_level_coord_names=low_level_coord_names)
 
-        # Add lambda from EOS. Note backend vectorization is not ready, so this is not as efficient as it should be
-        if not(no_matter1):
-            indx_ok = x_out_temp_mass[:,0] < eos_class.mMaxMsun # valid assignments
-            x_in_extended[indx_ok,-2] = eos_class.lambda_from_m_vector( x_out_temp_mass[indx_ok,0]*lal.MSUN_SI)  # mass of primary
-        if not(no_matter2):
-            indx_ok = x_out_temp_mass[:,1] < eos_class.mMaxMsun # valid assignments
-            x_in_extended[indx_ok,-1] = eos_class.lambda_from_m_vector( x_out_temp_mass[indx_ok,1]*lal.MSUN_SI)  # mass of secondary
-
-        # Now call normal converter, with new variables defined
-        return convert_waveform_coordinates(x_in_extended, coord_names=coord_names,low_level_coord_names=low_level_coord_names_extended,enforce_kerr=enforce_kerr, source_redshift=source_redshift)
+        # EOS failures reject the whole sample even if coord_names omits tides.
+        supported = mass_in_eos_support(eos_class, x_out_temp_mass[:, 0], x_out_temp_mass[:, 1],
+            bh1=no_matter1, bh2=no_matter2)
+        invalid = ~supported
+        for column, no_matter in ((0, no_matter1), (1, no_matter2)):
+            if no_matter:
+                continue
+            x_in_extended[:, n_fields_normal+column] = -np.inf
+            values = evaluate_eos_lambda(eos_class, x_out_temp_mass[supported, column]*lal.MSUN_SI)
+            x_in_extended[supported, n_fields_normal+column] = values
+            invalid[supported] |= ~np.isfinite(values)
+        result = convert_waveform_coordinates(x_in_extended, coord_names=coord_names,
+            low_level_coord_names=low_level_coord_names_extended, enforce_kerr=enforce_kerr,
+            source_redshift=source_redshift)
+        result[invalid] = -np.inf
+        return result
             
     for indx_out  in np.arange(len(x_in)):
         P = ChooseWaveformParams()  # fresh per row, as in convert_waveform_coordinates
@@ -6593,13 +6621,16 @@ def convert_waveform_coordinates_with_eos(x_in,coord_names=['mc', 'eta'],low_lev
         #   note, P.m1, P.m2 in Msun units here
         for indx in np.arange(len(low_level_coord_names)):
             P.assign_param( low_level_coord_names[indx], x_in[indx_out,indx])
+        if not mass_in_eos_support(eos_class, P.m1, P.m2, bh1=no_matter1, bh2=no_matter2):
+            x_out[indx_out] = -np.inf
+            continue
         # Impose EOS, unless no_matter1
         if no_matter1:
             P.lambda1=0
         else:
           try:
             if P.m1 < eos_class.mMaxMsun:
-                P.lambda1 = eos_class.lambda_from_m(P.m1*lal.MSUN_SI)
+                P.lambda1 = evaluate_eos_lambda(eos_class, P.m1*lal.MSUN_SI, use_vector=False)
             else:
                 if rosDebugMessagesContainer[0]:
                     print( " Failed (safely) for ", P.m1)
@@ -6612,7 +6643,7 @@ def convert_waveform_coordinates_with_eos(x_in,coord_names=['mc', 'eta'],low_lev
         else:
           try:
             if P.m2 < eos_class.mMaxMsun:
-                P.lambda2 = eos_class.lambda_from_m(P.m2*lal.MSUN_SI)
+                P.lambda2 = evaluate_eos_lambda(eos_class, P.m2*lal.MSUN_SI, use_vector=False)
             else:
                 if rosDebugMessagesContainer[0]:
                     print( " Failed (safely) for ", P.m2)
@@ -6620,6 +6651,10 @@ def convert_waveform_coordinates_with_eos(x_in,coord_names=['mc', 'eta'],low_lev
           except:
 #              print " Failed for ", P.m2
               P.lambda2=-np.inf
+        if ((not no_matter1 and not np.isfinite(P.lambda1)) or
+                (not no_matter2 and not np.isfinite(P.lambda2))):
+            x_out[indx_out] = -np.inf
+            continue
         # Apply redshift: assume input is source-frame mass, convert m1 -> m1(1+z) = m1_z, as fit used detector frame
         P.m1 = P.m1*(1+source_redshift)
         P.m2 = P.m2*(1+source_redshift)
@@ -6668,6 +6703,8 @@ def RangeProtectReduce(fn,val):
 def symmetry_sign_exchange(coord_names):
     P=ChooseWaveformParams()
     P.randomize()
+    if set(rf_transverse_param_names).intersection(coord_names) and not P.fref > 0:
+        P.fref = 20.   # rf_* need a reference frequency; exchange parity does not depend on it
 
     sig_list = []
     for indx in np.arange(len(coord_names)):
@@ -6754,20 +6791,20 @@ def rotate_hlm_static(hlm,alphaA,betaA,gammaA,extra_polarization=None):
         for M in range(-L,L+1):
             hCatOut[(L,M)] = None
             # Define output data
-            if isinstance(hlm[(L,M)], lal.COMPLEX16TimeSeries):
+            if isinstance(h0, lal.COMPLEX16TimeSeries):
                 hCatOut[(L,M)] = lal.CreateCOMPLEX16TimeSeries("Template h(t)", 
                                                  h0.epoch, h0.f0, h0.deltaT, lsu_DimensionlessUnit, 
                                                  h0.data.length)
                 hCatOut[(L,M)].data.data[:] = 0 # initialize
                 lal_type=True
-            elif isinstance(hlm[(L,M)] , lal.Complex16FrequencySeries):
+            elif isinstance(h0, lal.COMPLEX16FrequencySeries):
                 hCatOut[(L,M)] =  lal.CreateCOMPLEX16FrequencySeries("Template h(t)", 
                                                                      h0.epoch, h0.f0, h0.deltaF, lsu_HertzUnit ,
                                                                      h0.data.length)
                 hCatOut[(L,M)].data.data[:] = 0 # initialize
                 lal_type=True
-            elif isinstance(hlm[(L,M)], np.ndarray):
-                hCatOut[(L,M)] = np.zeros(h0.shape)
+            elif isinstance(h0, np.ndarray):
+                hCatOut[(L,M)] = np.zeros(h0.shape, dtype=complex)
             else:
                 raise ValueError(" hlm unknown data type for rotation")
             # Loop and populate, based on input modes. Does not need to be full in input, but will be full output
@@ -6787,7 +6824,53 @@ def rotate_hlm_static(hlm,alphaA,betaA,gammaA,extra_polarization=None):
     return hCatOut
 
 
-def extract_JL_angles(P,return_inverse=True,phase_factor=1):
+def _xpnr_reference_opening_angle(P, params, fmin, fmax):
+    """Match XPNR's reference emission axis when undoing its J-frame mapping.
+
+    LAL's PNR_RemapThetaJSF uses tuned beta(fref), not the geometrical J/L
+    opening angle. Reuse its public angle generator and the same generation
+    band; leave the existing static rotation and mode content unchanged.
+    """
+    if np.linalg.norm([P.s1x, P.s1y, P.s2x, P.s2y]) < 1e-3:
+        # PNR_RemapThetaJSF itself skips the remapping below this threshold.
+        return None
+    angle_params = lal.DictDuplicate(params)
+    # ChooseFDModes supplies these model defaults internally, whereas the
+    # public angle API does not. Preserve explicit caller overrides.
+    defaults = {
+        "PhenomXPNRUseTunedAngles": ("PNRUseTunedAngles", 1),
+        "PhenomXPNRUseTunedCoprec": ("PNRUseTunedCoprec", 1),
+        "PhenomXPNRUseTunedCoprec33": ("PNRUseTunedCoprec33", 0),
+        "PhenomXPNRForceXHMAlignment": ("PNRForceXHMAlignment", 0),
+        "PhenomXPrecVersion": ("PrecVersion", 330),
+        "PhenomXPFinalSpinMod": ("FinalSpinMod", 7),
+        "PhenomXPHMMBandVersion": ("MBandPrecVersion", 2),
+    }
+    for name, (key, value) in defaults.items():
+        if not lal.DictContains(angle_params, key):
+            getattr(lalsim, "SimInspiralWaveformParamsInsert" + name)(angle_params, value)
+    if not lalsim.SimInspiralWaveformParamsLookupPhenomXPNRUseTunedAngles(angle_params):
+        return None
+    # XPNR unconditionally selects this HM release in ChooseFDModes.
+    lalsim.SimInspiralWaveformParamsInsertPhenomXHMReleaseVersion(angle_params, 122019)
+    _, beta, _, frequencies, _, _ = lalsim.SimIMRPhenomX_PNR_GeneratePNRAnglesHM(
+        P.m1, P.m2, P.s1x, P.s1y, P.s1z, P.s2x, P.s2y, P.s2z,
+        P.incl, P.deltaF, fmin, fmax, P.fref, 2, 2, angle_params)
+    # fref need not coincide with the public API's sampling grid.
+    # The public grid stops at floor(f_max_prime/deltaF)*deltaF. Native
+    # ChooseFDModes can still evaluate its spline in the final partial bin.
+    # Extend only that terminal bin, using the same cubic polynomial; never
+    # clamp the reference angle or extrapolate beyond one native grid step.
+    terminal_bin = (frequencies.data[-1] < P.fref <=
+                    min(fmax, frequencies.data[-1] + P.deltaF))
+    angle = float(interpolate.CubicSpline(frequencies.data, beta.data,
+                                         extrapolate=terminal_bin)(P.fref))
+    if not np.isfinite(angle):
+        raise ValueError("XPNR reference opening angle is not finite at fref")
+    return angle
+
+
+def extract_JL_angles(P,return_inverse=True,phase_factor=1,opening_angle=None):
     """
     extract_JL_angles:  finds Euler angles for transformation  see eg C13, C14 in 2004.06503
 
@@ -6804,6 +6887,8 @@ def extract_JL_angles(P,return_inverse=True,phase_factor=1):
     # To make review-stable, be VERY explicit : try to use lalsuite function calls, not above
     my_cos = np.dot(Lhat, Jhat)
     theta_JL = np.arccos(np.clip(my_cos, -1., 1.))
+    if opening_angle is not None:
+        theta_JL = opening_angle
 
     # Remaining angle:
     nhat_obs = np.array([ np.sin(P.incl)*np.cos(np.pi/2*phase_factor-P.phiref), np.sin(P.incl)*np.sin(np.pi/2*phase_factor-P.phiref), np.cos(P.incl)])  # base vector

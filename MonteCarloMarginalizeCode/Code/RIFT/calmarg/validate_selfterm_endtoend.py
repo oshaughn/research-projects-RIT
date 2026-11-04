@@ -11,10 +11,12 @@ Three likelihoods, all via the production path on the SAME injection + SAME cal
 draws (differing only in how the template self-term is handled):
   R  (RIFT as-is)   : ctUArrayDict_cal=None  -> shared, cal-independent rho_sq=<h|h>
   F  (self-term fix): per-realization rho_sq_c = <C_c h|C_c h>, C applied to data
-  T  (template ref) : the fix WITH conj(C) on the data (calibration_conjugate=True);
-                      the identity <h|conj(C) d> = conj(<d|C h>) makes |kappa| exactly
-                      the template-side (bilby) |<d|C h>|, so F_conj == template ref
-                      under phase marginalization.
+  T  (conj variant) : the fix WITH conj(C) on the data (calibration_conjugate=True).
+                      NOTE: F, not T, is the template-side convention; RIFT's packing
+                      makes <h|C d> = <alpha h|d> and conj(C) reverses the phase
+                      (DESIGN_calmarg_in_loop.md, "Phase-sign trap").  Under phase
+                      marginalization with small phase F and T agree, which is all
+                      this script's self-term verdict uses.
 
 Amplitude (distance) is PROFILED by evaluating the likelihood on a distance grid at
 the injection sky point and taking the max per realization (matches selfterm_bias.py's
@@ -265,7 +267,7 @@ def run_bias(args, xpy):
         packed = pack(_rh, _ri, _ct, _ctV, _cc, _ccV, xpy)
         R = per_realization_profiled(P, packed, args.n_cal, xpy, event_time, t_window, use_cal=False)
         F = per_realization_profiled(P, packed, args.n_cal, xpy, event_time, t_window, use_cal=True)
-        # T : template-side reference == fix with conj(C_c) on the data
+        # T : fix with conj(C_c) on the data (phase-reversed variant; see docstring)
         pcT = precompute_from_data(P, dd, cal_dict, event_time, t_window, args.fmax, calibration_conjugate=True)
         _riT, _ctT, _ctVT, _rhT, _snrT, _rtT, _ccT, _ccVT = pcT
         packedT = pack(_rhT, _riT, _ctT, _ctVT, _ccT, _ccVT, xpy)
@@ -281,8 +283,7 @@ def run_bias(args, xpy):
         rows.append((sg, lnZR - lnZT, lnZF - lnZT))
     # verdict (reproduces NOTE sec 3):
     #  * the FIX is unbiased vs the template reference: |F-T| << |R-T| everywhere
-    #    (the small residual F-T is the C-vs-conj(C) phase caveat, ~phase*SNR, which
-    #    is zero by construction if the conj(C) convention is used -- T IS F_conj);
+    #    (the small residual F-T is the C-vs-conj(C) phase difference, ~phase*SNR);
     #  * RIFT-as-is carries a large, POSITIVE, width-growing bias R-T.
     ftmax = max(abs(r[2]) for r in rows)
     rtmax = max(abs(r[1]) for r in rows)

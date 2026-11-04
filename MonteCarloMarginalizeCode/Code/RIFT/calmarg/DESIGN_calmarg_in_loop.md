@@ -39,6 +39,17 @@ realization.  This is what makes in-loop marginalization cheap.
 > apply-to-data choice is what preserves the efficiency win (shared `U,V`).  The
 > backtest below quantifies the difference against `calibration_reweighting.py`.
 
+> **Phase-sign trap.** Do not conjugate the realization array before applying it
+> to the data. RIFT's two-sided FFT packing labels bins with the negative of the
+> LAL frequency (`lalsimutils.evaluate_fvals`), so the array stored at label f is
+> already conj(alpha(f)) in the standard convention, and `<h|C d> = <alpha h|d>`.
+> A derivation that treats RIFT's label as the physical frequency concludes that
+> conj(C) is needed; that reverses the calibration phase. A test that builds its
+> reference as `C*h` on RIFT's packed array has the same blind spot. The
+> known-answer test builds alpha*h in the time domain with numpy's FFT
+> (`test_cross_term_matches_time_domain_calibrated_template`). Current
+> conventions: `DESIGN_response_conventions.md`.
+
 ## Data layout
 
 `RIFT/calmarg/generate_realizations.py::create_realizations` draws `n_cal` complex,
@@ -381,6 +392,17 @@ above).
   surface artificially smooth and bakes its O(1/sqrt(n_eff_cal)) bias into the
   posterior); the variance is instead disclosed via the cal MC error budget above
   and beaten down with larger n_cal (now grown adaptively per point).
+  STATUS (2026-10): the starting bank is drawn once per job, seeded by `--seed`,
+  so every point in a job shares it. `--calibration-bank-per-point` (opt-in, default
+  off) follows the decision above: a fresh starting bank per point, drawn from
+  `derived_rng('calmarg.bank_per_point', grid index)`. The stream is keyed on
+  (`--seed`, grid index) only: with a fixed `--seed`, grid row k gets the same random
+  draws in every iteration and every grid, whatever point sits there. Its bank repeats
+  whenever the source and the calibration settings are unchanged. With `--calmarg-pilot`
+  only iterations seeded by a pilot (previous iteration on cadence and at most
+  `--calmarg-pilot-max-it`) get a new breadcrumb; the others draw from the prior (on OSG,
+  through a prior placeholder breadcrumb), so row k repeats its bank across them. The cal
+  error probe and adaptive growth still draw from job-wide streams.
 * **Calibration-parameter export:** Option B does not record which realization was
   selected (acceptable per scope — parameter draws can be regenerated at the end as
   the current `--dump_cal_realization` path does).

@@ -120,6 +120,9 @@ MonteCarloMarginalizeCode/Code/RIFT/interpolators/jax_gp/test_interpolators.py B
 # Module-level skip without cupy and a device. Run by hand on a GPU node (pcdev13, 2026-10-05: 18 pass).
 MonteCarloMarginalizeCode/Code/test/interpolators/test_cupy_forest.py           GPU  cupy device predictor vs sklearn; skips without a device
 MonteCarloMarginalizeCode/Code/test/interpolators/test_cupy_extratrees.py       GPU  cupy ExtraTrees vs numpy reference and sklearn; skips without a device
+# Multirate cupy legs (PR #436): cupy vs numpy precompute and device templates. The numpy legs run in
+# core-unit-check. RIFT_CI_REQUIRE_GPU=1 turns the skip into a failure; run on pcdev13 by hand.
+MonteCarloMarginalizeCode/Code/test/test_multirate_cupy.py                      GPU  cupy vs numpy multirate precompute and xp templates; skips without a device
 MonteCarloMarginalizeCode/Code/test/hyperpipe/tests/test_hydra_integration.py  OPTDEP  needs:hydra,omegaconf -- skips cleanly without them
 MonteCarloMarginalizeCode/Code/test/test_gwsignal_teob_mode_sign.py            OPTDEP  needs:EOBRun_module -- the gwsignal TEOB route; 2 collected, 1 passes and 1 skips without it
 MonteCarloMarginalizeCode/Code/test/test_gwsignal_teob_near_aligned.py         OPTDEP  needs:EOBRun_module -- 1 collected, skips without it

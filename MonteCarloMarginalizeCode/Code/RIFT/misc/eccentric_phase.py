@@ -6,7 +6,8 @@ not waveform evolution or a change to fref.
 The input angle is generic: a backend's ``meanPerAno`` need not be a dynamical
 mean anomaly. Native parameters and priors retain their original meanings.
 The default shear has unit angular Jacobian; tabulated clock maps need not.
-All choices retain native sampling and priors.
+Physical priors and native waveform conventions are preserved.
+Internal angular sampling is available through eccentric_phase_sampling.
 The redundant sine/cosine embedding is for fitting, never a sampling measure.
 """
 import numpy as np

@@ -297,12 +297,13 @@ def test_the_seq_warmstart_capture_no_longer_guards_on_a_row_count():
 @pytest.mark.skipif(not os.path.exists(_ILE), reason='ILE executable not in this tree')
 def test_the_rescue_and_the_sequential_capture_share_one_reserve_lookup():
     """Five defects of this shape have come from two copies of one idea drifting apart.
-    Both callers go through the single helper, so a fix to one cannot miss the other."""
+    Every caller goes through the single helper, so a fix to one cannot miss the others."""
     code = _read_ile_code()          # whitespace-free; needles must be too
     assert code.count('def_warm_seed_reserve_for') == 1
-    # one definition + exactly two call sites (the L0 rescue and the sequential capture)
-    assert code.count('_warm_seed_reserve_for(sampler)') == 3, \
-        'expected the shared lookup to have exactly two callers, found {}'.format(
+    # one definition + exactly three call sites (the L0 rescue, the sequential capture,
+    # and the distance-slice warm-start seed)
+    assert code.count('_warm_seed_reserve_for(sampler)') == 4, \
+        'expected the shared lookup to have exactly three callers, found {}'.format(
             code.count('_warm_seed_reserve_for(sampler)') - 1)
     # and the old inline duplicate is gone
     assert "_res_l0=getattr(sampler,'_warm_seed_reserve',None)" not in code, \

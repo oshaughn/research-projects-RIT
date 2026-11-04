@@ -163,16 +163,13 @@ def test_prepare_hook_is_invoked_without_an_ini(fname):
 
 @pytest.mark.parametrize("fname", DRIVERS)
 def test_prepare_hook_is_told_the_sampling_basis(fname):
-    """`coords=` must name the SAME list the driver splats into `sampler.integrate`.
+    """The hook must receive the basis its callback actually sees.
 
-    The sampler is handed one dimension per name in that starred list, so it calls
-    `supplemental_ln_likelihood(*x)` with one array per SAMPLING coordinate, in that order.
-    Declaring any other list -- notably the FIT basis `coord_names`, which differs from
-    `low_level_coord_names` as soon as --parameter-implied or --parameter-nofit is used -- makes
-    the plugin attach the wrong name to each array.  Nothing raises: the plugin simply evaluates
-    at coordinates it has mislabelled.  Comparing the two identifiers is the whole invariant, and
-    it is checkable statically; the runtime consequence of getting it wrong is exercised in
-    test_nal_io.py::test_wrong_basis_from_the_driver_would_evaluate_at_the_wrong_point.
+    Normally that is the integrator's basis. CIP's optional sheared chart
+    converts proposals back to native coordinates before the full callback,
+    including supplementary likelihoods. Its hook must therefore retain the
+    native basis. The native callback contract is also exercised in
+    test_eccentric_phase_sampling.py::test_wrapped_narrow_band_and_partial_native_support.
     """
     tree = _tree(fname)
     sampled = {n.value.id for c in ast.walk(tree)
@@ -183,17 +180,44 @@ def test_prepare_hook_is_told_the_sampling_basis(fname):
     assert sampled, (
         "%s never splats a coordinate-name list into sampler.integrate(); the basis the "
         "supplementary hook must be told can no longer be identified" % fname)
+    callback_basis=sampled
+    if fname == "util_ConstructIntrinsicPosterior_GenericCoordinates.py":
+        assert sampled == {"sampling_coord_names"}
+        # Feature-off proposals alias the native basis; feature-on proposals
+        # are adapted at the single callback boundary before integration.
+        assert any(isinstance(n,ast.Assign) and isinstance(n.value,ast.Call)
+                   and isinstance(n.value.func,ast.Name) and n.value.func.id=="list"
+                   and len(n.value.args)==1 and isinstance(n.value.args[0],ast.Name)
+                   and n.value.args[0].id=="low_level_coord_names"
+                   and any(isinstance(t,ast.Name) and t.id=="sampling_coord_names" for t in n.targets)
+                   for n in ast.walk(tree))
+        assert any(isinstance(c,ast.Call) and isinstance(c.func,ast.Attribute)
+                   and c.func.attr=="SamplingChart" and c.args
+                   and isinstance(c.args[0],ast.Name) and c.args[0].id=="low_level_coord_names"
+                   for c in ast.walk(tree))
+        wrappers=[n for n in ast.walk(tree) if isinstance(n,ast.Assign)
+                  and any(isinstance(t,ast.Name) and t.id=="fn_passed" for t in n.targets)
+                  and isinstance(n.value,ast.Call) and isinstance(n.value.func,ast.Attribute)
+                  and isinstance(n.value.func.value,ast.Name)
+                  and n.value.func.value.id=="phase_sampling_chart" and n.value.func.attr=="wrap"
+                  and n.value.args and isinstance(n.value.args[0],ast.Name)
+                  and n.value.args[0].id=="fn_passed"]
+        integrations=[c for c in ast.walk(tree) if isinstance(c,ast.Call)
+                      and isinstance(c.func,ast.Attribute) and c.func.attr=="integrate"
+                      and c.args and isinstance(c.args[0],ast.Name) and c.args[0].id=="fn_passed"]
+        assert len(wrappers)==1 and integrations
+        assert wrappers[0].lineno < min(c.lineno for c in integrations)
+        callback_basis={"low_level_coord_names"}
     declared = [k.value for c in ast.walk(tree)
                 if isinstance(c, ast.Call) and isinstance(c.func, ast.Name)
                 and c.func.id == "supplemental_ln_likelihood_prep"
                 for k in c.keywords if k.arg == "coords"]
     assert declared, "%s never passes coords= to the prepare hook" % fname
     for node in declared:
-        assert isinstance(node, ast.Name) and node.id in sampled, (
-            "%s tells the prepare hook coords=%s, but integrates over %s -- the hook must be "
-            "given the SAMPLING basis, since that is the order the plugin is called with"
+        assert isinstance(node, ast.Name) and node.id in callback_basis, (
+            "%s tells the prepare hook coords=%s, but its callback receives %s"
             % (fname, ast.dump(node) if not isinstance(node, ast.Name) else node.id,
-               sorted(sampled)))
+               sorted(callback_basis)))
 
 
 def _adds(node, *names):

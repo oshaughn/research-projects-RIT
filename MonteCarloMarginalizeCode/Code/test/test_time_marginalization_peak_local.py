@@ -1918,7 +1918,7 @@ def test_peak_local_runs_on_the_gpu_backend_and_matches_numpy():
     host-side merge, the batched local evaluation and the tail bound -- on cupy,
     against the numpy answer on identical inputs."""
     cupy = _cupy_or_skip()
-    from RIFT.likelihood import optimized_gpu_tools
+    from RIFT.likelihood import factored_likelihood as fl
 
     rows = [BandLimited(amp=a, peak_sample=NPTS // 2 + 0.25).samples()
             for a in (40.0, 200.0, 2000.0)]
@@ -1929,7 +1929,7 @@ def test_peak_local_runs_on_the_gpu_backend_and_matches_numpy():
     cpu = np.asarray(pl.time_marginalize_peak_local(k, r, DELTAT, _lnL))
     gpu = cupy.asnumpy(pl.time_marginalize_peak_local(
         cupy.asarray(k), cupy.asarray(r), DELTAT, _lnL,
-        simps=optimized_gpu_tools.simps, xpy=cupy))
+        simps=fl.time_quadrature_rule('peak-local', cupy), xpy=cupy))
     fin = np.isfinite(cpu)
     assert np.max(np.abs(gpu[fin] - cpu[fin])) < 1e-6, (cpu, gpu)
 

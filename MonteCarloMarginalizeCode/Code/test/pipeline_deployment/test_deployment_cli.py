@@ -101,16 +101,17 @@ def test_real_frame_crop_and_cache(tmp_path):
     assert (tmp_path/'local_orig.cache').read_bytes()==original
     rows=(tmp_path/'local.cache').read_text().split()
     assert rows[:4]==['H1','TEST_STRAIN','102','8']
+    assert rows[4].startswith('file://localhost/')
+    import lal, lalframe
+    stream = lalframe.FrStreamCacheOpen(lal.CacheImport(str(tmp_path/'local.cache')))
+    native_data = lalframe.FrStreamReadREAL8TimeSeries(stream, 'H1:TEST-STRAIN', lal.LIGOTimeGPS(102), 8, 0)
+    np.testing.assert_array_equal(native_data.data.data, np.arange(102*16,110*16,dtype=float))
     frame=next((tmp_path/'frames_dir').glob('*.gwf'))
     data=TimeSeries.read(str(frame),'H1:TEST-STRAIN')
     np.testing.assert_array_equal(data.value,np.arange(102*16,110*16,dtype=float))
     assert float(data.t0.value)==102 and float(data.dt.value)==1/16
-    pathcache=subprocess.run(['lalapps_path2cache'],input=str(frame)+'\n',text=True,capture_output=True,env=ENV,check=True)
-    assert len(pathcache.stdout.split())==5
-    from urllib.parse import urlparse, unquote
-    native=pathcache.stdout.split()
-    assert native[:4]==rows[:4]
-    assert unquote(urlparse(native[4]).path)==unquote(urlparse(rows[4]).path)
+    # The real LAL cache import/read above validates the worker contract,
+    # including URI authority, rather than a deprecated path2cache wrapper.
     from lal.utils import CacheEntry
     entry=CacheEntry(str((tmp_path/'local.cache').read_text().strip()))
     np.testing.assert_array_equal(TimeSeries.read(entry.path,'H1:TEST-STRAIN').value,data.value)
@@ -224,7 +225,7 @@ def test_frame_edges(tmp_path,case):
         (tmp_path/'ILE.sub').write_text('arguments = '+format_submit_arguments(argsfile.read_text().split())+'\nqueue\n')
         argsfile.unlink()
     result=run('util_ForOSG_MakeTruncatedLocalFramesDir.py',[tmp_path],tmp_path,False)
-    assert (result.returncode==0)==(case in ('space_path','condor_fallback')),result.stdout+result.stderr
+    assert (result.returncode==0)==(case == 'condor_fallback'),result.stdout+result.stderr
     if result.returncode:
         assert (tmp_path/'local.cache').read_bytes()==original
         assert not (tmp_path/'frames_dir').exists()
@@ -360,3 +361,40 @@ def test_real_pseudo_pipe_helper_produced_cache(tmp_path,grid,monkeypatch,builde
 def test_real_pseudo_pipe_explicit_cache_with_truncate_check(tmp_path,grid,monkeypatch):
     monkeypatch.setitem(ENV,'RIFT_TRUNCATE_CHECK','1')
     test_real_pseudo_pipe_truncated_schedule_and_frames(tmp_path,grid,'BasicIteration',True)
+
+
+def test_frame_crop_accepts_input_filenames_with_spaces(tmp_path):
+    stage_frames(tmp_path)
+    rows=[]
+    for path in sorted(tmp_path.glob('H-TEST-*.gwf')):
+        target=path.with_name('input with spaces '+path.name)
+        path.rename(target)
+        first=int(path.name.split('-')[-2])
+        rows.append(f'H TEST {first} 6 {target.as_uri()}\n')
+    (tmp_path/'local.cache').write_text(''.join(rows))
+    result=run('util_ForOSG_MakeTruncatedLocalFramesDir.py',[tmp_path],tmp_path,False)
+    assert result.returncode==0,result.stdout+result.stderr
+    import lal, lalframe
+    stream=lalframe.FrStreamCacheOpen(lal.CacheImport(str(tmp_path/'local.cache')))
+    data=lalframe.FrStreamReadREAL8TimeSeries(stream,'H1:TEST-STRAIN',lal.LIGOTimeGPS(102),8,0)
+    np.testing.assert_array_equal(data.data.data,np.arange(102*16,110*16,dtype=float))
+
+
+def test_frame_reader_failure_preserves_unpublished_cache(tmp_path,monkeypatch):
+    import importlib.util
+    original=stage_frames(tmp_path)
+    script=BIN/'util_ForOSG_MakeTruncatedLocalFramesDir.py'
+    spec=importlib.util.spec_from_file_location('framecrop_reader_failure',script)
+    module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
+    monkeypatch.setattr(sys,'argv',[str(script),str(tmp_path)])
+    native_open=module.lalframe.FrFileOpenURL
+    def failure(url,*args):
+        if '.frames-staging-' in str(url):
+            raise RuntimeError('injected ILE reader failure')
+        return native_open(url,*args)
+    monkeypatch.setattr(module.lalframe,'FrFileOpenURL',failure)
+    with pytest.raises(RuntimeError,match='injected ILE reader failure'):
+        module.main()
+    assert (tmp_path/'local.cache').read_bytes()==original
+    assert not (tmp_path/'frames_dir').exists()
+    assert not list(tmp_path.glob('.frames-staging-*'))

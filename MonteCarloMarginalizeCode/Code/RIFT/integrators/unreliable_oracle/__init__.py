@@ -13,10 +13,12 @@ from .resampling import ResamplingOracle
 from .puffball import PuffballOracle
 from .hill_climber import ClimbingOracle
 from .fisher_gaussian import FisherGaussianOracle
+from .ladder_climber import LadderClimbingOracle
 
 __all__ = [
     "ResamplingOracle",
     "PuffballOracle",
     "ClimbingOracle",
     "FisherGaussianOracle",
+    "LadderClimbingOracle",
 ]

@@ -194,9 +194,8 @@ tree carries one definition of the equivalence instead of two.
 
 A `gemv` reassociates the summation, so unlike everything above this is **not** bitwise.
 It is the same RULE: the weights come from the very `simps` implementation the call site
-would otherwise have used, so the `even='avg'`-versus-Cartwright distinction that
-separates the vendored GPU copy from scipy's is preserved exactly. Only the order of the
-additions changes.
+would otherwise have used (since 2026-10 one rule per name on every backend; see
+`DESIGN_time_marginalization_quadrature.md`). Only the order of the additions changes.
 
 **Measured discrepancy**, over 10 000 real extrinsic samples spanning lnL from
 -2.2e6 to +116:
@@ -210,8 +209,8 @@ additions changes.
 
 The difference is below the rounding scale of the quantities being compared, and both
 paths are deterministic run to run. For physical scale, the errors already present in
-this integral are between eleven and sixteen orders of magnitude larger: the two `simps`
-variants in this tree disagree by **0.405 nats** on an under-resolved peak, and the
+this integral are between eleven and sixteen orders of magnitude larger: Simpson and
+trapezoid disagree by up to **0.405 nats** on an under-resolved peak, and the
 `nearest` time stencil costs **200-443 nats at SNR 100** (`--interpolate-time` help text,
 issue #233). Simpson's real accuracy limit here is sub-sample resolution of a peak whose
 width is set by the signal rather than by the sample rate — which is what the

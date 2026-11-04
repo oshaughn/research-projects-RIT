@@ -318,11 +318,23 @@ def test_jax_dropin_manifest_covers_every_batchmode_option_with_same_arity():
     # fail.  Asserting the promotion (opts.interp becomes 'cubic') as well as the
     # absence of an exit is what makes the acceptance leg load-bearing.
     def _check(argv):
+        # optparse append defaults are mutable; isolate independent command lines.
+        parser = drv.build_parser()
         opts, _ = parser.parse_args(list(argv))
         drv.record_supplied_options(opts, list(argv), parser)
         drv.resolve_ile_interface_aliases(opts, parser)
         drv.check_critical_and_report(opts, parser)
         return opts
+
+    _check(["--internal-ile-inner-product", "fd-diagonal"])
+    for flag, value in [("--internal-ile-inner-product", "td-toeplitz"),
+                        ("--td-solver", "pcg"), ("--td-acf-duration", "1"),
+                        ("--td-analysis-start", "0"), ("--td-analysis-end", ".1"),
+                        ("--td-gap", "0,.1"), ("--glitch-basis", "H1:0,.1,40,100"),
+                        ("--glitch-basis-file", "H1:unused.npz"),
+                        ("--glitch-sigma", "profile")]:
+        with pytest.raises(SystemExit):
+            _check([flag, value])
 
     for factor in ("1", "2", "8"):
         opts = _check(["--q-time-pregrid-factor", factor])

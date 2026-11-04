@@ -317,3 +317,21 @@ def test_hlmoft_path_applies_waveform_kwargs(monkeypatch):
     bound = inspect.signature(real).bind(None, **seen)
     bound.apply_defaults()
     assert bound.arguments["fd_centering_factor"] == 0.75
+
+
+def test_inloop_instrument_conventions_reach_every_ile_stage(tmp_path):
+    """The same explicit map must survive the real pseudo_pipe -> submit-file chain."""
+    env = tmp_path / "envelopes"
+    env.mkdir()
+    for ifo in ("H1", "L1"):
+        np.savetxt(env / f"{ifo}.txt", [
+            [20, 1, 0, .99, -.01, 1.01, .01],
+            [40, 1, 0, .99, -.01, 1.01, .01],
+            [100, 1, 0, .99, -.01, 1.01, .01],
+            [1024, 1, 0, .99, -.01, 1.01, .01]])
+    out, run = _build(tmp_path, "run_instrument_cal", [
+        "--calmarg-envelope-directory", str(env),
+        "--calmarg-correction-type", "H1:template,L1:data", "--ile-no-gpu"])
+    assert out.returncode == 0, out.stdout[-4000:]
+    for name in ("ILE.sub", "ILE_extr.sub", "ILE_puff.sub"):
+        assert "--calibration-correction-type H1:template,L1:data" in _sub_text(run, name)

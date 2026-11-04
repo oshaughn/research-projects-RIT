@@ -30,6 +30,9 @@ export OMP_NUM_THREADS=1
 # this makes the whole script safe the same way its sibling gates are.
 export PYTHONPATH="$PWD/$CODE${PYTHONPATH:+:$PYTHONPATH}"
 
+# Independent Bilby envelope-prior parity (Bilby is installed in calmarg-check).
+"$PY" -m pytest -q "$CODE/test/test_calmarg_bilby_prior.py"
+
 # precompute alignment + identity-cal self-term cross terms == baseline
 "$PY" "$CODE/RIFT/calmarg/test_precompute_alignment.py"
 
@@ -56,6 +59,15 @@ if [ "${_n:-0}" -lt 20 ]; then
 fi
 ( cd "$CODE" && PYTHONPATH="$PWD${PYTHONPATH:+:$PYTHONPATH}" "$PY" -m pytest -q "RIFT/calmarg/test_option_compat.py" )
 
+# --calibration-export-posterior with two intrinsic points in one job: each point's _cal.dat
+# must hold that point's own fair draws.  One driver subprocess on synthetic data, ~3 min.
+( cd "$CODE/test" && "$PY" -m pytest -q test_calexport_multievent.py )
+
+# --calibration-bank-per-point: per-point banks differ, reproduce under --seed, follow the
+# correction types, reach the likelihood, and leave the option-off outputs byte-identical.
+# Five driver subprocesses, ~6 min.
+( cd "$CODE/test" && "$PY" -m pytest -q test_calmarg_bank_per_point.py )
+
 # Source adapters retain generator conditioning and physical waveform epochs.
 ( cd "$CODE/test" && "$PY" -m pytest -q test_calmarg_source_conditioning_epoch.py \
     test_calmarg_rift_source.py )
@@ -73,7 +85,8 @@ fi
 # and the leg stopped testing anything: fail instead.  ~20 s.
 _gws_log=$( cd "$CODE/test" && "$PY" -m pytest -q -rs test_gwsignal_options.py \
     test_gwsignal_ile_options.py test_gwsignal_asimov_options.py \
-    test_calibration_backend_options.py test_ile_condor_argument_quoting.py 2>&1 ) \
+    test_calibration_backend_options.py test_ile_condor_argument_quoting.py \
+    test_gwsignal_mode_lengths.py test_seobnrv6ehm_pipeline.py 2>&1 ) \
   || { echo "$_gws_log"; exit 1; }
 if echo "$_gws_log" | grep -Eq "[0-9]+ skipped"; then
   echo "$_gws_log"
@@ -81,5 +94,8 @@ if echo "$_gws_log" | grep -Eq "[0-9]+ skipped"; then
   exit 1
 fi
 echo "$_gws_log" | tail -n 1
+
+# Missing public v6 support is an expected skip; keep it outside _gws_log.
+( cd "$CODE/test" && "$PY" -m pytest -q -rs test_seobnrv6ehm_availability.py )
 
 echo "calmarg CPU regression gate: PASS"

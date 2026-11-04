@@ -141,12 +141,8 @@ def _per_row_reference(lnL_t, xp=np, simps_fn=None):
     offset differs, which is the whole subject of the test.  Done one row at a time
     so no other row can reach this one's value.
 
-    ``xp``/``simps_fn`` select WHICH backend and WHICH Simpson rule, because the two
-    backends genuinely do not share one: on numpy the code integrates with scipy, on
-    cupy with ``optimized_gpu_tools.simps`` -- an old scipy with ``even='avg'`` against
-    modern scipy's Cartwright correction -- and for EVEN ``npts`` (production is 614)
-    they differ, by an amount that depends on how sharply peaked the row is
-    (issue #204).  So each backend is compared against its own rule.
+    ``xp``/``simps_fn`` select the backend and the rule; both backends integrate with
+    scipy's Simpson weights (factored_likelihood.time_quadrature_rule).
     """
     simps_fn = simpson if simps_fn is None else simps_fn
     out = np.empty(lnL_t.shape[0], dtype=float)
@@ -277,17 +273,13 @@ def test_gpu_offset_is_per_row_too():
     node, the way this repo's other GPU legs are (measured on ldas-pcdev11, cupy 14.1.1,
     cuda 12.8 container).
 
-    Compared against the GPU's OWN Simpson rule, not against the numpy answer.  The two
-    rules differ for even ``npts`` and the difference is NOT a constant offset -- it is
-    per row, set by how sharply peaked that row's integrand is: measured here
-    0.405, 0.0089 and -4.3e-5 nats for peaks of 1694, 21 and 7 nats (issue #204).  That
-    is a real, separate, already-known discrepancy and it is not this test's subject; a
-    cross-backend equality assertion here would be asserting #204 is absent.
+    Also compared against the numpy answer.  Before the backends shared one rule they
+    differed here by 0.405, 0.0089 and -4.3e-5 nats for peaks of 1694, 21 and 7 nats
+    (issue #204); test_time_quadrature_rule.py pins that they now agree.
     """
     # require_rift_backend: this goes through the likelihood, so RIFT's own import-time
     # cupy probe has to have taken the device too.  See gpu_slot_probe.cupy_or_skip.
     cupy = gpu_slot_probe.cupy_or_skip(require_rift_backend=True)
-    from RIFT.likelihood import optimized_gpu_tools
     import copy
 
     dists = np.array([fl.distMpcRef / 80.0, fl.distMpcRef * 1.0, fl.distMpcRef * 3.0])
@@ -312,8 +304,10 @@ def test_gpu_offset_is_per_row_too():
     lnL = cupy.asnumpy(cupy.asarray(_gpu()))
     assert np.all(np.isfinite(lnL)), lnL              # the regression, on the device
     np.testing.assert_allclose(
-        lnL, _per_row_reference(lnL_t, xp=cupy, simps_fn=optimized_gpu_tools.simps),
+        lnL, _per_row_reference(lnL_t, xp=cupy,
+                                simps_fn=fl.time_quadrature_rule('simpson', cupy)),
         rtol=0, atol=1e-9)
+    np.testing.assert_allclose(lnL, _shipped(tvals_grid(), args), rtol=0, atol=1e-9)
 
 
 if __name__ == '__main__':

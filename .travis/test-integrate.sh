@@ -76,7 +76,7 @@ python -m pytest -q "$_CIP_EXPORT_TESTS"
 # integrals as four N=1 jobs, from row 0 and across the end of the grid.
 _CIP_MULTIROW_TESTS=MonteCarloMarginalizeCode/Code/test/test_cip_multi_row.py
 # Raise EXPECTED by RUNNING collection, never by arithmetic.
-_CIP_MULTIROW_EXPECTED=10
+_CIP_MULTIROW_EXPECTED=33
 _CIP_MULTIROW_FOUND=$(python -m pytest -q --collect-only "$_CIP_MULTIROW_TESTS" 2>/dev/null | grep -c '::' || true)
 if [ "$_CIP_MULTIROW_FOUND" -ne "$_CIP_MULTIROW_EXPECTED" ]; then
     echo "cip-multi-row gate: collected $_CIP_MULTIROW_FOUND tests, expected $_CIP_MULTIROW_EXPECTED" >&2
@@ -346,12 +346,13 @@ _TMARG_TESTS=(
     MonteCarloMarginalizeCode/Code/test/test_time_marginalization_quadrature.py
     MonteCarloMarginalizeCode/Code/test/test_time_marginalization_quadrature_pipeline.py
     MonteCarloMarginalizeCode/Code/test/test_continuous_time_posterior_export.py
+    MonteCarloMarginalizeCode/Code/test/test_time_quadrature_rule.py
 )
 # Count guard, matching .travis/test-slowrot.sh and test-jax.sh.  `set -e` already
 # catches a total collection failure (pytest exits 5), but a silent shrink from 60
 # tests to 3 -- a rename, a stale -k, a decorator that stops matching -- reads as
 # green.  Raise EXPECTED by RUNNING collection, never by arithmetic.
-_TMARG_EXPECTED=171
+_TMARG_EXPECTED=206
 _TMARG_FOUND=$(python -m pytest -q --collect-only "${_TMARG_TESTS[@]}" 2>/dev/null | grep -c '::' || true)
 if [ "$_TMARG_FOUND" -ne "$_TMARG_EXPECTED" ]; then
     echo "time-marginalization gate: collected $_TMARG_FOUND tests, expected $_TMARG_EXPECTED" >&2
@@ -490,9 +491,11 @@ _QPREGRID_TESTS=(
     MonteCarloMarginalizeCode/Code/test/test_q_time_pregrid.py
     MonteCarloMarginalizeCode/Code/test/test_q_time_pregrid_pipeline.py
     MonteCarloMarginalizeCode/Code/test/test_q_time_pregrid_driver_parity.py
+    MonteCarloMarginalizeCode/Code/test/test_q_time_pregrid_native.py
+    MonteCarloMarginalizeCode/Code/test/test_native_integer_mass_ranges.py
 )
 # Raise EXPECTED by RUNNING collection, never by arithmetic.
-_QPREGRID_EXPECTED=77
+_QPREGRID_EXPECTED=152
 _QPREGRID_FOUND=$(python -m pytest -q --collect-only "${_QPREGRID_TESTS[@]}" 2>/dev/null | grep -c '::' || true)
 if [ "$_QPREGRID_FOUND" -ne "$_QPREGRID_EXPECTED" ]; then
     echo "q-time-pregrid gate: collected $_QPREGRID_FOUND tests, expected $_QPREGRID_EXPECTED" >&2

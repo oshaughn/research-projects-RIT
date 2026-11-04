@@ -6,6 +6,7 @@ extern "C" {
     const complex<double> * Q, const complex<double> * A,
     const int * index_start,
     int window_size,
+    int time_stride,
     int num_time_points,
     int num_extrinsic_samples,
     int num_lms,
@@ -43,7 +44,9 @@ extern "C" {
            Out-of-range time samples contribute zero rather than reading OOB.
            (i_first_time is size_t, so a negative int index wraps to a large value
            and is also caught here.) */
-        size_t q_time = i_first_time + i_time;
+        /* time_stride = 1: contiguous window; time_stride = K: the td-gs sub-sample
+           grid holds K entries per time bin. */
+        size_t q_time = i_first_time + (size_t)time_stride * i_time;
         if (q_time < (size_t)num_time_points) {
           /* Take the outer product over the lm axis. */
           for (size_t i_lm = 0; i_lm < num_lms; ++i_lm) {

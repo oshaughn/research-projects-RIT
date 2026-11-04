@@ -1,4 +1,4 @@
-"""Deployment contracts for redundant L-frame RF features; no likelihood calls."""
+"""geometric4 as implied CIP coordinates: helper policy and conversion contracts; no likelihood calls."""
 import ast
 import importlib.util
 from pathlib import Path
@@ -8,6 +8,22 @@ ROOT=Path(__file__).resolve().parents[1]
 spec=importlib.util.spec_from_file_location('rf_transverse_spin', ROOT/'RIFT/misc/rf_transverse_spin.py')
 rf=importlib.util.module_from_spec(spec);spec.loader.exec_module(rf)
 FULL='3 --fit-method rf --use-precessing --parameter-nofit mc --parameter delta_mc --parameter-implied mu1 --parameter-implied mu2 --parameter-implied chiMinus --parameter-implied s1x --parameter-implied s1y --parameter-implied s2x --parameter-implied s2y --parameter-nofit chi1 --parameter-nofit chi2 --parameter-nofit cos_theta1 --parameter-nofit cos_theta2 --parameter-nofit phi1 --parameter-nofit phi2'
+PHYSICAL=['m1','m2','s1x','s1y','s1z','s2x','s2y','s2z']
+
+def chart_line(line, mode='geometric4'):
+    for old,new in zip(rf.TRANSVERSE, rf.geometric_names(mode)):
+        line=line.replace('--parameter-implied '+old+' ','--parameter-implied '+new+' ')
+    return line
+
+def _identity(x,coord_names,low_level_coord_names,**kw):
+    return x[:,[low_level_coord_names.index(n) for n in coord_names]]
+
+def _lalsimutils():
+    pytest.importorskip('lal')
+    import sys
+    sys.path.insert(0,str(ROOT))
+    from RIFT import lalsimutils
+    return lalsimutils
 
 @pytest.mark.parametrize('mc',[None,float('nan'),float('inf'),-1,0,20,21,'not a mass'])
 def test_auto_unknown_and_boundary_off(mc):
@@ -16,10 +32,16 @@ def test_auto_unknown_and_boundary_off(mc):
 @pytest.mark.parametrize('mc',[1,19.999,'10'])
 def test_auto_lowmass_fullstage(mc):
     line=rf.stage_arguments(FULL,'auto',mc,True,40)
-    assert line==FULL+' --rf-transverse-spin-coordinates geometric4 --fref 40.0'
-    assert '--parameter-nofit phi2' in line
+    assert line==chart_line(FULL)+' --fref 40.0'
+    assert '--parameter-nofit phi2' in line and 's1x' not in line
 
-@pytest.mark.parametrize('line',[FULL.replace('fit-method rf','fit-method gp'),FULL.replace('fit-method rf','fit-method quadratic'),FULL.replace('--parameter-implied s2y','--parameter-nofit s2y')])
+@pytest.mark.parametrize('mode',rf.GEOMETRIC4_MODES)
+def test_explicit_mode_swaps_the_four_transverse_names(mode):
+    line=rf.stage_arguments(FULL,mode,25,True,20)
+    assert line==chart_line(FULL,mode)+' --fref 20.0'
+    assert '--rf-transverse-spin-coordinates' not in line
+
+@pytest.mark.parametrize('line',[FULL.replace('fit-method rf','fit-method gp'),FULL.replace('fit-method rf','fit-method quadratic'),FULL.replace('--parameter-implied s2y','--parameter-nofit s2y'),FULL+' --parameter-implied s1x'])
 def test_reduced_or_other_interpolator_unchanged(line):
     assert rf.stage_arguments(line,'geometric4',10,True,20)==line
 
@@ -27,89 +49,103 @@ def test_override_and_applicability():
     assert rf.stage_arguments(FULL,'off',10,True,20)==FULL
     assert rf.stage_arguments(FULL,'auto',10,False,20)==FULL
     with pytest.raises(ValueError):rf.stage_arguments(FULL,'geometric4',10,False,20)
-    assert 'geometric4' in rf.stage_arguments(FULL,'geometric4',25,True,20)
 
 def test_frequency_replaces_existing_without_mixing_sampling():
     out=rf.stage_arguments(FULL+' --fref 11','geometric4',10,True,30)
     assert out.count('--fref')==1 and '--fref 30.0' in out
     with pytest.raises(ValueError):rf.stage_arguments(FULL,'geometric4',10,True,float('nan'))
 
-def test_exact_frozen_scalar_formulas_and_zero_axis():
-    rng=np.random.default_rng(131)
-    m1=rng.uniform(10,50,500);m2=m1*rng.uniform(.1,1,500)
-    s1=rng.uniform(-.5,.5,(500,3));s2=rng.uniform(-.5,.5,(500,3))
-    x=rf.scalar_features(m1,m2,s1,s2,20)
-    q=m2/m1;eta=q/(1+q)**2;v=(np.pi*(m1+m2)*rf.MTSUN*20)**(1/3)
-    w1=1/(1+q)**2;w2=q*q*w1;L=eta/v;D=L+w1*s1[:,2]+w2*s2[:,2]
-    T=w1[:,None]*s1[:,:2]+w2[:,None]*s2[:,:2];G=(2+1.5*q)[:,None]*w1[:,None]*s1[:,:2]+(2+1.5/q)[:,None]*w2[:,None]*s2[:,:2]
-    T2=(T*T).sum(axis=1);J=np.sqrt(D*D+T2)
-    expected=np.stack([T2/(D*D+(.1*L)**2),T2/(J+D)/L,(G*G).sum(axis=1)/(eta*v*v)**2],axis=1)
-    np.testing.assert_allclose(x,expected,rtol=1e-14,atol=1e-15)
-    np.testing.assert_array_equal(rf.scalar_features(m1,m2,np.zeros_like(s1),np.zeros_like(s2)),0)
-    assert np.isfinite(x).all()
-    assert not np.array_equal(x,rf.scalar_features(m1,m2,s1,s2,40))
-
-def test_vector_conversion_native_columns_preserved():
-    physical=np.array([[20,10,.3,.2,-.1,.1,-.2,.4],[20,20,0,0,.2,0,0,.3]])
-    names=['m1','m2','s1x','s1y','s1z','s2x','s2y','s2z']
-    def converter(x,coord_names,low_level_coord_names,**kw):
-        return x[:,[low_level_coord_names.index(n) for n in coord_names]]
-    out=rf.convert(physical,names+list(rf.FEATURE_NAMES),names,35,converter)
-    np.testing.assert_array_equal(out[:,:8],physical)
-    np.testing.assert_array_equal(out[:,8:],rf.scalar_features(physical[:,0],physical[:,1],physical[:,2:5],physical[:,5:8],35))
-
-def test_component_mirror_is_symmetric():
-    s1=np.array([.2,.3,-.5]);s2=np.array([-.3,.1,.4])
-    np.testing.assert_allclose(rf.scalar_features(30,10,s1,s2),rf.scalar_features(10,30,s2,s1),rtol=2e-15)
-
-def test_invalid_physical_rows_do_not_abort_valid_batch():
-    physical=np.array([[20,10,.3,.2,-.1,.1,-.2,.4],[-np.inf]*8])
-    names=['m1','m2','s1x','s1y','s1z','s2x','s2y','s2z']
-    def converter(x,coord_names,low_level_coord_names,**kw):
-        return x[:,[low_level_coord_names.index(n) for n in coord_names]]
-    out=rf.convert(physical,names+list(rf.FEATURE_NAMES),names,20,converter,enforce_kerr=True)
-    assert np.isfinite(out[0]).all() and np.isneginf(out[1]).all()
-
-@pytest.mark.parametrize('frequency',[float('nan'),float('inf'),0,-1])
-def test_scalar_frequency_rejects_nonphysical_values(frequency):
-    with pytest.raises(ValueError):rf.scalar_features(20,10,np.zeros(3),np.zeros(3),frequency)
-
-def test_actual_native_spherical_conversion_and_source_redshift():
-    # LAL is optional for lightweight CI; deployment validation runs this on real LAL.
-    pytest.importorskip('lal')
-    import sys
-    sys.path.insert(0,str(ROOT))
-    from RIFT import lalsimutils
-    names=['mc','delta_mc','chi1','chi2','cos_theta1','cos_theta2','phi1','phi2']
-    low=np.array([[10,.2,.5,.7,-.2,.4,1,2],[15,.1,0,0,1,-1,0,0]])
-    physical_names=['m1','m2','s1x','s1y','s1z','s2x','s2y','s2z']
-    for redshift in [0,.4]:
-        physical=lalsimutils.convert_waveform_coordinates(low,coord_names=physical_names,low_level_coord_names=names,source_redshift=redshift)
-        out=rf.convert(low,physical_names+list(rf.FEATURE_NAMES),names,35,lalsimutils.convert_waveform_coordinates,source_redshift=redshift)
-        np.testing.assert_allclose(out[:,:8],physical,rtol=1e-14,atol=1e-14)
-        np.testing.assert_allclose(out[:,8:],rf.scalar_features(physical[:,0],physical[:,1],physical[:,2:5],physical[:,5:8],35),rtol=1e-14,atol=1e-14)
-        import lal
-        p=lalsimutils.ChooseWaveformParams();p.fref=35;p.m1=physical[0,0]*lal.MSUN_SI;p.m2=physical[0,1]*lal.MSUN_SI
-        p.s1x,p.s1y,p.s1z=physical[0,2:5];p.s2x,p.s2y,p.s2z=physical[0,5:8]
-        np.testing.assert_allclose([rf.extract(p,n) for n in rf.FEATURE_NAMES],out[0,8:],rtol=1e-14)
-
 def test_bool_mass_does_not_activate_auto():
     assert rf.stage_arguments(FULL,'auto',True,True,20)==FULL
 
-def test_actual_native_kerr_rejection_mixed_batch():
-    pytest.importorskip('lal')
-    import sys
-    sys.path.insert(0,str(ROOT))
-    from RIFT import lalsimutils
-    names=['mc','delta_mc','chi1','chi2','cos_theta1','cos_theta2','phi1','phi2']
-    low=np.array([[10,.2,.5,.7,-.2,.4,1,2],[10,.2,1.1,.7,-.2,.4,1,2]])
-    fit=['delta_mc','mu1','mu2','chiMinus','s1x','s1y','s2x','s2y']+list(rf.FEATURE_NAMES)
-    out=rf.convert(low,fit,names,35,lalsimutils.convert_waveform_coordinates,enforce_kerr=True)
+def test_any_mass_and_aligned_basis_is_accepted():
+    # The chart needs only physical masses and spins, so the rest of the basis is the helper's choice.
+    line=FULL.replace('--parameter-implied mu1','--parameter-implied xi')
+    assert rf.stage_arguments(line,'geometric4',10,True,20)==chart_line(line)+' --fref 20.0'
+
+SAMPLED='3 --fit-method rf --parameter-nofit mc --parameter delta_mc --parameter-implied mu1 --parameter-implied mu2 --parameter-implied chiMinus --parameter-nofit s1z --parameter-nofit s2z --use-precessing --parameter s1x --parameter s1y --parameter s2x  --parameter s2y'
+
+@pytest.mark.parametrize('mode',rf.GEOMETRIC4_MODES)
+def test_sampled_transverse_stay_sampled_and_chart_is_fit(mode):
+    # Volumetric-spin stages sample and fit s1x..s2y with --parameter.
+    import shlex
+    tokens=shlex.split(rf.stage_arguments(SAMPLED,mode,10,True,20))
+    def values(flag): return [tokens[i+1] for i,t in enumerate(tokens[:-1]) if t==flag]
+    assert not set(rf.TRANSVERSE)&set(values('--parameter'))
+    assert set(rf.TRANSVERSE)<=set(values('--parameter-nofit'))
+    assert values('--parameter-implied')==['mu1','mu2','chiMinus']+list(rf.geometric_names(mode))
+    # CIP samples --parameter plus --parameter-nofit: the same set as before.
+    before=shlex.split(SAMPLED)
+    def sampled(t): return sorted(t[i+1] for i,x in enumerate(t[:-1]) if x in ('--parameter','--parameter-nofit'))
+    assert sampled(tokens)==sampled(before)
+    assert values('--fref')==['20.0']
+
+@pytest.mark.parametrize('line',[SAMPLED+' --parameter-implied s1x', SAMPLED.replace('--parameter s2y','--parameter-nofit s2y')])
+def test_sampled_transverse_needs_each_component_once(line):
+    assert rf.stage_arguments(line,'geometric4',10,True,20)==line
+
+def test_mixed_sampled_and_implied_components():
+    line=FULL.replace('--parameter-implied s2y','--parameter s2y')
+    out=rf.stage_arguments(line,'geometric4',10,True,20)
+    assert '--parameter-nofit s2y --parameter-implied rf_residual_perpendicular' in out
+    assert '--parameter-implied rf_total_perp' in out and ' s1x ' not in out.replace('--parameter-nofit s1x','')
+
+def test_vector_conversion_native_columns_preserved():
+    physical=np.array([[20,10,.3,.2,-.1,.1,-.2,.4],[20,20,0,0,.2,0,0,.3]])
+    out=rf.convert(physical,PHYSICAL+list(rf.GEOMETRIC4_NAMES),PHYSICAL,35,_identity)
+    np.testing.assert_array_equal(out[:,:8],physical)
+    np.testing.assert_array_equal(out[:,8:],rf.geometric4(physical[:,0],physical[:,1],physical[:,2:5],physical[:,5:8],35))
+
+@pytest.mark.parametrize('frequency',[None,float('nan'),float('inf'),0,-1])
+def test_conversion_requires_a_reference_frequency(frequency):
+    with pytest.raises(ValueError,match='fref'):
+        rf.convert(np.zeros((1,8)),list(rf.GEOMETRIC4_NAMES),PHYSICAL,frequency,_identity)
+
+def test_invalid_physical_rows_do_not_abort_valid_batch():
+    physical=np.array([[20,10,.3,.2,-.1,.1,-.2,.4],[-np.inf]*8])
+    out=rf.convert(physical,PHYSICAL+list(rf.GEOMETRIC4_NAMES),PHYSICAL,20,_identity,enforce_kerr=True)
     assert np.isfinite(out[0]).all() and np.isneginf(out[1]).all()
 
-def test_requires_tested_native_phase_basis():
-    line=FULL.replace('--parameter-implied mu1','--parameter-implied xi')
-    assert rf.stage_arguments(line,'geometric4',10,True,20)==line
+@pytest.mark.parametrize('mode',rf.GEOMETRIC4_MODES)
+def test_lalsimutils_spherical_conversion_matches_extract_param(mode):
+    lalsimutils=_lalsimutils()
+    import lal
+    names=['mc','delta_mc','chi1','chi2','cos_theta1','cos_theta2','phi1','phi2']
+    low=np.array([[10,.2,.5,.7,-.2,.4,1,2],[15,.1,0,0,1,-1,0,0]])
+    chart=list(rf.geometric_names(mode))
+    for redshift in [0,.4]:
+        physical=lalsimutils.convert_waveform_coordinates(low,coord_names=PHYSICAL,low_level_coord_names=names,source_redshift=redshift)
+        out=lalsimutils.convert_waveform_coordinates(low,coord_names=PHYSICAL+chart,low_level_coord_names=names,source_redshift=redshift,fref=35)
+        np.testing.assert_allclose(out[:,:8],physical,rtol=1e-14,atol=1e-14)
+        expected=rf.geometric4(physical[:,0],physical[:,1],physical[:,2:5],physical[:,5:8],35,phase_excess=(mode!='geometric4'))
+        np.testing.assert_allclose(out[:,8:],expected,rtol=1e-14,atol=1e-14)
+        p=lalsimutils.ChooseWaveformParams();p.fref=35;p.m1=physical[0,0]*lal.MSUN_SI;p.m2=physical[0,1]*lal.MSUN_SI
+        p.s1x,p.s1y,p.s1z=physical[0,2:5];p.s2x,p.s2y,p.s2z=physical[0,5:8]
+        np.testing.assert_allclose([p.extract_param(n) for n in chart],out[0,8:],rtol=1e-14)
+    with pytest.raises(ValueError,match='fref'):
+        lalsimutils.convert_waveform_coordinates(low,coord_names=chart,low_level_coord_names=names)
+
+def test_extract_param_requires_fref():
+    lalsimutils=_lalsimutils()
+    p=lalsimutils.ChooseWaveformParams()
+    assert p.fref==0
+    with pytest.raises(ValueError,match='reference frequency'):
+        p.extract_param('rf_total_perp')
+
+def test_lalsimutils_kerr_rejection_mixed_batch():
+    lalsimutils=_lalsimutils()
+    names=['mc','delta_mc','chi1','chi2','cos_theta1','cos_theta2','phi1','phi2']
+    low=np.array([[10,.2,.5,.7,-.2,.4,1,2],[10,.2,1.1,.7,-.2,.4,1,2]])
+    fit=['delta_mc','mu1','mu2','chiMinus']+list(rf.GEOMETRIC4_NAMES)
+    out=lalsimutils.convert_waveform_coordinates(low,coord_names=fit,low_level_coord_names=names,enforce_kerr=True,fref=35)
+    assert np.isfinite(out[0]).all() and np.isneginf(out[1]).all()
+
+def test_chart_names_are_registered_parameters():
+    lalsimutils=_lalsimutils()
+    assert set(rf.GEOMETRIC4_NAMES+rf.PHASE_EXCESS_NAMES)==set(lalsimutils.rf_transverse_param_names)
+    # Grid readers assign every valid_params column; the chart cannot be assigned.
+    assert not set(lalsimutils.rf_transverse_param_names)&set(lalsimutils.valid_params)
+    assert set(lalsimutils.rf_transverse_param_names)<=set(lalsimutils.tex_dictionary)
 
 CIP_FIT=['--parameter','delta_mc']+[a for p in ['mu1','mu2','chiMinus','s1x','s1y','s2x','s2y'] for a in ('--parameter-implied',p)]
 
@@ -117,58 +153,9 @@ CIP_SAMPLED=[a for p in ['mc','chi1','chi2','cos_theta1','cos_theta2','phi1','ph
 
 CIP_BASE=['--fit-method','rf','--use-precessing','--fref','35','--rf-transverse-spin-coordinates','geometric4']+CIP_FIT+CIP_SAMPLED
 
-def _replace(args,old,new):
-    args=list(args); args[args.index(old)]=new; return args
-
-def _drop(args,flag):
-    return [a for a in args if a!=flag]
-
-# One case per CIP RF transverse-spin refusal, keyed by the CIP option the condition reads.
-CIP_REFUSALS={
-    'fref (nan)':        lambda a: _replace(a,'35','nan'),
-    'fref (zero)':       lambda a: _replace(a,'35','0'),
-    'fit_method':        lambda a: a+['--fit-method','gp'],
-    'fit_load_gp':       lambda a: a+['--fit-load-gp','my_fit.pkl'],
-    'use_precessing':    lambda a: _drop(a,'--use-precessing'),
-    'input_tides':       lambda a: a+['--input-tides'],
-    'using_eos':         lambda a: a+['--using-eos','lal_SLY4'],
-    'use_eccentricity':  lambda a: a+['--use-eccentricity'],
-    'coord_names (mu1)': lambda a: _replace(a,'mu1','xi'),
-    'coord_names (delta_mc)': lambda a: _replace(a,'delta_mc','eta'),
-}
-
-def test_every_cip_refusal_has_a_case():
-    import re
-    src=(ROOT/'bin/util_ConstructIntrinsicPosterior_GenericCoordinates.py').read_text()
-    guard=src[src.index('if opts.rf_transverse_spin_coordinates:'):src.index('# Preserve physical sampling coordinates')]
-    read=set(re.findall(r'opts\.(\w+)',guard))-{'rf_transverse_spin_coordinates'}
-    covered={k.split()[0] for k in CIP_REFUSALS}
-    assert read<=covered, read-covered
-    assert 'coord_names' in covered and 'NATIVE_FEATURES' in guard
-
-def test_stage_problem_accepts_the_valid_line():
-    assert rf.stage_problem(' '.join(CIP_BASE)) is None
-    assert rf.stage_problem(' '.join(CIP_BASE).replace('--fit-method rf','--fit-method=rf')) is None
-
-@pytest.mark.parametrize('case',sorted(CIP_REFUSALS))
-def test_stage_problem_mirrors_each_cip_refusal(tmp_path,case):
-    # pseudo_pipe's build-time check must refuse exactly what CIP refuses at runtime.
-    args=CIP_REFUSALS[case](CIP_BASE)
-    assert rf.stage_problem(' '.join(args)) is not None
-    pytest.importorskip('lal')
-    import os,subprocess,sys
-    (tmp_path/'g.dat').write_text('0 20 10 0 0 0 0 0 0 10 0.1 100 1000\n')
-    cmd=[sys.executable,str(ROOT/'bin/util_ConstructIntrinsicPosterior_GenericCoordinates.py'),'--fname','g.dat','--no-plots']+args
-    env=dict(os.environ,PYTHONPATH=str(ROOT)+os.pathsep+os.environ.get('PYTHONPATH',''),OMP_NUM_THREADS='1')
-    proc=subprocess.run(cmd,cwd=tmp_path,env=env,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,universal_newlines=True,timeout=300)
-    assert proc.returncode!=0
-    assert ('RF transverse coordinates require a fresh RF fit' in proc.stdout) or ('RF reference frequency' in proc.stdout), proc.stdout[-2000:]
-
-def test_physics3_is_refused_at_every_layer():
-    # physics3 fit 11 coordinates for 8 degrees of freedom.
+def test_physics3_is_refused():
     with pytest.raises(ValueError,match='retired'):rf.enabled('physics3',10,True)
     with pytest.raises(ValueError,match='retired'):rf.stage_arguments(FULL,'physics3',10,True,20)
-    assert 'retired' in rf.stage_problem(' '.join(CIP_BASE).replace('geometric4','physics3'))
 
 
 def _run_cip(tmp_path,args):
@@ -185,11 +172,11 @@ def test_cip_refuses_physics3(tmp_path):
     assert proc.returncode!=0 and 'physics3 is retired' in proc.stdout, proc.stdout[-2000:]
 
 
-def test_cip_refuses_rf_fit_wider_than_sampling(tmp_path):
-    # geometric4 basis is complete, but only one coordinate is sampled.
-    args=[a for a in CIP_BASE if a not in CIP_SAMPLED]
+def test_cip_alias_requires_the_four_transverse_names(tmp_path):
+    args=[a for a in CIP_BASE]
+    args[args.index('s2y')-1:args.index('s2y')+1]=[]
     proc=_run_cip(tmp_path,args)
-    assert proc.returncode!=0 and 'but samples only 1' in proc.stdout, proc.stdout[-2000:]
+    assert proc.returncode!=0 and 'needs s1x, s1y, s2x, s2y' in proc.stdout, proc.stdout[-2000:]
 
 
 def test_default_and_off_never_enter_the_policy():
@@ -282,61 +269,6 @@ def test_asimov_psd_staging_targets_rundir_from_foreign_cwd(tmp_path,monkeypatch
     for name in ['build_dag','submit_dag']:
         fn=next(n for n in ast.walk(tree) if isinstance(n,ast.FunctionDef) and n.name==name)
         assert any(isinstance(n,ast.Call) and isinstance(n.func,ast.Attribute) and n.func.attr=='_stage_xml_psds' for n in ast.walk(fn))
-
-
-@pytest.mark.parametrize('mode',rf.GEOMETRIC4_MODES)
-@pytest.mark.parametrize('sampled', [[], ['mc'] * 8])
-def test_pipeline_refuses_missing_or_repeated_sampling_coordinates(mode, sampled):
-    line='1 --fit-method rf --use-precessing --rf-transverse-spin-coordinates='+mode
-    line+=' '+' '.join('--parameter-implied '+p for p in rf.NATIVE_FEATURES)
-    line+=' '+' '.join('--parameter-nofit '+p for p in sampled)
-    if hasattr(rf, 'stage_problem'):
-        assert rf.stage_problem(line) is not None
-    else:
-        with pytest.raises(ValueError, match='samples only|must be unique'):
-            rf.revalidate_stage(line)
-
-
-def test_cip_refuses_duplicate_sampling_coordinates(tmp_path):
-    # Eight argument entries cannot stand in for eight independent dimensions.
-    args=CIP_BASE[:CIP_BASE.index('--parameter-nofit')]
-    args += ['--parameter-nofit', 'mc'] * 7  # delta_mc is the only --parameter.
-    proc=_run_cip(tmp_path,args)
-    assert proc.returncode!=0 and 'sampling coordinates must be unique' in proc.stdout, proc.stdout[-2000:]
-
-
-def test_pipeline_refuses_last_equals_form_retired_mode():
-    line=' '.join(CIP_BASE)+' --rf-transverse-spin-coordinates=physics3'
-    if hasattr(rf, 'stage_problem'):
-        assert 'retired' in rf.stage_problem(line)
-    else:
-        with pytest.raises(ValueError, match='retired'):
-            rf.revalidate_stage(line)
-
-
-@pytest.mark.parametrize('matter', [False, True])
-def test_dimension_guard_leaves_nontransverse_and_matter_fits_alone(matter):
-    # Execute the actual CIP block without launching the sampler. Redundant fit
-    # features are legitimate outside this specific RF transverse policy.
-    import ast
-    from types import SimpleNamespace
-    root=Path(__file__).resolve().parents[1]
-    tree=ast.parse((root/'bin/util_ConstructIntrinsicPosterior_GenericCoordinates.py').read_text())
-    guard=next(n for n in tree.body if isinstance(n,ast.If)
-               and 'rf_transverse_spin.sampling_problem' in ast.unparse(n))
-    ns={'opts':SimpleNamespace(rf_transverse_spin_coordinates=None,
-                              input_tides=matter, using_eos=matter),
-        'coord_names':['mc', 'eta', 'lambda1', 'lambda2', 'lambda_plus', 'lambda_minus'],
-        'low_level_coord_names':['mc', 'eta', 'lambda1', 'lambda2']}
-    exec(compile(ast.Module(body=[guard],type_ignores=[]),'CIP_dimension_policy','exec'),ns)
-
-
-def test_revalidate_rejects_retired_mode_with_argparse_spelling_and_precedence():
-    line=' '.join(CIP_BASE)
-    with pytest.raises(ValueError, match='retired'):
-        rf.revalidate_stage(line+' --rf-transverse-spin-coordinates=physics3')
-    overridden=line+' --rf-transverse-spin-coordinates physics3 --rf-transverse-spin-coordinates=geometric4'
-    assert rf.revalidate_stage(overridden)==overridden
 
 
 def test_retired_problem_finds_any_occurrence_in_any_spelling():

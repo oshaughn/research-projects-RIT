@@ -4,10 +4,9 @@ Unit tests for explicit bootstrap-source selection in RIFT.asimov.rift.
 
 ``scheduler: bootstrap file:`` lets a blueprint name the PESummary metafile to
 bootstrap from directly, instead of routing it through an asimov dependency.
-The dependency route only works for pipelines whose ``collect_assets()``
-returns ``samples`` as a single path to a PESummary metafile; the bilby
-pipeline returns a *list* of raw bilby result files, which used to fail
-silently and leave the run with no bootstrap at all.
+The dependency route accepts a single posterior path or a one-file asset list.
+Raw Bilby results and PESummary metafiles are supported; multiple files remain
+ambiguous and must not silently disable bootstrap.
 
 These tests drive ``Rift._resolve_bootstrap_file`` and ``Rift._dataset_label``
 against a stub production, so they need no asimov project on disk.
@@ -191,13 +190,9 @@ def test_metafile_without_version_and_history_still_works(tmp_path):
     assert _StubRift({"scheduler": {}})._dataset_label(path) == "only-label"
 
 
-def test_raw_bilby_result_is_rejected_with_a_useful_message(tmp_path):
-    """RIFT consumes PESummary metafiles, not raw bilby result files."""
+def test_raw_bilby_result_needs_no_pesummary_label(tmp_path):
     target = _write_raw_bilby(tmp_path / "raw_result.hdf5")
-    with pytest.raises(PipelineException) as excinfo:
-        _StubRift({"scheduler": {}})._dataset_label(target)
-    assert "raw bilby" in str(excinfo.value).lower()
-    assert "pesummary" in str(excinfo.value).lower()
+    assert _StubRift({"scheduler": {}})._dataset_label(target) is None
 
 
 if __name__ == "__main__":

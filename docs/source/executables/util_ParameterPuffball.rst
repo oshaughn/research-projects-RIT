@@ -75,3 +75,100 @@ Output Details
 ---------------
 
 The tool prints the updated covariance matrix and the final count of exported points. The output is a standard `ligolw` XML file containing the "puffed" parameter set.
+
+Opt in to mu coordinates and random transverse discovery
+------------------------------------------------------
+
+For an initially aligned precessing-BBH grid, use a covariance puff in
+``mu1, mu2, q=m2/m1, s2z`` and an independent **random redraw** of both
+transverse spins. Transverse coordinates are never included in the fitted
+covariance: an aligned seed grid has no transverse variance. This mode does
+not use the legacy singular-covariance fallback. Genuine zero directions in
+the four-dimensional covariance remain zero.
+
+.. code-block:: bash
+
+   util_ParameterPuffball.py --inj-file selected-grid.xml.gz \
+       --inj-file-out puff-mu --puff-coordinate-system mu-random-transverse \
+       --puff-factor 1 --mu-puff-n-proposals 1000 --random-seed 448 \
+       --downselect-parameter chi1 --downselect-parameter-range '[0,0.99]' \
+       --downselect-parameter chi2 --downselect-parameter-range '[0,0.99]' \
+       --fail-if-empty
+
+Omit ``--parameter``: this mode uses a fixed chart. Input seeds should already
+be selected using likelihood results; this executable does not rank them.
+The default budget makes one attempt per input seed, preserving seed-branch
+coverage. An explicit proposal count instead selects parents uniformly.
+Each attempt perturbs the joint mass/aligned coordinates by ``--puff-factor``
+times their measured covariance factor. An atomic vectorized inverse reconstructs both masses and aligned
+spins together. The inverse uses the existing mu coordinate convention
+(``tools.fref=200 Hz``), independently of waveform ``--fref``.
+
+For each body the transverse radius is uniform between zero and
+``min(mu_puff_transverse_max, sqrt(1-siz**2))``; azimuth is uniform on
+``[0,2*pi)``. Both spins are redrawn independently, even when
+``--puff-factor 0`` leaves the mass/aligned coordinates fixed. The optional
+``--mu-puff-transverse-max`` defaults to 1. This is an exploration distribution,
+not an isotropic-spin prior, and not an additive Gaussian transverse puff.
+
+``--mu-puff-n-proposals`` is an attempted budget, defaulting to the input row
+count. Invalid inverses and failed native downselections are discarded without
+retries or clipping. Other waveform fields are copied from the selected parent.
+Both XML and hyperpipeline ASCII grids are supported; ASCII columns are
+preserved. A ``<output>_mu_puff.json`` sidecar records the attempted, inverse-
+accepted and exported counts, random seed and proposal settings.
+
+The prototype supports native mass/spin downselection, frequency overrides and
+duration bounds. It refuses legacy ``--parameter``, ``--reflect-parameter``,
+``--no-correlation``, ``--force-away``, random/append overrides, effective
+eccentric-phase puffing and hyperbolic force modes instead of ignoring them.
+There is no automatic pipeline behavior change without the opt-in below.
+
+Select discovery by CIP batch
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+.. code-block:: bash
+
+   util_RIFT_pseudo_pipe.py [usual precessing BBH arguments] \
+       --internal-puff-mu-random-transverse
+
+This BasicIteration opt-in enables the existing ``internal_puff_transverse``
+procedure and writes ``args_puff_list.txt`` paired line-for-line with the final
+``args_cip_list.txt``. Only the first finite CIP batch uses mu/random-transverse
+discovery; every later batch uses the existing reflected transverse covariance
+puff. A ``Z`` refinement subdag inherits its own stage's ordinary puff settings,
+not the discovery configuration. The first puff follows the first CIP and its
+points are scored by the next iteration's ILE puff jobs; this does not alter
+the initial grid before iteration-zero ILE.
+
+The first batch's count determines the discovery duration. Existing cadence
+and stop settings govern when puff jobs run; the opt-in ensures ``puff-max-it``
+covers the first batch. It retains helper bounds, frequency settings, duration
+limits and puff factor. Early discovery omits legacy force-away exclusion:
+mass/aligned proximity does not make a random transverse orientation redundant.
+Later stages retain it. ``args_puff.txt`` remains the ordinary single-stage
+configuration. With the opt-in absent, the old argument files and job routing
+are unchanged. The initial prototype rejects nonprecessing, matter, eccentric,
+hyperbolic, AMR, Alternate/MultiApprox and transverse-tail-bundle combinations.
+
+BasicIteration also accepts a manually supplied ``--puff-args-list`` with the
+same count/``G``/``Z`` prefixes and number of lines as ``--cip-args-list``::
+
+   2 --puff-coordinate-system mu-random-transverse --puff-factor 1
+   3 --parameter mc --parameter delta_mc --parameter s1z --parameter s2z
+   Z --parameter mc --parameter delta_mc --parameter s1z --parameter s2z
+
+Pass it with ``--puff-cadence`` and ``--puff-max-it``. It is mutually exclusive
+with the legacy ``--puff-args``. Stage selection uses the builder's actual CIP
+batch expansion, including repeated and final-extended stages. A ``Z`` child
+receives a single ordinary ``--puff-args`` file for its selected stage.
+
+Qualification
+~~~~~~~~~~~~~
+
+The vectorized inverse was checked against forward mu coordinates, including
+negative mu1, equal masses, near-Kerr spins and invalid proposals. Earlier
+PP005 retrospective support tests motivated the mu chart; those tests used
+Gaussian transverse floors and do not establish likelihood yield for this
+random-redraw proposal. Re-score candidates with production ILE before using
+them in inference. No posterior or evidence weights come from these coordinates.

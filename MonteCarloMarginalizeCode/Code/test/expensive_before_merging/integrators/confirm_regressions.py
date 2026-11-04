@@ -35,7 +35,7 @@ sys.path.insert(0, HERE)
 # copy was blind to REGRESSION(metrics), so a real metric regression (measured: n_eff 448->210)
 # reported "no blocking regressions to confirm" and exited 0.
 from compare_shape_results import classify, is_blocking, blocking_keys   # noqa: E402
-from shape_recovery import GROUP_KINDS   # noqa: E402
+from shape_recovery import GROUP_KINDS, NARROW_FLAT_KIND   # noqa: E402
 
 
 def _key(r):
@@ -52,11 +52,15 @@ def _blocking(base_path, cand_path, strict):
 
 def _rerun_cmd(rec, seed, jobs, path):
     """shape_recovery.py command line that re-runs the cell `rec` came from."""
+    if rec["kind"] == NARROW_FLAT_KIND:
+        return [os.environ.get("PYTHON", "python3"), os.path.join(HERE, "shape_recovery.py"),
+                "--json", path, "--jobs", str(jobs), "--run-seed", str(seed), "--no-matrix",
+                "--warm-cases", "off", "--group-cases", "off", "--narrow-flat-cases", "on"]
     if rec["kind"] in GROUP_KINDS:
         # a fixed case list, not a matrix cell: run only that list
         return [os.environ.get("PYTHON", "python3"), os.path.join(HERE, "shape_recovery.py"),
                 "--json", path, "--jobs", str(jobs), "--run-seed", str(seed), "--no-matrix",
-                "--warm-cases", "off", "--group-cases", "on"]
+                "--warm-cases", "off", "--group-cases", "on", "--narrow-flat-cases", "off"]
     return [os.environ.get("PYTHON", "python3"), os.path.join(HERE, "shape_recovery.py"),
            "--preset", "standard", "--json", path, "--jobs", str(jobs),
            "--samplers", rec["kind"] if not rec["kind"].startswith(("portfolio_warm",
@@ -66,7 +70,7 @@ def _rerun_cmd(rec, seed, jobs, path):
            "--target-seeds", str(rec["target_seed"]), "--run-seed", str(seed),
            "--warm-cases", "on" if rec["kind"] in ("portfolio_warm", "portfolio_seq",
                                                    "portfolio_seq_nobs", "AV_seq") else "off",
-           "--group-cases", "off"]
+           "--group-cases", "off", "--narrow-flat-cases", "off"]
 
 
 # One child run of the group list yields every group row, so several disputed group rows share

@@ -6,6 +6,7 @@ import os
 import re
 import subprocess
 import shutil
+import tempfile
 from pathlib import Path
 
 from ligo.gracedb.rest import HTTPError
@@ -269,7 +270,7 @@ class Rift(Pipeline):
 
     def _dataset_label(self, posterior_file):
         """
-        The PESummary analysis label to read out of ``posterior_file``.
+        The PESummary label, or None for a raw Bilby JSON/HDF5 result.
 
         An explicit ``dataset:`` is returned as-is without opening the file,
         preserving the previous ``if "dataset" not in self.production.meta``
@@ -285,36 +286,56 @@ class Rift(Pipeline):
         if requested:
             return requested
 
-        import h5py
+        from RIFT.misc.bootstrap import posterior_label
+        try:
+            return posterior_label(posterior_file)
+        except (ValueError, OSError) as exc:
+            raise PipelineException("RIFT bootstrap: {}".format(exc),
+                                    production=self.production.name) from exc
 
-        with h5py.File(posterior_file, 'r') as handle:
-            keys = list(handle.keys())
-            # A PESummary analysis label is a group holding the samples; other
-            # root-level entries (metadata, and the raw-bilby layout below) are
-            # not candidates.
-            labels = [k for k in keys
-                      if k not in self._PESUMMARY_RESERVED
-                      and hasattr(handle[k], 'keys')
-                      and ('posterior_samples' in handle[k] or 'posterior' in handle[k])]
-            root_is_samples = 'posterior' in keys and not labels
-
-        if root_is_samples:
-            # A raw bilby result file: samples live at the root rather than
-            # under an analysis label, so the PESummary reader cannot consume
-            # it.  Say so, instead of raising 'Unknown key in file'.
-            raise PipelineException(
-                "RIFT bootstrap: {} looks like a raw bilby result file, not a "
-                "PESummary metafile. Point 'bootstrap file' at the PESummary "
-                "output (.../pesummary/samples/posterior_samples.h5).".format(
-                    posterior_file),
-                production=self.production.name)
-
-        if len(labels) != 1:
-            raise PipelineException(
-                "RIFT bootstrap: {} has {} analysis labels ({}); set 'dataset:' "
-                "to choose one".format(posterior_file, len(labels), labels),
-                production=self.production.name)
-        return labels[0]
+    def _convert_bootstrap_grid(self, posterior_file, bootstrap_file, ascii_file):
+        """Convert a posterior to a grid, and propagate conversion failures."""
+        from RIFT.misc.bootstrap import dump_samples
+        try:
+            Path(bootstrap_file).parent.mkdir(parents=True, exist_ok=True)
+            samples = dump_samples(posterior_file, self.production.meta.get('dataset'), ascii_file)
+            reference = self.production.meta.get('waveform', {}).get(
+                'reference frequency', self.production.meta.get('likelihood', {}).get('start frequency'))
+            if (reference is not None and 'eccentricity' in samples.dtype.names
+                    and np.any(samples['eccentricity'] > 0) and 'f_ref' in samples.dtype.names
+                    and not np.allclose(samples['f_ref'], float(reference), rtol=0, atol=1e-8)):
+                raise ValueError('Eccentric bootstrap reference frequency differs from the target; '
+                                 'transport the posterior to the target reference frequency first')
+            executable = shutil.which('convert_output_format_inference2ile')
+            if executable is None:
+                raise ValueError('convert_output_format_inference2ile is not on PATH')
+            command = [executable, '--posterior-samples', str(ascii_file),
+                       '--output-xml', str(bootstrap_file)]
+            assumptions = self.production.meta.get('likelihood', {}).get('assume', [])
+            sampler = dict(self.production.meta.get('sampler', {}))
+            sampler.update(sampler.get('extra eccentric arguments', {}) or {})
+            if 'eccentric' in assumptions:
+                command.append('--add-eccentricity-params')
+                for edge in ('min', 'max'):
+                    if 'force-ecc-' + edge in sampler:
+                        command += ['--ecc-' + edge, str(sampler['force-ecc-' + edge])]
+            if ('no spin' in assumptions
+                    or self.production.meta.get('waveform', {}).get('non-spin', False)):
+                command.append('--use-no-spin')
+            elif 'nonprecessing' in assumptions:
+                command.append('--use-aligned-spin')
+            scheduler = self.production.meta.get('scheduler', {})
+            if 'bootstrap size' in scheduler:
+                command += ['--target-size', str(int(scheduler['bootstrap size']))]
+            if reference is not None:
+                command += ['--fref', str(reference)]
+            subprocess.run(command, check=True, capture_output=True, text=True)
+            if not os.path.isfile(bootstrap_file):
+                raise ValueError('Converter did not produce {}'.format(bootstrap_file))
+        except (ValueError, KeyError, OSError, ImportError, subprocess.CalledProcessError) as exc:
+            detail = getattr(exc, 'stderr', None) or str(exc)
+            raise PipelineException('RIFT bootstrap conversion failed: {}'.format(detail),
+                                    production=self.production.name) from exc
 
     def _find_posterior(self):
         """
@@ -342,7 +363,7 @@ class Rift(Pipeline):
                             if len(posterior_file) != 1:
                                 raise PipelineException(
                                     "RIFT bootstrap: {} publishes {} sample files; "
-                                    "need exactly one PESummary metafile".format(
+                                    "need exactly one posterior file".format(
                                         previous_job, len(posterior_file)),
                                     production=self.production.name)
                             posterior_file = posterior_file[0]
@@ -444,22 +465,184 @@ class Rift(Pipeline):
             "sampler.cip.transverse spin coordinates must be off, auto, "
             "geometric4, geometric4-phase-excess or a YAML boolean (physics3 is retired); got {!r}".format(value))
 
+    def _require_fresh_rundir(self, dryrun=False):
+        """Reject occupied paths before any adapter writes; mkdir remains atomic.
+
+        No directory, even an empty/provenance-only one, is adopted. lexists
+        also rejects dangling symlinks. No ownership marker grants permission.
+        A refusal marks the production stuck: Asimov leaves a production ready
+        after a transient submit failure, and would otherwise retry forever.
+        """
+        rundir = self.production.rundir or os.path.join(
+            os.path.expanduser("~"), self.production.event.name, self.production.name
+        )
+        rundir = os.path.abspath(os.path.expanduser(rundir))
+        if not dryrun:
+            self.production.rundir = rundir
+        if os.path.lexists(rundir):
+            if not dryrun:
+                self.production.status = "stuck"
+            raise PipelineException(
+                f"RIFT run directory already exists: {rundir}. Choose a fresh "
+                "run directory; existing runs are never overwritten.",
+                production=self.production.name,
+            )
+
+    def _bootstrap_source_requested(self):
+        """A nonempty file wins; false/missing upstream and empty files are disabled."""
+        scheduler = self.production.meta.get("scheduler", {})
+        return (bool(scheduler.get("bootstrap file"))
+                or bool(scheduler.get("bootstrap upstream", False)))
+
+    def _bootstrap_coinc_requested(self):
+        scheduler = self.production.meta.get("scheduler", {})
+        requested = scheduler.get("bootstrap coinc", False)
+        if type(requested) is not bool:
+            raise PipelineException(
+                "scheduler.bootstrap coinc must be a YAML boolean",
+                production=self.production.name,
+            )
+        if requested and not self._bootstrap_source_requested():
+            raise PipelineException(
+                "bootstrap coinc requires a configured bootstrap source",
+                production=self.production.name,
+            )
+        return requested
+
+    def _convert_bootstrap_coinc(self, bootstrap_file, environment):
+        """Select a private validated coincidence input for this invocation.
+
+        Concurrent productions must never replace each other's selected input.
+        Retain a unique directory on success; remove only our new directory on
+        conversion failure. Canonical event coincidence inputs remain untouched.
+        """
+        parent = Path(os.path.abspath(os.path.join(
+            self.production.event.repository.directory, "C01_offline")))
+        directory = None
+        try:
+            parent.mkdir(parents=True, exist_ok=True)
+            directory = Path(tempfile.mkdtemp(prefix=".rift-bootstrap-coinc-", dir=parent))
+            output = directory / "coinc.xml"
+            command = [os.path.join(environment, "bin", "util_SimInspiralToCoinc.py"),
+                       "--sim-xml", os.path.abspath(bootstrap_file), "--output", str(output)]
+            result = subprocess.run(command, stdout=subprocess.PIPE,
+                                    stderr=subprocess.STDOUT, text=True, check=False)
+            if result.returncode != 0 or not output.is_file() or output.stat().st_size == 0:
+                raise ValueError(str(result.stdout)[-4000:])
+            from igwn_ligolw import lsctables, utils
+            from RIFT import lalsimutils
+            rows = lsctables.SnglInspiralTable.get_table(utils.load_filename(
+                str(output), contenthandler=lalsimutils.cthdler))
+            if not rows or any(not np.isfinite(row.mass1) or not np.isfinite(row.mass2)
+                               or row.mass1 <= 0 or row.mass2 <= 0 for row in rows):
+                raise ValueError("bootstrap coincidence has no valid positive-mass detector rows")
+        except Exception as error:
+            if directory is not None:
+                shutil.rmtree(directory)
+            raise PipelineException(
+                "Native bootstrap coincidence conversion failed; prior input retained: " + str(error),
+                production=self.production.name,
+            ) from error
+        return str(output)
+
+    def _capture_build_environment(self):
+        """Capture at the final location, and fail closed on ASIMOV 0.8 errors.
+
+        ASIMOV catches capture errors internally. Do not let stale ledger
+        metadata turn such an error into a successful build without provenance.
+        Older supported ASIMOV versions have a no-op base hook.
+        """
+        if callable(getattr(Pipeline, "_capture_environment", None)):
+            for name in ("environment.json", "environment-pip.txt", "environment-conda.txt"):
+                if os.path.lexists(os.path.join(self.production.rundir, name)):
+                    raise PipelineException(
+                        f"Refusing to replace build provenance: {name}",
+                        production=self.production.name,
+                    )
+            environment = self.production.meta.setdefault("environment", {})
+            environment.pop("files", None)
+            environment.pop("captured_at", None)
+            # ASIMOV caches package lists per process, including a timed-out
+            # pip freeze (None). Retry it rather than fail every later build.
+            try:
+                from asimov import environment as asimov_environment
+                cache = asimov_environment._PACKAGE_CACHE
+            except (ImportError, AttributeError):
+                cache = {}
+            for key, packages in list(cache.items()):
+                if packages.get("pip_packages") is None:
+                    del cache[key]
+        super().before_config(dryrun=False)
+        if callable(getattr(Pipeline, "_capture_environment", None)):
+            environment = self.production.meta.get("environment", {})
+            files = environment.get("files", {})
+            valid = (environment.get("captured_at") is True
+                     and any(key in files for key in ("pip", "conda"))
+                     and files.get("metadata") == os.path.join(
+                         self.production.rundir, "environment.json"))
+            for filename in files.values():
+                path = Path(filename)
+                valid = valid and (path.parent == Path(self.production.rundir)
+                                   and path.is_file() and not path.is_symlink()
+                                   and path.stat().st_size > 0)
+            if not valid:
+                self.production.status = "stuck"
+                raise PipelineException(
+                    "RIFT workflow was generated but environment capture failed. "
+                    "Retaining partial output; retry with a fresh run directory.",
+                    production=self.production.name,
+                )
+
+    def _validate_builder_paths(self, ini):
+        """Keep the native builder and deferred provenance on the same path."""
+        options = self.production.meta.get("scheduler", {}).get("pipeline", {})
+        scheduler = self.production.meta.get("scheduler", {})
+        bootstrap_paths = ("use-coinc",) if scheduler.get("bootstrap coinc") is True else ()
+        if self.bootstrap == "manual" or self._bootstrap_source_requested():
+            bootstrap_paths += ("manual-initial-grid",)
+        for key in options:
+            if any(option.startswith(key.partition("=")[0].replace("_", "-"))
+                   for option in ("use-rundir", "use-ini", "help") + bootstrap_paths):
+                raise PipelineException(
+                    f"scheduler.pipeline.{key} is owned by Asimov and cannot be overridden",
+                    production=self.production.name,
+                )
+        # Parse as the builder does (case-sensitive keys), so a valid INI is
+        # never rejected and a parse failure is a PipelineException.
+        settings = configparser.ConfigParser(interpolation=None)
+        settings.optionxform = str
+        try:
+            settings.read(ini)
+        except configparser.Error as error:
+            raise PipelineException(
+                f"Unable to read INI {ini}: {error}",
+                production=self.production.name,
+            ) from error
+        if settings.has_section("rift-pseudo-pipe"):
+            for key in settings["rift-pseudo-pipe"]:
+                if key.replace("_", "-") in ("use-rundir", "use-ini") + bootstrap_paths:
+                    raise PipelineException(
+                        f"INI {key} is owned by Asimov and cannot be overridden",
+                        production=self.production.name,
+                    )
+
     def before_config(self, dryrun=False):
         """
         - Convert the text-based PSD to an XML psd if the xml doesn't exist already.
         - Find bilby ini file (needed for calmarg)
         - Find all-event priors and copy to production, overwriting
         """
-        # ASIMOV 0.8 captures the execution environment in this hook. Keep
-        # calling the base implementation so provenance is not silently lost;
-        # older supported ASIMOV releases implement this as a no-op.
-        super().before_config(dryrun=dryrun)
+        # ASIMOV 0.8's base hook creates rundir for environment capture.
+        # The native builder must own its atomic mkdir, so defer that hook
+        # until a successful build instead of adopting an existing directory.
+        self._require_fresh_rundir(dryrun=dryrun)
         self._validate_cip_fit_method()
         self._validate_transverse_spin_coordinates()
 
         event = self.production.event
         category = config.get("general", "calibration_directory")
-        self._prepare_frame_caches()
+        if not dryrun:
+            self._prepare_frame_caches()
         # XML PSDs
         self.logger.info("Checking for XML format PSDs")
         if len(self._get_psds("xml")) == 0 and "psds" in self.production.meta:
@@ -572,6 +755,8 @@ class Rift(Pipeline):
         """
         self._validate_cip_fit_method()
         self._validate_transverse_spin_coordinates()
+        self._require_fresh_rundir(dryrun=dryrun)
+        bootstrap_coinc = self._bootstrap_coinc_requested()
         self.before_build()
         cwd = os.getcwd()
         if self.production.event.repository:
@@ -610,6 +795,8 @@ class Rift(Pipeline):
         else:
             ini = "INI MISSING"
             coinc_file = os.path.join(cwd, "coinc.xml")
+
+        self._validate_builder_paths(ini)
 
         if self.production.get_meta("user"):
             user = self.production.get_meta("user")
@@ -695,19 +882,26 @@ class Rift(Pipeline):
                 "util_RIFT_pseudo_pipe.py",
             ),
         ]
-        if coinc_file:
-            command += ["--use-coinc", coinc_file]
-
         if "non-spin" in self.production.meta["waveform"]:
             if self.production.meta["waveform"]["non-spin"]:
                 command += ["--assume-nospin"]
 
+        # Legacy bootstrap=manual selects a supplied read-only grid. Native
+        # posterior conversion below replaces this binding with private input.
+        bootstrap_file = os.path.abspath(os.path.join(
+            self.production.event.repository.directory, "C01_offline",
+            f"{self.production.name}_bootstrap.xml.gz")) if self.production.event.repository else os.path.abspath(
+                f"{self.production.name}_bootstrap.xml.gz")
         # Generate initial samples, based on previous PE results (or an
         # explicitly-specified posterior, via scheduler: bootstrap file:)
-        if ('bootstrap upstream' in self.production.meta['scheduler']
-                or 'bootstrap file' in self.production.meta['scheduler']):
+        if self._bootstrap_source_requested():
             # get posterior file
             posterior_file = self._find_posterior()
+            if not posterior_file:
+                raise PipelineException(
+                    "Native generation requires a resolved bootstrap source",
+                    production=self.production.name,
+                )
             self.logger.info("  Bootstrap requested, attempting with file {}".format(posterior_file) )                        
             if posterior_file:
                 # convert posterior samples to temp location
@@ -716,41 +910,42 @@ class Rift(Pipeline):
                         "C01_offline",
                         f"{self.production.name}_bootstrap.xml.gz",
                     )
+                if dryrun:
+                    bootstrap_file = os.path.abspath(os.path.join(
+                        self.production.event.repository.directory, "C01_offline",
+                        "<new-private-bootstrap-grid>", "grid.xml.gz"))
+                if not dryrun:
+                    # Converter outputs are private from the start: competing
+                    # builds cannot truncate or replace each other's inputs.
+                    parent = Path(bootstrap_file).resolve().parent
+                    parent.mkdir(parents=True, exist_ok=True)
+                    directory = tempfile.mkdtemp(prefix=".rift-bootstrap-grid-", dir=parent)
+                    bootstrap_file = str(Path(directory) / "grid.xml.gz")
                 bootstrap_file_ascii = str(bootstrap_file) + "_ascii"
-                # test if bootstrap file already exists
-                if not self._reuse_existing_bootstrap(
-                        bootstrap_file, posterior_file):
-                       import RIFT.misc.samples_utils
-                       RIFT.misc.samples_utils.dump_pesummary_samples_to_file_as_rift(posterior_file, self.production.meta['dataset'], bootstrap_file_ascii)
-                       extra_args =''
-                       # bootstrap eccentricity from samples
-                       if 'eccentric' in self.production.meta['likelihood']['assume']:
-                           extra_args += ' --add-eccentricity-params  '
-                           if 'force-ecc-max' in self.production.meta['sampler']:
-                               extra_args+= ' --ecc-max {} '.format(self.production.meta['sampler']['force-ecc-max'])
-                       # zero out transverse spin if needed
-                       if 'nonprecessing' in self.production.meta['likelihood']['assume']:
-                           extra_args += " --use-aligned-spin "
-                       if 'bootstrap size' in self.production.meta['scheduler']:
-                               bootstrap_size = int(self.production.meta['scheduler']['bootstrap size'])
-                               extra_args += " --target-size {} ".format(bootstrap_size)
-                       os.system("convert_output_format_inference2ile --posterior-samples {} --output {} {} ".format(bootstrap_file_ascii, bootstrap_file, extra_args) )
+                if not dryrun:
+                    self._convert_bootstrap_grid(posterior_file, bootstrap_file, bootstrap_file_ascii)
                 self.bootstrap="manual"
                 # as needed, parse bootstrap file for signal
-                if 'bootstrap amplitude' in self.production.meta['scheduler']:
+                if not dryrun and 'bootstrap amplitude' in self.production.meta['scheduler']:
                            dat = np.genfromtxt(bootstrap_file_ascii,names=True)
                            if 'lnL' in dat.dtype.names: # remember, cast to RIFT format ! name change !
                                if np.max(dat['lnL']) >   500:   # threshold,
                                    command +=[ "--internal-ile-force-adapt-all"]   # force 
 
-                # bootstrap coinc file !  note the intention will be to OVERWRITE the existing coinc (or to deal with the absence of one for this event)
-                if  'bootstrap coinc' in self.production.meta['scheduler']:
-                    coinc_file = os.path.join(
-                        self.production.event.repository.directory,
-                        "C01_offline",
-                        'coinc.xml')
-                    os.system("util_SimInspiralToCoinc.py --sim-xml {} --output {} ".format(bootstrap_file, coinc_file) )
-                    
+                if bootstrap_coinc:
+                    if dryrun:
+                        coinc_file = os.path.abspath(os.path.join(
+                            self.production.event.repository.directory, "C01_offline",
+                            "<new-private-bootstrap-input>", "coinc.xml"))
+                        self.logger.info("Dry run: generate private bootstrap grid and coincidence input")
+                    else:
+                        coinc_file = self._convert_bootstrap_coinc(bootstrap_file, my_env)
+
+        # Bind only after native bootstrap has selected its final input. The
+        # builder runs from event.work_dir, so the chosen path must be absolute.
+        if coinc_file:
+            command += ["--use-coinc", os.path.abspath(coinc_file)]
+
         command += [
             "--calibration",
             f"{calibration}",
@@ -782,16 +977,13 @@ class Rift(Pipeline):
 
         if self.bootstrap:
             if self.bootstrap == "manual":
-                if self.production.event.repository:
-                    bootstrap_file = os.path.join(
-                        self.production.event.repository.directory,
-                        "C01_offline",
-                        f"{self.production.name}_bootstrap.xml.gz",
+                # Use the exact invocation-private grid selected above.
+                bootstrap_file = os.path.abspath(bootstrap_file)
+                if not dryrun and not os.path.isfile(bootstrap_file):
+                    raise PipelineException(
+                        "Manual bootstrap grid is missing: " + bootstrap_file,
+                        production=self.production.name,
                     )
-                    if bootstrap_file[0] != '/': # need absolute path!
-                        bootstrap_file = os.getcwd() + "/" + bootstrap_file
-                else:
-                    bootstrap_file = "{self.production.name}_bootstrap.xml.gz"
             else:
                 raise PipelineException(
                     f"Unable to find the bootstrapping production for {self.production.name}.",
@@ -820,7 +1012,7 @@ class Rift(Pipeline):
                 out, err = pipe.communicate()
                 # very large amount of information for asimov log !
                 self.logger.info(out)
-                if err:
+                if pipe.returncode != 0:
                     self.production.status = "stuck"
                     if hasattr(self.production.event, "issue_object"):
                         self.logger.info(out) #, production=self.production)
@@ -839,13 +1031,18 @@ class Rift(Pipeline):
                         )
                 else:
                     dagfile = os.path.join(rundir,'marginalize_intrinsic_parameters_BasicIterationWorkflow.dag')
-                    if not(os.path.exists(dagfile)):
+                    if not (os.path.isfile(dagfile) and not os.path.islink(dagfile)
+                            and os.path.getsize(dagfile) > 0):
                         self.production.status = "stuck"
                         self.logger.info(out) #, production=self.production)
                         self.logger.error(err) # , production=self.production)
                         raise PipelineException(f"DAG file could not be created.\n{command}\n{out}\n\n{err}",
                             production=self.production.name,
                         )
+                    # Capture directly at the final location only after this
+                    # invocation succeeded at the builder's fresh-directory guard.
+                    # Never capture on a failed builder, even if a stale DAG exists.
+                    self._capture_build_environment()
                     if self.production.event.repository:
                         # with set_directory(os.path.abspath(self.production.rundir)):
                         self._stage_xml_psds(rundir=rundir)

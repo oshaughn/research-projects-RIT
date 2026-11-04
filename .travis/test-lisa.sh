@@ -7,7 +7,14 @@ if ! command -v "${PYTHON_BIN}" >/dev/null 2>&1; then
 fi
 
 "${PYTHON_BIN}" -m pytest -q \
+  MonteCarloMarginalizeCode/Code/test/test_emri_direct_cli.py \
+  MonteCarloMarginalizeCode/Code/test/test_emri_direct_cli_dispatch.py \
+  MonteCarloMarginalizeCode/Code/test/test_lisa_direct_likelihood.py \
+  MonteCarloMarginalizeCode/Code/test/test_lisa_few_adapter.py \
+  MonteCarloMarginalizeCode/Code/test/test_lisa_emri_response.py \
+  MonteCarloMarginalizeCode/Code/test/test_lisa_emri_polarization_basis.py \
   MonteCarloMarginalizeCode/Code/test/test_lisa_auxiliary_imports.py \
+  MonteCarloMarginalizeCode/Code/test/test_lisa_bhpwave_adapter.py \
   MonteCarloMarginalizeCode/Code/test/test_lisa_response_import.py \
   MonteCarloMarginalizeCode/Code/test/test_lisa_lalsimutils_compat.py \
   MonteCarloMarginalizeCode/Code/test/test_lisa_run_checks.py \

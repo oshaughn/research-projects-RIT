@@ -1,6 +1,10 @@
-"""Experimental RF fitting features only. No prior/sampling/likelihood changes.
-Units: component masses in solar masses, dimensionless L-frame spins.
-Reference frequency must match supplied spins; no spin transport is performed.
+"""geometric4: a chart of the L-frame transverse spins, used as implied CIP fit coordinates.
+
+lalsimutils exposes the chart as ordinary parameters (rf_total_perp, rf_total_azimuth,
+rf_residual_parallel, rf_residual_perpendicular; rf_phase_excess replaces the first),
+so CIP uses them through --parameter-implied like any other coordinate. The helper
+selects them (--rf-transverse-spin-coordinates); priors and sampling are unchanged.
+Units: component masses in solar masses, dimensionless L-frame spins at fref.
 """
 import re
 import numpy as np
@@ -25,18 +29,6 @@ def geometry(m1, m2, s1, s2, frequency=20., epsilon=.1):
     JminusD=np.where(D>=0,np.divide(T2,J+D,out=np.zeros_like(J),where=(J+D)>0),J-D)
     return dict(q=q,eta=eta,v=v,L=L,D=D,J=J,T=T,G=G,d=d,w1=w1,w2=w2,
                 a1=a1,a2=a2,JminusD=JminusD)
-
-
-def scalar_features(m1,m2,s1,s2,frequency=20.,epsilon=.1):
-    """Redundant RF split candidates, never replacements for four spin components.
-    cone2 is regularized tan(beta)^2; phase_deficit is (J-D)/L.
-    torque2 captures instantaneous two-spin vector interference.
-    """
-    g=geometry(m1,m2,s1,s2,frequency,epsilon)
-    cone2=np.sum(g['T']**2,axis=-1)/g['d']**2
-    phase_deficit=g['JminusD']/g['L']
-    torque2=np.sum(g['G']**2,axis=-1)/(g['eta']*g['v']**2)**2
-    return np.stack([cone2,phase_deficit,torque2],axis=-1)
 
 
 def geometric4(m1, m2, s1, s2, frequency=20., phase_excess=False):
@@ -83,38 +75,30 @@ def geometric4_inverse(m1,m2,z1,z2,features,frequency=20.,phase_excess=False):
 GEOMETRIC4_NAMES=('rf_total_perp','rf_total_azimuth','rf_residual_parallel','rf_residual_perpendicular')
 PHASE_EXCESS_NAMES=('rf_phase_excess',)+GEOMETRIC4_NAMES[1:]
 GEOMETRIC4_MODES=('geometric4','geometric4-phase-excess')
-# physics3 appends three scalars to the eight native fit coordinates: 11 fit
-# coordinates for 8 degrees of freedom. This RF transverse policy requires
-# a nonredundant basis; other CIP configurations can use redundant fit features.
 RETIRED_MODES=('physics3',)
 RETIRED_MESSAGE=('RF transverse-spin mode physics3 is retired: it gives CIP 11 fit coordinates '
     'for 8 degrees of freedom. Use geometric4 (auto selects it) or off.')
+TRANSVERSE = ('s1x', 's1y', 's2x', 's2y')
 
 def geometric_names(mode):
     return PHASE_EXCESS_NAMES if mode=='geometric4-phase-excess' else GEOMETRIC4_NAMES
 
-FEATURE_NAMES = ('rf_cone2', 'rf_phase_deficit', 'rf_torque2')
-TRANSVERSE = ('s1x', 's1y', 's2x', 's2y')
-NATIVE_FEATURES = ('delta_mc','mu1','mu2','chiMinus') + TRANSVERSE
 
-def extract(P, name):
-    """Fit-only extraction; P masses are SI, reference frequency follows P."""
-    import lal
-    if name not in FEATURE_NAMES + GEOMETRIC4_NAMES + PHASE_EXCESS_NAMES:
-        return P.extract_param(name)
-    is_geometric=name in GEOMETRIC4_NAMES + PHASE_EXCESS_NAMES
-    function = geometric4 if is_geometric else scalar_features
-    names = PHASE_EXCESS_NAMES if name=='rf_phase_excess' else GEOMETRIC4_NAMES if is_geometric else FEATURE_NAMES
-    extra={'phase_excess':name=='rf_phase_excess'} if is_geometric else {}
-    values = function(P.m1/lal.MSUN_SI, P.m2/lal.MSUN_SI,
-        np.array([P.s1x,P.s1y,P.s1z]), np.array([P.s2x,P.s2y,P.s2z]), P.fref, **extra)
+def extract_physical(name, m1, m2, s1, s2, frequency):
+    """One chart coordinate for one binary (masses in Msun)."""
+    values = geometric4(m1, m2, np.asarray(s1,float), np.asarray(s2,float), frequency,
+                        phase_excess=(name=='rf_phase_excess'))
+    names = PHASE_EXCESS_NAMES if name=='rf_phase_excess' else GEOMETRIC4_NAMES
     return values[names.index(name)]
 
+
 def convert(x, coord_names, low_level_coord_names, frequency, converter, **kwargs):
-    """Build fitting features using the exact same physical conversion as native CIP."""
+    """Array conversion for coord_names that include chart coordinates; converter does the rest."""
+    if frequency is None or not np.isfinite(frequency) or frequency <= 0:
+        raise ValueError('geometric4 coordinates require a finite positive fref')
     if 'rf_phase_excess' in coord_names and 'rf_total_perp' in coord_names:
         raise ValueError('Do not mix geometric4 radius and phase-excess coordinates')
-    names = PHASE_EXCESS_NAMES if 'rf_phase_excess' in coord_names else GEOMETRIC4_NAMES if set(GEOMETRIC4_NAMES).intersection(coord_names) else FEATURE_NAMES
+    names = PHASE_EXCESS_NAMES if 'rf_phase_excess' in coord_names else GEOMETRIC4_NAMES
     base = [p for p in coord_names if p not in names]
     native = converter(x, coord_names=base, low_level_coord_names=low_level_coord_names, **kwargs)
     physical_names = ['m1','m2','s1x','s1y','s1z','s2x','s2y','s2z']
@@ -143,32 +127,13 @@ def convert(x, coord_names, low_level_coord_names, frequency, converter, **kwarg
     if kwargs.get('enforce_kerr', False):
         valid &= (np.sum(physical[:,2:5]**2,axis=1)<=1) & (np.sum(physical[:,5:8]**2,axis=1)<=1)
     values = np.full((len(x),len(names)), -np.inf)
-    function = geometric4 if names in (GEOMETRIC4_NAMES,PHASE_EXCESS_NAMES) else scalar_features
-    extra={'phase_excess':names==PHASE_EXCESS_NAMES} if function is geometric4 else {}
-    values[valid] = function(physical[valid,0], physical[valid,1],
-        physical[valid,2:5], physical[valid,5:8], frequency, **extra)
+    values[valid] = geometric4(physical[valid,0], physical[valid,1],
+        physical[valid,2:5], physical[valid,5:8], frequency, phase_excess=(names==PHASE_EXCESS_NAMES))
     out = np.empty((len(x),len(coord_names)))
     for i,p in enumerate(coord_names):
         out[:,i] = values[:,names.index(p)] if p in names else native[:,base.index(p)]
     out[~valid] = -np.inf
     return out
-
-def sampling_problem(fit_names, sampled_names):
-    """Check distinct sampling coordinates, not repeated CLI argument entries."""
-    if len(set(sampled_names)) != len(sampled_names):
-        return 'RF transverse-spin sampling coordinates must be unique'
-    if len(fit_names) > len(sampled_names):
-        return "Fit uses {} coordinates {} but samples only {} {}".format(
-            len(fit_names), fit_names, len(sampled_names), sampled_names)
-    return None
-
-
-def _stage_sampling_problem(tokens):
-    def values(flag): return [tokens[i+1] for i,t in enumerate(tokens[:-1]) if t==flag]
-    parameters = values('--parameter')
-    return sampling_problem(parameters + values('--parameter-implied'),
-                            parameters + values('--parameter-nofit'))
-
 
 def retired_problem(line):
     """RETIRED_MESSAGE if any RF transverse-spin value on a CIP line is retired; else None."""
@@ -181,97 +146,29 @@ def retired_problem(line):
 
 
 def stage_arguments(line, mode, detector_chirp_mass, applicable, frequency):
-    """Leave reduced/non-RF stages unchanged; activate only the complete L-frame RF fit."""
-    import shlex
+    """Helper policy: on an rf stage that fits all four transverse components, fit the chart instead.
+
+    An implied component is replaced by a chart name. A component that is also sampled
+    (--parameter) stays sampled as --parameter-nofit, and the chart name is implied.
+    """
     if not enabled(mode, detector_chirp_mass, applicable):
         return line
-    tokens=shlex.split(line)
-    if not _supports_physics3(tokens):
+    pattern = r'--parameter(-implied)?\s+(s1x|s1y|s2x|s2y)(?=\s|$)'
+    fitted = [m.group(2) for m in re.finditer(pattern, line)]
+    if not re.search(r'--fit-method\s+rf(\s|$)', line) or sorted(fitted) != sorted(TRANSVERSE):
         return line
-    active_mode = 'geometric4' if mode == 'auto' else mode
-    if active_mode in GEOMETRIC4_MODES:
-        _require_geometric4_basis(tokens)
-    if '--rf-transverse-spin-coordinates' in tokens:
-        raise ValueError('Duplicate RF transverse-spin activation')
     if not np.isfinite(float(frequency)) or float(frequency)<=0:
         raise ValueError('RF reference frequency must be finite and positive')
-    # Explicit fref replaces a stage-local value; it is the ILE spin reference, not fmin.
-    # Edit the text in place: re-quoting every token would quote [lo,hi] ranges.
+    chart = iter(geometric_names('geometric4' if mode == 'auto' else mode))
+    def swap(m):
+        name = next(chart)
+        if m.group(1):
+            return '--parameter-implied '+name
+        return '--parameter-nofit '+m.group(2)+' --parameter-implied '+name
+    line = re.sub(pattern, swap, line)
+    # CIP evaluates the chart at --fref: use the ILE spin reference, not fmin.
     line=re.sub(r'(^|\s)--fref(\s+|=)\S+', ' ', line)
-    return line.rstrip()+' --rf-transverse-spin-coordinates '+active_mode+' --fref '+str(float(frequency))
-
-
-def _supports_physics3(tokens):
-    def values(flag): return [tokens[i+1] for i,t in enumerate(tokens[:-1]) if t==flag]
-    fit=values('--parameter')+values('--parameter-implied')
-    return values('--fit-method')==['rf'] and set(NATIVE_FEATURES).issubset(fit)
-
-
-def _require_geometric4_basis(tokens):
-    fit=[tokens[i+1] for i,t in enumerate(tokens[:-1]) if t in ('--parameter','--parameter-implied')]
-    if len(fit)!=8 or set(fit)!=set(NATIVE_FEATURES):
-        raise ValueError('geometric4 requires exactly the eight native mass/aligned/transverse fitting coordinates')
-
-
-def revalidate_stage(line):
-    """Recheck an activated stage after pipeline rewrites of helper output.
-
-    A rewrite that drops the native basis (e.g. delta_mc -> eta) would otherwise
-    fail in every CIP job of that stage, after ILE has run. Fail at build time
-    instead. Kept for parity with rift_O4c; this pipeline checks stage_problem.
-    """
-    import shlex
-    tokens=[]
-    for t in shlex.split(line):
-        tokens += t.split('=',1) if t.startswith('--') and '=' in t else [t]
-    modes=[tokens[i+1] for i,t in enumerate(tokens[:-1]) if t=='--rf-transverse-spin-coordinates']
-    if modes:
-        mode=modes[-1]  # argparse uses the last value for scalar options.
-        if mode in RETIRED_MODES:
-            raise ValueError(RETIRED_MESSAGE)
-        if mode in GEOMETRIC4_MODES:
-            _require_geometric4_basis(tokens)
-            problem = _stage_sampling_problem(tokens)
-            if problem:
-                raise ValueError(problem)
-        if not _supports_physics3(tokens):
-            raise ValueError('A pipeline rewrite removed the RF basis from an activated stage; '
-                'set the RF transverse-spin option to off or drop the rewriting option: '+line.strip())
-    return line
-
-
-
-def stage_problem(line):
-    """Mirror every CIP RF transverse-spin refusal on a final CIP argument line; None if it will pass."""
-    import shlex
-    tokens=[]
-    for t in shlex.split(line):
-        tokens += t.split('=',1) if t.startswith('--') and '=' in t else [t]
-    def values(flag): return [tokens[i+1] for i,t in enumerate(tokens[:-1]) if t==flag]
-    if values('--rf-transverse-spin-coordinates')[-1:] and values('--rf-transverse-spin-coordinates')[-1] in RETIRED_MODES:
-        return RETIRED_MESSAGE
-    fref=values('--fref')[-1:] or ['20']
-    try: fref=float(fref[0])
-    except ValueError: return 'reference frequency is not a number'
-    if not np.isfinite(fref) or fref<=0:
-        return 'reference frequency is not finite and positive'
-    if values('--fit-method')[-1:] not in ([], ['rf']):
-        return 'fit method is not rf'
-    if '--fit-load-gp' in tokens:
-        return 'loads a cached fit'
-    if '--use-precessing' not in tokens:
-        return 'not a precessing analysis'
-    for flag in ('--input-tides','--using-eos','--use-eccentricity'):
-        if flag in tokens:
-            return 'not a BBH analysis ({})'.format(flag)
-    missing=set(NATIVE_FEATURES)-set(values('--parameter')+values('--parameter-implied'))
-    if missing:
-        return 'fit coordinates lack '+', '.join(sorted(missing))
-    if values('--rf-transverse-spin-coordinates')[-1:] and values('--rf-transverse-spin-coordinates')[-1] in GEOMETRIC4_MODES:
-        try: _require_geometric4_basis(tokens)
-        except ValueError as exc: return str(exc)
-        return _stage_sampling_problem(tokens)
-    return None
+    return line.rstrip()+' --fref '+str(float(frequency))
 
 
 def enabled(mode, detector_chirp_mass, applicable):

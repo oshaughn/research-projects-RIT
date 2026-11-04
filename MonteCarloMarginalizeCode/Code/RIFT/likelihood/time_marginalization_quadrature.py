@@ -168,6 +168,7 @@ import numpy as np
 
 __all__ = [
     "TIME_QUADRATURE_CHOICES",
+    "NOLOOP_ONLY_TIME_QUADRATURES",
     "UPSAMPLE_SAFETY",
     "UPSAMPLE_FACTOR_MAX",
     "EDGE_GUARD_FRACTION",
@@ -180,13 +181,24 @@ __all__ = [
     "ILE_TIME_QUADRATURE_FLAG",
     "refuse_unless_time_quadrature_emitted",
     "refuse_unhonourable_time_quadrature",
+    "refuse_jax_unsupported_time_quadrature",
     "find_time_quadrature_in_ile_args",
     "draw_piecewise_linear_log_posterior",
     "time_marginalize_bandlimited",
     "last_report",
 ]
 
-TIME_QUADRATURE_CHOICES = ("simpson", "bandlimited", "peak-local")
+TIME_QUADRATURE_CHOICES = ("simpson", "bandlimited", "peak-local", "trapezoid")
+
+#: 'trapezoid' is a fixed-grid rule like 'simpson', not a refinement: it is
+#: implemented by factored_likelihood.time_quadrature_rule and never reaches this
+#: module's band-limited machinery.
+
+#: Choices the batchmode NoLoop likelihood implements and the JAX ILE driver does
+#: not (its own list is jax_ile.core._TIME_QUAD_CHOICES, which imports jax and so
+#: cannot be read by the pipeline scripts).  test_time_quadrature_rule.py pins this
+#: against the JAX list.
+NOLOOP_ONLY_TIME_QUADRATURES = ("peak-local", "trapezoid")
 
 #: 'peak-local' lives in RIFT.likelihood.time_marginalization_peak_local and
 #: reuses this module's helpers wholesale (width estimator, derived factor, row
@@ -699,6 +711,20 @@ def refuse_unhonourable_time_quadrature(time_quadrature, ile_args, where):
                 time_quadrature, where, "; ".join(missing)))
 
 
+def refuse_jax_unsupported_time_quadrature(ile_args, where):
+    """Raise if ``ile_args`` selects a quadrature the JAX ILE driver does not implement.
+
+    Reads the bytes, so a value passed by hand (``--manual-extra-ile-args``, ini) is
+    caught as well as the pipeline option.  optparse takes the last occurrence.
+    """
+    found = [q for q in find_time_quadrature_in_ile_args(ile_args) if q is not None]
+    if found and found[-1] in NOLOOP_ONLY_TIME_QUADRATURES:
+        raise ValueError(
+            "--use-jax-ile: {} carries --time-marginalization-quadrature {!r}, which "
+            "bin/integrate_likelihood_extrinsic_jax does not implement, so every ILE job "
+            "would fail at startup.".format(where, found[-1]))
+
+
 def refuse_unless_time_quadrature_emitted(time_quadrature, ile_args, where):
     """Raise unless the REQUESTED quadrature is the one the bytes actually carry.
 
@@ -905,9 +931,8 @@ def _default_simps(simps, xpy):
     scipy's ``simpson`` raises ``TypeError: Implicit conversion to a NumPy array is
     not allowed`` on a cupy array, and that default is exactly how every
     ``--vectorized --gpu`` run of this option crashed.  Refuse rather than leave the
-    trap armed -- and note the two rules are not interchangeable even where both run
-    (the vendored GPU copy is an old scipy with ``even='avg'``), so a fallback row
-    must be integrated by the rule the caller's own likelihood uses.
+    trap armed.  A fallback row must be integrated by the rule the caller's own
+    likelihood uses (factored_likelihood.time_quadrature_rule).
     """
     if simps is not None:
         return simps
@@ -915,8 +940,8 @@ def _default_simps(simps, xpy):
         raise ValueError(
             "time marginalization: `simps` must be supplied for a non-numpy backend "
             "-- scipy's Simpson rule cannot consume a device array, and the fallback "
-            "rows must use the rule the caller's own likelihood uses (on GPU, "
-            "optimized_gpu_tools.simps).")
+            "rows must use the rule the caller's own likelihood uses "
+            "(factored_likelihood.time_quadrature_rule).")
     from scipy import integrate
     return getattr(integrate, 'simpson', None) or integrate.simps
 
@@ -1013,10 +1038,9 @@ def _safe_offset(off, xpy=np):
 def _log_simps_rows(lnL_t, dx, simps, xpy=np):
     """``log \\int exp(lnL) dt`` by the caller's Simpson rule, per row.
 
-    The caller's rule, not a private copy: on GPU the likelihood integrates with
-    ``optimized_gpu_tools.simps``, so a scipy copy here would agree on CPU and
-    quietly disagree on the device -- and the whole point of this path is to
-    reproduce what the historical code would have returned for these rows.
+    The caller's rule, not a private copy: scipy cannot consume a device array, and
+    the whole point of this path is to reproduce what the caller's own likelihood
+    returns for these rows (factored_likelihood.time_quadrature_rule).
     """
     off = _safe_offset(xpy.max(lnL_t, axis=-1, keepdims=True), xpy=xpy)
     return off[..., 0] + xpy.log(simps(xpy.exp(lnL_t - off), dx=float(dx), axis=-1))

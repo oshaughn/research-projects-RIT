@@ -300,10 +300,10 @@ def test_both_gpu_dispatch_sites_are_reached():
         for interp in fl.TIME_INTERP_CHOICES:
             counter = {'n': 0, 'lens': set()}
 
-            def _counting(Q, A, si, fo, npts, ti, _o=orig, _c=counter):
+            def _counting(Q, A, si, fo, npts, ti, _o=orig, _c=counter, **kwargs):
                 _c['n'] += 1
                 _c['lens'].add(int(Q.shape[0]))
-                return _o(Q, A, si, fo, npts, ti)
+                return _o(Q, A, si, fo, npts, ti, **kwargs)
 
             fl._q_inner_product_gpu = _counting
             try:

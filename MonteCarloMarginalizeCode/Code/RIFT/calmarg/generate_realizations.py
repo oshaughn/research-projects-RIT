@@ -17,6 +17,8 @@ import numpy as np
 import h5py
 import scipy.interpolate
 
+from RIFT.calmarg.calibration import correction_type_for_ifo
+
 
 def _default_cal_rng(stream):
     """RNG for a cal draw whose caller did not supply one.
@@ -34,39 +36,40 @@ def _default_cal_rng(stream):
     return next_derived_rng(stream)
 
 
-def retrieve_envelope_from_file(fname, frequency_array=None,**kwargs):
-    """
-    retrieve_envelope_from_file
-         fname : assumed currently to be ascii file.  Provide options for h5
-             ascii format:
-                   frequency  median_mag median_phase  16_mag  16_phase 84_mag 84_phase
-             data convention: applying to data, see bilby file above.
-             amplitude data is centered around *1*
-         frequency_array : list of *positive* frequencies to interpolate to, for efficiency
-    """
-    dat = np.loadtxt(fname)
+def retrieve_envelope_from_file(fname, frequency_array=None, correction_type="template", **kwargs):
+    """Read template-response amplitude/phase means and widths from an LVK envelope.
 
-    
-    # default frequencyes
-    if frequency_array is None:
-        out_amp = np.zeros( (len(dat),3))
-        out_amp[:,0] = dat[:,0]
-        out_amp[:,1] = dat[:,1]
-        out_amp[:,2] = (dat[:,-2] - dat[:,3])/2   # 84-16 / 2 to get 1 sigma estimate
-        out_phase =np.zeros( (len(dat),2))
-        out_phase[:,0] = dat[:,0]
-        out_phase[:,1] = dat[:,2]
-        out_phase[:,2] = (dat[:,-1] - dat[:,4])/2
+    ``data`` envelopes describe eta*d; ``template`` envelopes describe alpha*h.
+    Convert envelope summaries before drawing Gaussian template-response nodes,
+    following Bilby's CalibrationPriorDict.from_envelope_file. This is a Gaussian
+    approximation in template-node space, not inversion of individual random draws.
+    Low-level callers supplying template envelopes retain the historical default.
+    """
+    correction_type_for_ifo(correction_type, "unused")  # validate the explicit type
+    if correction_type not in ("data", "template"):
+        raise ValueError("An envelope requires a single data or template convention")
+    dat = np.loadtxt(fname, ndmin=2)
+    freq, amp, phase, amp_lo, phase_lo, amp_hi, phase_hi = dat.T
+    if np.any(~np.isfinite(dat)) or np.any(freq <= 0) or np.any(np.diff(freq) <= 0):
+        raise ValueError("Calibration envelope must have finite values and increasing positive frequencies")
+    if correction_type == "data":
+        if np.any(np.array([amp, amp_lo, amp_hi]) <= 0):
+            raise ValueError("Data-correction amplitudes and bounds must be positive before inversion")
+        amp, amp_sigma = 1 / amp, np.abs(1 / amp_lo - 1 / amp_hi) / 2
+        phase = -phase
     else:
-        out_amp = np.zeros( (len(frequency_array),3))
-        out_phase = np.zeros( (len(frequency_array),3))
-        out_amp[:,0 ] = frequency_array
-        out_amp[:,1] = np.interp(frequency_array, dat[:,0], dat[:,1])
-        out_amp[:,2] = np.interp(frequency_array, dat[:,0],(dat[:,-2] - dat[:,3])/2)
-        out_phase[:,0 ] = frequency_array
-        out_phase[:,1] = np.interp(frequency_array, dat[:,0], dat[:,2])
-        out_phase[:,2] = np.interp(frequency_array, dat[:,0],(dat[:,-1] - dat[:,4])/2)
-
+        amp_sigma = np.abs(amp_hi - amp_lo) / 2
+    phase_sigma = np.abs(phase_hi - phase_lo) / 2
+    target = freq if frequency_array is None else np.asarray(frequency_array)
+    def interpolate(values):
+        if frequency_array is None:
+            return values
+        return scipy.interpolate.InterpolatedUnivariateSpline(
+            np.log(freq), values, k=min(3, len(freq) - 1))(np.log(target))
+    out_amp = np.column_stack([target, interpolate(amp), interpolate(amp_sigma)])
+    out_phase = np.column_stack([target, interpolate(phase), interpolate(phase_sigma)])
+    if np.any(out_amp[:, 2] < 0) or np.any(out_phase[:, 2] < 0):
+        raise ValueError("Interpolated calibration widths must be nonnegative")
     return out_amp, out_phase
 
 
@@ -93,7 +96,7 @@ def nodes_to_spline_coefficients_matrix(n_points):
         return  np.linalg.solve(tmp1, tmp2)
 
 
-def node_prior(fname, fmin, fmax, n_spline_points):
+def node_prior(fname, fmin, fmax, n_spline_points, correction_type="template"):
     """Return the calibration PRIOR over spline nodes for one detector, as the
     diagonal Gaussian implied by the envelope file.
 
@@ -104,16 +107,21 @@ def node_prior(fname, fmin, fmax, n_spline_points):
     create_realizations() draws from).
 
     Returns dict(mean, sigma, node_log_f, n_nodes_amp) -- mean/sigma length 2N.
+
+    correction_type defaults to "template". LVK H1/L1/K1 envelopes are "data";
+    resolve per detector with calibration.correction_type_for_ifo, as ILE does.
     """
     log_freq_spline_locations = np.linspace(np.log10(fmin), np.log10(fmax), n_spline_points)
-    dat_amp, dat_phase = retrieve_envelope_from_file(fname, frequency_array=10**log_freq_spline_locations)
+    dat_amp, dat_phase = retrieve_envelope_from_file(fname, frequency_array=10**log_freq_spline_locations,
+                                                       correction_type=correction_type)
     mean = np.concatenate([dat_amp[:, 1], dat_phase[:, 1]])
     sigma = np.concatenate([dat_amp[:, 2], dat_phase[:, 2]])
     return dict(mean=mean, sigma=sigma, node_log_f=log_freq_spline_locations,
                 n_nodes_amp=int(n_spline_points))
 
 
-def prior_cal_breadcrumb_dict(env_dir, dets, fmin, fmax, n_spline_points, fmin_ifo=None):
+def prior_cal_breadcrumb_dict(env_dir, dets, fmin, fmax, n_spline_points, fmin_ifo=None,
+                              correction_types=None):
     """Build the 'cal' breadcrumb dict for the broad PRIOR, with proposal == prior.
 
     Suitable as an iteration-0 placeholder breadcrumb: seeding from it
@@ -131,7 +139,8 @@ def prior_cal_breadcrumb_dict(env_dir, dets, fmin, fmax, n_spline_points, fmin_i
         fmin_here = fmin
         if fmin_ifo and ifo in fmin_ifo:
             fmin_here = fmin_ifo[ifo]
-        pr = node_prior(os.path.join(env_dir, ifo + ".txt"), fmin_here, fmax, n_spline_points)
+        pr = node_prior(os.path.join(env_dir, ifo + ".txt"), fmin_here, fmax, n_spline_points,
+                        correction_type=correction_type_for_ifo(correction_types, ifo))
         means.append(pr["mean"]); sigmas.append(pr["sigma"])
         if node_log_f is None:
             node_log_f = pr["node_log_f"]
@@ -161,6 +170,11 @@ def build_realizations_from_nodes(amp_rand_array, phase_rand_array, T_segment, d
 
     amp_rand_array, phase_rand_array : (n_spline_points, n_realizations).
     Returns dat_out (npts_seg, n_realizations) complex, unity outside [fmin,fmax].
+
+    Phase sign: the RIFT packing labels bins with the negative of the LAL frequency,
+    so dat_out at label f is conj(alpha(f)) for the standard-convention response
+    alpha = amp*exp(i*phase).  Apply it to the data UNCONJUGATED: <h|C d> = <alpha h|d>.
+    See DESIGN_calmarg_in_loop.md, "Phase-sign trap".
     """
     n_realizations = amp_rand_array.shape[1]
     deltaF_seg = 1./T_segment
@@ -189,7 +203,10 @@ def build_realizations_from_nodes(amp_rand_array, phase_rand_array, T_segment, d
     return dat_out
 
 
-def create_realizations(fname, T_segment,dT, fmin,  fmax, n_spline_points, n_realizations):
+def create_realizations(fname, T_segment,dT, fmin,  fmax, n_spline_points, n_realizations,
+                        correction_type="template"):
+    # correction_type defaults to "template"; LVK H1/L1/K1 envelopes are "data".
+    # Resolve per detector with calibration.correction_type_for_ifo, as ILE does.
     # NOTE
     #    - the bilby tool (because it needs high computational efficiency, being done many times) is much harder to read. We will use library code, because we only call it ONCE PER RUN
     #    - similarly, the LI/bilby tool uses a slightly different representation, because they are trying to avoid transcendental operations to improve efficiency
@@ -201,7 +218,8 @@ def create_realizations(fname, T_segment,dT, fmin,  fmax, n_spline_points, n_rea
     log_freq_spline_locations = np.linspace(np.log10(fmin), np.log10(fmax), n_spline_points)
 
     # Localize data to location
-    dat_amp, dat_phase = retrieve_envelope_from_file(fname, frequency_array=10**log_freq_spline_locations)
+    dat_amp, dat_phase = retrieve_envelope_from_file(fname, frequency_array=10**log_freq_spline_locations,
+                                                       correction_type=correction_type)
     # Create random spline realizations (prior draws -- same RNG order as always)
     amp_rand_array, phase_rand_array = _draw_amp_phase_nodes(dat_amp, dat_phase, n_spline_points, n_realizations)
 
@@ -212,7 +230,7 @@ def create_realizations(fname, T_segment,dT, fmin,  fmax, n_spline_points, n_rea
 
 def draw_prior_realizations_with_nodes(env_dir, dets, T_segment, dT, fmin, fmax,
                                        n_spline_points, n_realizations,
-                                       fmin_ifo=None, rng=None):
+                                       fmin_ifo=None, rng=None, correction_types=None):
     """Draw PRIOR calibration realizations AND keep the spline-node draws.
 
     Same prior as create_realizations(), but it returns the node vectors (which
@@ -240,7 +258,8 @@ def draw_prior_realizations_with_nodes(env_dir, dets, T_segment, dT, fmin, fmax,
         fmin_here = fmin
         if fmin_ifo and ifo in fmin_ifo:
             fmin_here = fmin_ifo[ifo]
-        priors.append(node_prior(os.path.join(env_dir, ifo + ".txt"), fmin_here, fmax, n_spline_points))
+        priors.append(node_prior(os.path.join(env_dir, ifo + ".txt"), fmin_here, fmax, n_spline_points,
+                                 correction_type=correction_type_for_ifo(correction_types, ifo)))
     prior_mean = np.concatenate([p["mean"] for p in priors])
     prior_sigma = np.concatenate([p["sigma"] for p in priors])
     dim = prior_mean.shape[0]
@@ -265,7 +284,7 @@ def draw_prior_realizations_with_nodes(env_dir, dets, T_segment, dT, fmin, fmax,
 
 
 def seed_realizations_from_breadcrumb(bc, T_segment, dT, fmin, fmax, n_spline_points,
-                                      n_realizations, fmin_ifo=None, rng=None):
+                                      n_realizations, fmin_ifo=None, rng=None, prior=None):
     """Draw n_realizations calibration factors per detector from a LEARNED Gaussian
     proposal (a breadcrumb), and return the Phase-0 importance weights.
 
@@ -290,6 +309,12 @@ def seed_realizations_from_breadcrumb(bc, T_segment, dT, fmin, fmax, n_spline_po
     """
     from RIFT.calmarg import adaptive
     cal = bc["cal"] if (isinstance(bc, dict) and "cal" in bc) else bc
+    if prior is not None:
+        # Saved proposals remain proposals; the live envelopes determine the target
+        # prior, including after a convention change or a legacy breadcrumb restart.
+        if list(cal["dets"]) != list(prior["dets"]) or int(cal["n_nodes_amp"]) != int(prior["n_nodes_amp"]):
+            raise ValueError("Calibration breadcrumb detector/node layout differs from current prior")
+        cal = dict(cal, prior_mean=prior["prior_mean"], prior_sigma=prior["prior_sigma"])
     if rng is None:
         rng = _default_cal_rng('calmarg.seed_realizations_from_breadcrumb')
     mean = np.asarray(cal["proposal_mean"], dtype=float)

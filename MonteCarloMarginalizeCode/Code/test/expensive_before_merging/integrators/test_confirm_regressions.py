@@ -126,6 +126,15 @@ def test_matrix_rerun_skips_the_group_list():
     cmd = CR._rerun_cmd(_rec(), 11, 2, "out.json")
     assert cmd[cmd.index("--group-cases") + 1] == "off", cmd
     assert "--no-matrix" not in cmd, cmd
+    assert cmd[cmd.index("--narrow-flat-cases") + 1] == "off", cmd
+
+
+def test_narrow_flat_rerun_runs_the_narrow_list():
+    rec = dict(_rec(kind=CR.NARROW_FLAT_KIND, target="narrowflat_sig0.001_f3"), ndim=5)
+    cmd = CR._rerun_cmd(rec, 11, 2, "out.json")
+    assert "--no-matrix" in cmd, cmd
+    assert cmd[cmd.index("--narrow-flat-cases") + 1] == "on", cmd
+    assert cmd[cmd.index("--group-cases") + 1] == "off", cmd
 
 
 if __name__ == "__main__":

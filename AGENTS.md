@@ -91,6 +91,29 @@ The fast CI integral test is NOT sufficient: integrators have shipped confident,
 integral-invisible shape failures and silent n_eff~1 degradations that only this
 gate catches. See `RIFT/integrators/TESTING.md` for the recipe and caveats.
 
+### Adding an option to the main ILE driver
+A new option in `bin/integrate_likelihood_extrinsic_batchmode` must be recorded in
+two registries, or CI fails:
+- **LISA drift ledger** (`lisa-check`): classify it in
+  `test/expensive_before_merging/integrators/make_lisa_drift_ledger.py` if no
+  existing rule matches, then regenerate the ledger with that script. Never
+  hand-edit `lisa_drift_ledger.json`. Check with `audit_lisa_driver_drift.py --check`.
+- **JAX drop-in manifest** (`jax-ile-check`): add it to `_ILE_ALL_OPTS` in
+  `bin/integrate_likelihood_extrinsic_jax`, and to `_ILE_BOOL_OPTS` or the typed
+  sets to match its arity. If JAX ILE cannot honour it, make sure it is refused.
+  Check with `test/jax/test_jax_terminal_time_marginalization.py::test_jax_dropin_manifest_covers_every_batchmode_option_with_same_arity`.
+
+`jax-ile-check` is the slowest CI job and reports last. Wait for every check
+before calling a PR green (#483).
+
+### Phase signs in RIFT's packed FFT arrays
+RIFT's two-sided packing labels bin k with f = deltaF*(npts/2 - k), the negative
+of LAL's frequency (`lalsimutils.evaluate_fvals`). A phase applied at label +f is
+the conjugate of the standard-convention phase. Test any phase-sensitive
+frequency-domain operation against a reference built in the time domain with
+numpy's FFT, never against another product on the packed array. Calibration
+example: `RIFT/calmarg/DESIGN_calmarg_in_loop.md`, "Phase-sign trap".
+
 ## Important CLI tools (`MonteCarloMarginalizeCode/Code/bin/`)
 - `util_RIFT_pseudo_pipe.py`: builds a run from an ini; calls `helper_LDG_Events.py`
   for ILE/CIP arguments, then `create_event_parameter_pipeline_BasicIteration` for the DAG.

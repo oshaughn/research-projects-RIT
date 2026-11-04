@@ -58,6 +58,14 @@ echo "== RIFT/likelihood/test_q_window_interp_gpu.py + test_noloop_gpu_stencils.
 
 echo "== GMM sampling on the device (real cupy; RIFT_REQUIRE_GPU refuses a missing device) =="
 # PYTHONPATH: test/ has no __init__.py, so without it pytest imports the INSTALLED RIFT.
+# Require the complete 17-host + 16-device census; RIFT_REQUIRE_GPU rejects a
+# missing device rather than accepting a host-only collection as GPU coverage.
+gmm_count=$(PYTHONPATH="${CODE}${PYTHONPATH:+:$PYTHONPATH}" RIFT_REQUIRE_GPU=1 "${PYTHON_BIN}" -m pytest --collect-only -q -p no:cacheprovider \
+  "${CODE}/test/integrators/test_gmm_sample_matches_score.py" | grep -c '::')
+if [ "${gmm_count}" -lt 33 ]; then
+  echo "precommit-recommended.sh: GMM collects ${gmm_count}; requires 33 host/device cases." >&2
+  fail=1
+fi
 PYTHONPATH="${CODE}${PYTHONPATH:+:$PYTHONPATH}" RIFT_REQUIRE_GPU=1 "${PYTHON_BIN}" -m pytest -q \
   "${CODE}/test/integrators/test_gmm_sample_matches_score.py" \
   "${CODE}/test/integrators/test_gmm_sample_row_independence.py" \

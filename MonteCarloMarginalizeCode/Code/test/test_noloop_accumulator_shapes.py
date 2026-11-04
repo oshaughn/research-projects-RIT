@@ -130,9 +130,9 @@ def test_time_quadrature_matches_simps_to_roundoff(dets):
 
     It is the SAME rule -- the weights come from the very simps implementation the call
     site would otherwise have used -- so only the summation order differs.  The bound
-    here is deliberately far tighter than anything that matters physically: the two
-    simps variants already in this tree disagree by 0.405 nats on an under-resolved
-    peak, and the 'nearest' time stencil costs 200-443 nats at SNR 100.  If this
+    here is deliberately far tighter than anything that matters physically: Simpson and
+    trapezoid disagree by up to 0.405 nats on an under-resolved peak, and the 'nearest'
+    time stencil costs 200-443 nats at SNR 100.  If this
     assertion ever fails it means the RULE changed, not that rounding drifted.
     """
     args = _inputs(dets=dets)

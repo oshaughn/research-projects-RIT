@@ -938,6 +938,29 @@ def log_retained_density(X, origin, grids, box_lo, dx0, pinned_dims=()):
     return acc - np.log(len(X))
 
 
+# Above this, unseen_fraction warns.  On S250114ax (one intrinsic point, six sky configurations,
+# 3 runs each) healthy configurations read <= 0.036 and those 0.9-4 nats low read >= 0.066.
+COVERAGE_UNSEEN_WARN = 0.05
+
+
+def unseen_fraction(X, lnw, box_lo, dx, axes):
+    """Good-Turing estimate of the posterior mass the grid does not cover: the weight exp(lnw)
+    of live points alone in their bin, as a fraction of the total, binning only `axes`.
+
+    Grids hold only bins with a live point and retained points stay in every later grid, so
+    log_retained_density over-counts where points remain when the live set leaves bins empty.
+    Diagnostic only; see DESIGN_av_coverage_diagnostic.md."""
+    X = np.asarray(X, dtype=float)
+    axes = np.asarray(axes, dtype=int)
+    if len(X) == 0 or len(axes) == 0:
+        return 0.0
+    w = np.asarray(lnw, dtype=float)
+    w = np.exp(w - np.max(w))
+    idx = np.floor((X[:, axes] - np.asarray(box_lo)[axes]) / np.asarray(dx)[axes]).astype(np.int64)
+    _, inv, counts = np.unique(idx, axis=0, return_inverse=True, return_counts=True)
+    return float(np.sum(w[counts[np.asarray(inv).ravel()] == 1]) / np.sum(w))
+
+
 class MCSampler(SamplerOutputMixin, object):
 
     # PORTFOLIO MEMBER CONTRACT.  draw_simplified() reports p_s on this sampler's own scale
@@ -2295,6 +2318,13 @@ class MCSampler(SamplerOutputMixin, object):
                 "extrinsic prior or seed the sampler (--sampler-warmstart-retry-neff).".format(
                     cycle, ntotal_true))
 
+        try:
+            unseen_frac = unseen_fraction(identity_convert(allx), identity_convert(allloglkl),
+                                          self.my_ranges.T[0], self.dx, self.indx_adaptive)
+        except Exception as _e_unseen:
+            print(" mcsamplerAdaptiveVolume: coverage diagnostic failed ({}); continuing.".format(_e_unseen))
+            unseen_frac = float('nan')
+
         # write in variables requested in the standard format
         for indx in np.arange(len(self.params_ordered)):
             self._rvs[self.params_ordered[indx]] = allx[:,indx]  # pull out variable
@@ -2455,10 +2485,10 @@ class MCSampler(SamplerOutputMixin, object):
                 if _q is not None:
                     mc_diag['lnZ_ci90'] = _q
             dict_return.update(mc_diag)
-            print(" [AV mc diag] sigma_mc={:.4f} sigma_lnV={:.4f} trunc_p={:.2e} khat={} ESS={}".format(
+            print(" [AV mc diag] sigma_mc={:.4f} sigma_lnV={:.4f} trunc_p={:.2e} khat={} ESS={} unseen={:.3f}".format(
                 mc_diag['sigma_lnZ_mc'], mc_diag['sigma_lnV'], mc_diag['trunc_p'],
                 round(mc_diag['pareto_khat'],3) if 'pareto_khat' in mc_diag else None,
-                round(mc_diag['n_ESS'],1) if 'n_ESS' in mc_diag else None))
+                round(mc_diag['n_ESS'],1) if 'n_ESS' in mc_diag else None, unseen_frac))
         except Exception as _e_diag:
             print(" mcsamplerAdaptiveVolume: MC-error diagnostics failed ({}); continuing.".format(_e_diag))
 
@@ -2478,6 +2508,11 @@ class MCSampler(SamplerOutputMixin, object):
         dict_return['n_live_final'] = n_live_final
         dict_return['n_empty_cycles'] = int(n_empty_cycles)
         dict_return['n_live_collapses'] = int(n_live_collapses)
+        dict_return['unseen_frac_final'] = float(unseen_frac)
+        if unseen_frac > COVERAGE_UNSEEN_WARN:
+            print(" [AV coverage] {:.3f} of the live weight sits in bins holding one point (warn above"
+                  " {:.2f}): the grid misses part of the posterior and lnZ may read low.".format(
+                      unseen_frac, COVERAGE_UNSEEN_WARN))
         if n_warm_seed is not None:
             dict_return['n_warm_seed'] = int(n_warm_seed)
             if n_warm_seed_rank is not None:

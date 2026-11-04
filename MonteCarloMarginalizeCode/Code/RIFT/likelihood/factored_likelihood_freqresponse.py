@@ -481,6 +481,6 @@ def DiscreteFactoredLogLikelihoodFreqResponseNoLoop(
     if array_output:
         return lnL_t
     lnLmax = xpy.max(lnL_t, axis=-1, keepdims=True)
-    simps = FL.optimized_gpu_tools.simps if on_gpu else FL.my_simps
+    simps = FL.time_quadrature_rule("simpson", xpy)  # same rule on CPU and GPU
     L = simps(xpy.exp(lnL_t - lnLmax), dx=P_vec.deltaT, axis=-1)
     return lnLmax[..., 0] + xpy.log(L)

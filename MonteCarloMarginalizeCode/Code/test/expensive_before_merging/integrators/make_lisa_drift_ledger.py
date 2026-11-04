@@ -44,6 +44,21 @@ OUT = os.path.join(HERE, "lisa_drift_ledger.json")
 # First match wins.
 # ---------------------------------------------------------------------------------------
 RULES = [
+    (r"^FUNC:_calibration_envelope_types$", "NA",
+     "Ground-detector calibration-envelope handoff between FD prior conversion and "
+     "the TDGS template FIR. LISA exposes neither calibration envelopes nor TDGS; "
+     "see the --calibration-* and TD-option reasons."),
+    (r"^FUNC:_series_deltaF$", "PHYSICS",
+     "Frequency spacing of a loaded data series, used by the td-gs (finite-covariance "
+     "time-domain) set-up. The LISA driver has no td-gs code path; see the TD option "
+     "reason below."),
+    # Ground-based TD operators: only this explicitly reviewed option set.
+    (r"^OPTION:--(internal-ile-inner-product|td-subsample|td-calibration-correction-type|td-calibration-fir-half-length|td-highpass|td-u-svd-tol|td-mref|td-piece|td-ifo-time-offset|td-acf-file|td-acf-cond|td-dense-max-n|td-u-stride|td-u-method|td-whiteness-check|td-solver|td-acf-duration|td-analysis-start|td-analysis-end|td-gap|glitch-basis|glitch-basis-file|glitch-sigma)$", "PHYSICS",
+     "The ground-based Toeplitz/cropped-precision and Gaussian-glitch factory is not "
+     "wired into the LISA driver. Porting requires a TDI-channel covariance, boundary "
+     "and response-model decision with LISA-specific validation; copying the "
+     "ground-based option passthrough would not establish that model."),
+
 
     # ---------------------------------------------------------------- the fair-draw family
     # PORTED in this pass.  These are the PR #87 correctness helpers.  They are pure
@@ -258,7 +273,7 @@ RULES = [
      "response is applied analytically by factored_likelihood_LISA. LISA calibration, if "
      "it is ever modelled, will not have this data product or this spline parameterization, "
      "so porting the LIGO machinery would be actively misleading."),
-    (r"^FUNC:(_cal_setup_prior_with_nodes|_draw_more_calibration_draws)$", "NA",
+    (r"^FUNC:(_cal_setup_prior_with_nodes|_draw_more_calibration_draws|_redraw_calibration_bank_for_point)$", "NA",
      "Calibration-envelope internals; see the --calibration-* reason."),
     (r"^FUNC:_cal_rng$", "NA",
      "Per-stream RNG for the calibration-side auxiliary draws (the error probe and the "
@@ -268,7 +283,7 @@ RULES = [
      "RIFT.integrators.seeding.derived_rng, which is a shared module both drivers already "
      "import, and the LISA driver calls seed_everything on the same footing as the main "
      "one. If LISA ever models calibration, it wants derived_rng directly, not this wrapper."),
-    (r"^FUNC:analyze_event\._cal_error_probe(\._draw_dist)?$", "NA",
+    (r"^FUNC:analyze_event\._cal_error_probe(_body)?(\._draw_dist)?$", "NA",
      "Calibration Monte-Carlo error probe; see the --calibration-* reason."),
     (r"^FUNC:fused_calmarg_in_use$", "NA",
      "THE predicate for 'will the fused in-loop calibration kernel actually run?', shared by "
@@ -425,6 +440,12 @@ RULES = [
      "Separate internal sampling rate for the ground-based precompute. LISA's "
      "precompute takes its rate from the h5 frame and P.deltaT; there is no second "
      "internal rate to set."),
+    (r"^OPTION:--early-time-multirate(-backend|-waveform)?$", "NA",
+     "Opt-in two-rate precompute (PR #436) for ground-based detector strain: it wraps "
+     "PrecomputeLikelihoodTerms, decimates each IFO's C^-1 d, and builds lalsimulation FD "
+     "modes per |m|. The LISA driver precomputes through PrecomputeAlignedSpinLISA with the "
+     "TDI response and has no per-IFO strain to decimate. A LISA multirate path would be "
+     "its own design, not a port of this one."),
     (r"^OPTION:--srate-resample-time-marginalization$", "PORT",
      "Interpolate the lnL time series onto a finer grid before time resampling. LISA "
      "already has --resample-time-marginalization and its own time-resampling block, "

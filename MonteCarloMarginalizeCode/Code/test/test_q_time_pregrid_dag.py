@@ -141,7 +141,8 @@ def test_default_build_emits_no_q_time_pregrid_flag(tmp_path):
         assert ILE_Q_TIME_PREGRID_FLAG not in _sub_text(rundir, name), name
 
 
-def test_q_time_pregrid_factor_8_reaches_every_ile_stage_sub(tmp_path):
+@pytest.mark.parametrize("factor", [2, 4, 8])
+def test_q_time_pregrid_reaches_every_ile_stage_sub(tmp_path, factor):
     """The load-bearing regression (PR #281 review, MAJOR #1).  GW150914.ini's own
     [rift-pseudo-pipe] block already carries ile-force-gpu=True, and pseudo_pipe
     unconditionally passes --propose-fit-strategy --propose-ile-convergence-options
@@ -149,14 +150,15 @@ def test_q_time_pregrid_factor_8_reaches_every_ile_stage_sub(tmp_path):
     flags are needed to satisfy factor 8's --vectorized prerequisite here.  The ini
     sets no --rotation-slow, --freqresponse, or calibration marginalization, so
     nothing excludes it either."""
-    out, rundir = _build(tmp_path, "run_q8", [Q_TIME_PREGRID_FLAG, "8"])
+    out, rundir = _build(tmp_path, "run_q" + str(factor), [Q_TIME_PREGRID_FLAG, str(factor)])
     assert out.returncode == 0, out.stdout[-4000:]
     for name in ("ILE.sub", "ILE_extr.sub", "ILE_puff.sub"):
         text = _sub_text(rundir, name)
-        assert ILE_Q_TIME_PREGRID_FLAG + " 8" in text, (name, text)
+        assert ILE_Q_TIME_PREGRID_FLAG + " " + str(factor) in text, (name, text)
 
 
-def test_q_time_pregrid_factor_8_reaches_every_ile_stage_sub_under_osg(tmp_path):
+@pytest.mark.parametrize("factor", [2, 4, 8])
+def test_q_time_pregrid_reaches_every_ile_stage_sub_under_osg(tmp_path, factor):
     """The MINOR gap PR #291 review left open: _fast_ini above forces OSG off, so the
     --use-osg .sub-build variant of this flag was never exercised.  write_ILE_sub_simple
     rewrites the "executable" line under --use-osg (SINGULARITY_BASE_EXE_DIR +
@@ -176,12 +178,12 @@ def test_q_time_pregrid_factor_8_reaches_every_ile_stage_sub_under_osg(tmp_path)
         # inserted), so it must carry its own trailing slash.
         "SINGULARITY_BASE_EXE_DIR": "/fake/base_exe_dir/",
     }
-    out, rundir = _build(tmp_path, "run_q8_osg", [Q_TIME_PREGRID_FLAG, "8"],
+    out, rundir = _build(tmp_path, "run_q" + str(factor) + "_osg", [Q_TIME_PREGRID_FLAG, str(factor)],
                           ini_fn=_fast_ini_with_osg_cvmfs, extra_env=extra_env)
     assert out.returncode == 0, out.stdout[-4000:]
     for name in ("ILE.sub", "ILE_extr.sub", "ILE_puff.sub"):
         text = _sub_text(rundir, name)
-        assert ILE_Q_TIME_PREGRID_FLAG + " 8" in text, (name, text)
+        assert ILE_Q_TIME_PREGRID_FLAG + " " + str(factor) in text, (name, text)
 
 
 def test_q_time_pregrid_factor_8_with_calmarg_is_refused_at_build_time(tmp_path):

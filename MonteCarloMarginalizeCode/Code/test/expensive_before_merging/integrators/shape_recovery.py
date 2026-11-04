@@ -944,6 +944,104 @@ def run_group_case(kind, target, nmax, neff, n_chunk=10000, seed=987654, verbose
 
 
 # ----------------------------------------------------------------------------
+# Narrow peak with flat axes (AV, production bounds)
+# ----------------------------------------------------------------------------
+# A peak narrower than one bin on two axes, with several flat axes.  The live set then holds
+# fewer points than the live region has bins; bins left empty drop out of every later grid, the
+# retained-set density over-counts where points remain, and lnZ reads low.  The mixture targets
+# above never reach this regime.  Measured on rift_O4d a61407ec7 (9 seeds, lnZ - exact): sigma
+# 0.001 with 3 flat axes, -0.69 +/- 0.11 at n_eff 30 and -2.18 +/- 0.07 at n_eff 300; no flat
+# axes, +0.01.  KNOWN DEFECT, not fixed: the lane is warn-only (not in the strict defaults), and
+# each record carries AV's unseen_frac_final per seed, which must flag the flat cases.
+# Record: RIFT_roboto_paper development/OPEN_av_412_narrow_flat_axes.md.
+NARROW_FLAT_KIND = "AV_narrowflat"
+NARROW_FLAT_CASES = [   # (sigma, n_flat, nmax, neff, n_run_seeds)
+    (0.001, 3, 4000000, 300, 6),
+    (0.001, 3, 4000000, 30, 8),
+    (0.001, 0, 4000000, 300, 4),   # control: no flat axes
+]
+
+
+class NarrowFlatTarget(object):
+    """Gaussian of width `sigma` on two [-1, 1] axes, times `n_flat` flat [0, 2 pi] axes, uniform
+    prior: lnZ = ln(2 pi sigma^2 / 4) exactly, and the truth pool is drawn directly."""
+
+    MU = (0.2, -0.3)
+
+    def __init__(self, sigma, n_flat, seed=0):
+        self.sigma, self.n_flat = float(sigma), int(n_flat)
+        self.ndim, self.ncomp, self.seed = 2 + self.n_flat, 1, int(seed)
+        self.name = "narrowflat_sig{:g}_f{}".format(self.sigma, self.n_flat)
+        self.params = ["x{}".format(i) for i in range(self.ndim)]
+        self.llim = np.array([-1.0, -1.0] + [0.0] * self.n_flat)
+        self.rlim = np.array([1.0, 1.0] + [2 * np.pi] * self.n_flat)
+        self._pool = None
+
+    def lnL(self, X):
+        X = np.atleast_2d(X)
+        return -0.5 * ((X[:, 0] - self.MU[0]) ** 2 + (X[:, 1] - self.MU[1]) ** 2) / self.sigma ** 2
+
+    as_lnfunc = MixtureTarget.as_lnfunc
+
+    @property
+    def pool(self):
+        if self._pool is None:
+            rng = np.random.RandomState(self.seed + 7)
+            n = TRUTH_POOL_N
+            cols = [rng.normal(self.MU[0], self.sigma, n), rng.normal(self.MU[1], self.sigma, n)]
+            cols += [rng.uniform(0.0, 2 * np.pi, n) for _ in range(self.n_flat)]
+            self._pool = np.column_stack(cols)
+        return self._pool
+
+    @property
+    def true_lnZ(self):
+        return float(np.log(2 * np.pi * self.sigma ** 2 / 4.0))
+
+
+def run_narrow_flat_case(target, nmax, neff, n_seeds, n_chunk=10000, seed=987654):
+    """AV with enforce_bounds=True (as ILE and CIP call it) at n_seeds run seeds, pooled into one
+    record: bias_ln is the mean over seeds and rel_err its standard error, so evaluate()'s lnZ
+    tolerance is max(4 se, 0.10); the shape metrics use the seeds' clouds at equal weight."""
+    t0 = time.time()
+    out = dict(kind=NARROW_FLAT_KIND, target=target.name, ndim=target.ndim, ncomp=1,
+               target_seed=target.seed, nmax=int(nmax), n_run_seeds=int(n_seeds))
+    try:
+        lnIs, effs, Xs, lws, unseen = [], [], [], [], []
+        for k in range(int(n_seeds)):
+            np.random.seed(seed + k)
+            s = build_sampler("AV", target, n_chunk)
+            lnI, _, eff, info = s.integrate_log(target.as_lnfunc(), *target.params,
+                                                no_protect_names=True, n=n_chunk, n_adapt=100,
+                                                floor_level=0.0, tempering_exp=0.1, neff=neff,
+                                                nmax=int(nmax), save_intg=True,
+                                                enforce_bounds=True, verbose=False,
+                                                dict_return=True)
+            # absent on branches that predate the diagnostic
+            unseen.append(float(info.get("unseen_frac_final", float("nan")))
+                          if isinstance(info, dict) else float("nan"))
+            lnIs.append(float(_asnumpy(lnI)))
+            effs.append(float(_asnumpy(eff)))
+            lw = log_weights_from_rvs(s._rvs)
+            Xs.append(np.column_stack([_asnumpy(s._rvs[p]).astype(float).flatten()
+                                       for p in target.params]))
+            lws.append(lw - logsumexp(lw))
+        lnIs = np.array(lnIs)
+        out.update(shape_metrics(target, np.vstack(Xs), np.concatenate(lws),
+                                 np.random.RandomState(seed + 1)))
+        out.update(unseen_per_seed=unseen)
+        out.update(lnI=float(np.mean(lnIs)), lnI_per_seed=[float(v) for v in lnIs],
+                   true_lnZ=target.true_lnZ, bias_ln=float(np.mean(lnIs)) - target.true_lnZ,
+                   rel_err=float(np.std(lnIs, ddof=1) / np.sqrt(len(lnIs))),
+                   n_eff=float(np.sum(effs)), n_eval=int(nmax), wallclock=time.time() - t0,
+                   error=None)
+    except Exception as e:
+        import traceback
+        out.update(error="{}: {}".format(type(e).__name__, e),
+                   traceback=traceback.format_exc(), wallclock=time.time() - t0)
+    return out
+
+
+# ----------------------------------------------------------------------------
 # Pass/fail policy
 # ----------------------------------------------------------------------------
 def evaluate(r):
@@ -1105,6 +1203,10 @@ def _worker(job):
         group_sizes, ncomp, ts = tgt_args
         return run_group_case(kind, GroupedMixtureTarget(group_sizes, ncomp, ts), nmax, neff,
                               seed=seed)
+    if kind == NARROW_FLAT_KIND:
+        sigma, n_flat, n_seeds = tgt_args
+        return run_narrow_flat_case(NarrowFlatTarget(sigma, n_flat), nmax, neff, n_seeds,
+                                    seed=seed)
     if kind == "portfolio_warm":
         return run_warm_case(MixtureTarget(*tgt_args, **extra), nmax, neff, seed=seed)
     if kind in ("portfolio_seq", "portfolio_seq_nobs", "AV_seq"):
@@ -1127,6 +1229,8 @@ def main(argv=None):
     ap.add_argument("--group-cases", default="auto", choices=("auto", "on", "off"),
                     help="run the multi-dim-group GMM cases (GROUP_CASES; "
                          "auto = on for --preset standard, off for quick)")
+    ap.add_argument("--narrow-flat-cases", default="auto", choices=("auto", "on", "off"),
+                    help="AV narrow-peak/flat-axes lnZ cases (auto = on for --preset standard)")
     ap.add_argument("--no-matrix", action="store_true",
                     help="skip the sampler x target matrix; run only the enabled case lists")
     ap.add_argument("--strict-samplers", default="AV,GMM," + ",".join(GROUP_KINDS),
@@ -1201,10 +1305,18 @@ def main(argv=None):
     if want_group:
         for kind, sizes, nc, ts, nmax, neff in GROUP_CASES:
             jobs.append((kind, (sizes, nc, ts), nmax, neff, opts.run_seed))
-    print("# shape_recovery: {} runs ({} targets x {} samplers){}{}, preset={}".format(
+    n_group = len(jobs) - n_matrix - n_warm
+    want_narrow = (opts.narrow_flat_cases == "on" or
+                   (opts.narrow_flat_cases == "auto" and opts.preset == "standard"))
+    if want_narrow:
+        for sigma, n_flat, nmax, neff, n_seeds in NARROW_FLAT_CASES:
+            jobs.append((NARROW_FLAT_KIND, (sigma, n_flat, n_seeds), nmax, neff, opts.run_seed))
+    print("# shape_recovery: {} runs ({} targets x {} samplers){}{}{}, preset={}".format(
         len(jobs), n_matrix // max(len(samplers), 1), len(samplers),
         " + {} warm/sequential cases".format(n_warm) if want_warm else "",
-        " + {} multi-group cases".format(len(jobs) - n_matrix - n_warm) if want_group else "",
+        " + {} multi-group cases".format(n_group) if want_group else "",
+        " + {} narrow-flat cases".format(len(jobs) - n_matrix - n_warm - n_group)
+        if want_narrow else "",
         opts.preset))
     sys.stdout.flush()
 

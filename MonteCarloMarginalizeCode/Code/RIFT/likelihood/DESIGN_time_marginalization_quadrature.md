@@ -134,24 +134,44 @@ max error 1.4e-12 at n=614 but 4.1e-1 at n=613, 5.4e-1 at n=307, 6.0e-2 at n=245
 the samples, wrong between them — so a "reproduces its input" test cannot see it, and a
 fixture with an empty top bin cannot either.
 
-## CPU/GPU: a PRE-EXISTING divergence, not introduced here
+## CPU/GPU: one rule per name  (resolved 2026-10)
 
-`factored_likelihood` integrates with scipy's `simpson` on CPU and the vendored
-`optimized_gpu_tools.simps` on GPU.  The latter is an old scipy with `even='avg'`; modern
-scipy uses the Cartwright correction.  **Odd N agree exactly; even N do not** — and
-production npts is even at srate 4096/8192:
+Until 2026-10 the fixed-grid paths chose the rule by backend: scipy's `simpson` on CPU,
+the vendored `optimized_gpu_tools.simps` (old scipy, `even='avg'`) on GPU.  Both rules are
+linear, so each is a weight vector, `rule(I, dx)`:
 
-    n=613 random  scipy=318.0505029932  gpu=318.0505029932   reldiff 0
-    n=614 random  scipy=309.1334604435  gpu=305.7046546187   reldiff 1.1e-2
-    n=615 random  scipy=298.5401667745  gpu=298.5401667745   reldiff 0
+| npts | scipy (CPU, JAX) interior | vendored `even='avg'` (GPU) interior |
+|------|---------------------------|--------------------------------------|
+| odd  | `4/3, 2/3, 4/3, ...`      | identical |
+| even | `4/3, 2/3, ...`, tail `[5/4, 1, 5/12]` | `1, 1, 1, ...` (trapezoid), ends `[5/12, 13/12]` |
 
-Through the shipped likelihood on `ldas-pcdev13`, numpy vs cupy differ by up to **0.405 nats**
-under the historical `simpson` quadrature.  Worth its own investigation; not repaired here.
+npts is even at srate 4096 and 8192.  The scipy column holds for scipy >= 1.11 (IGWN ships
+1.13); older scipy defaults to `even='avg'` and matches the vendored rule.  For a non-negative integrand the log-ratio is bounded
+by `[ln(2/3), ln(4/3)]`, and a sharp peak saturates it: numpy vs cupy differed by up to
+0.405 nats through the shipped likelihood (oshaughnessy-junior/research-projects-RIT#204).
 
-Measured *after* this change, same inputs: band-limited numpy-vs-cupy max 1.1e-6, median
-4.9e-14, versus Simpson's max 0.405, median 5.4e-3 — refined rows integrate with trapezoid on
-the dense grid, which has no even/odd ambiguity, so this path removes the divergence where it
-applies.
+**Resolution (RO, 2026-10-18).** `factored_likelihood.time_quadrature_rule` picks the rule by
+name.  `'simpson'` is scipy's rule on every backend: on GPU its weights are built once on the
+host and cached on the device, so CPU is unchanged bit for bit and GPU at even npts moves onto
+the CPU value.  `'trapezoid'` is a new opt-in.  NoLoop, `factored_likelihood_with_rotation`
+and `factored_likelihood_freqresponse` all take their rule from the selector; JAX ILE already
+used scipy's weights.  Re-measured after the change on the `test_time_quadrature_rule.py`
+inputs (peaks of ~1700, 21 and 7 nats): CPU and GPU agree to < 1e-9 nats under both names.
+
+Simpson stays the default though trapezoid is the more accurate fixed-grid rule for a peak
+inside the window (Gaussian, exact `erf` reference, worst of 32 sub-sample offsets, nats):
+
+| sigma/deltaT | Simpson | trapezoid |
+|-----|--------|--------|
+| 0.5 | 2.0e-1 | 1.5e-2 |
+| 1.0 | 4.8e-3 | 5.4e-9 |
+| 1.5 | 1.0e-5 | 2.2e-16 |
+
+Trapezoid converges exponentially because every Euler-Maclaurin boundary term vanishes when
+the integrand decays inside the window; with a peak at the window edge Simpson wins.  Neither
+fixes under-resolution; `bandlimited` and `peak-local` address that.  Switching the
+default would move every CPU, JAX and odd-npts run and needs end-to-end known-answer runs,
+which have not been done.
 
 ## Cost, and why the strategy should change
 

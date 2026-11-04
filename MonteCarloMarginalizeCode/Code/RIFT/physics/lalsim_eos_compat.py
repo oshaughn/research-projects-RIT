@@ -1,16 +1,19 @@
 """Compatibility helpers for the evolving LALSimulation neutron-star API.
 
-Released LALSimulation versions expose a single-branch
-``LALSimNeutronStarFamily`` interface.  The reviewed TOV development adds
-multipart equations of state, multiple stable branches, and branch-indexed
-interpolators.  This module keeps the version checks in one place and gives
-EOSManager a scalar interface which fails explicitly when a mass has twin-star
+LALSimulation exposes legacy single-branch and released multibranch family
+interfaces.  The reviewed TOV development additionally provides multipart
+equations of state through a separate constructor and accessor interface.
+This module keeps capability checks in one place and gives EOSManager a scalar interface which fails explicitly when a mass has twin-star
 solutions.
 """
 
 import math
 
 import numpy as np
+
+
+class NonFiniteFamilyObservableError(RuntimeError):
+    """Raised when a native family solver returns a nonfinite observable."""
 
 
 class AmbiguousFamilyBranchError(ValueError):
@@ -77,6 +80,40 @@ def mass_in_eos_support(eos, m1_msun, m2_msun, bh1=False, bh2=False):
     return ok
 
 
+def evaluate_eos_lambda(eos, masses, use_vector=True, branch_id=None):
+    """Evaluate tidal deformabilities, rejecting only failed mass samples.
+
+    A vector evaluator may fail before returning any rows. Retry those rows
+    individually so one native EOS exception cannot discard valid neighbors.
+    """
+    scalar = getattr(eos, "lambda_from_m", None)
+    if not callable(scalar):
+        raise TypeError("EOS must provide callable lambda_from_m")
+    branch_kwargs = {"branch_id": branch_id} if branch_id is not None else {}
+    masses = np.asarray(masses, dtype=float)
+    flat = masses.reshape(-1)
+    result = np.full(len(flat), -np.inf)
+    finite_mass = np.isfinite(flat) & (flat > 0)
+    vector = getattr(eos, "lambda_from_m_vector", None)
+    if use_vector and callable(vector) and len(flat):
+        try:
+            values = np.asarray(vector(flat, **branch_kwargs), dtype=float)
+            if values.shape == flat.shape:
+                good = finite_mass & np.isfinite(values) & (values >= 0)
+                result[good] = values[good]
+                return float(result[0]) if masses.ndim == 0 else result.reshape(masses.shape)
+        except Exception:
+            pass
+    for i in np.flatnonzero(finite_mass):
+        try:
+            value = float(scalar(float(flat[i]), **branch_kwargs))
+            if math.isfinite(value) and value >= 0:
+                result[i] = value
+        except Exception:
+            continue
+    return float(result[0]) if masses.ndim == 0 else result.reshape(masses.shape)
+
+
 class LALSimNeutronStarFamilyAdapter:
     """Version-neutral access to a LALSimulation neutron-star family.
 
@@ -86,8 +123,8 @@ class LALSimNeutronStarFamilyAdapter:
         A released SWIG ``LALSimNeutronStarEOS`` object, or a reviewed
         ``SimEOSMultiParts`` object when ``multipart`` is true.
     minimal:
-        On the reviewed API, request the fast family containing only mass,
-        radius, and k2.  Released APIs do not have this argument and ignore it.
+        On multibranch APIs, request the fast family containing only mass,
+        radius, and k2. Legacy single-branch APIs ignore this argument.
     multipart:
         Select the reviewed ``CreateSimNeutronStarFamilyPT`` path. This is
         explicit because reviewed builds still expose the legacy family API
@@ -104,6 +141,32 @@ class LALSimNeutronStarFamilyAdapter:
         "SimNeutronStarFamBranchRadius",
         "SimNeutronStarFamBranchLoveNumberK2",
     )
+
+    _RELEASED_BRANCH_REQUIRED = (
+        "SimNeutronStarFamMinMassPerBranch",
+        "SimNeutronStarFamMaxMassPerBranch",
+        "SimNeutronStarFamRadiusOfMassPerBranch",
+        "SimNeutronStarFamLoveNumberK2OfMassPerBranch",
+        "SimNeutronStarFamCentralPressureOfMassPerBranch",
+    )
+
+    @classmethod
+    def _family_api(cls, lalsim_module, multipart):
+        if multipart:
+            cls._require_multibranch_api(lalsim_module)
+            return "reviewed"
+        if any(hasattr(lalsim_module, name) for name in cls._RELEASED_BRANCH_REQUIRED):
+            required = cls._RELEASED_BRANCH_REQUIRED + (
+                "CreateSimNeutronStarFamily", "SimNeutronStarFamNumberOfBranches",
+            )
+            missing = [name for name in required if not hasattr(lalsim_module, name)]
+            if missing:
+                raise RuntimeError(
+                    "released LALSimulation multibranch API is incomplete; missing "
+                    "symbols: {}".format(", ".join(missing))
+                )
+            return "released"
+        return "legacy"
 
     @classmethod
     def _require_multibranch_api(cls, lalsim_module):
@@ -126,9 +189,9 @@ class LALSimNeutronStarFamilyAdapter:
             import lalsimulation as lalsim_module
         self.lalsim = lalsim_module
         self.eos = eos
-        self.is_multibranch_api = bool(multipart)
-        if self.is_multibranch_api:
-            self._require_multibranch_api(self.lalsim)
+        self._api = self._family_api(self.lalsim, multipart)
+        self.is_multibranch_api = self._api != "legacy"
+        if self._api == "reviewed":
             # The reviewed API requires ``min_fam``: 1 selects the PE-oriented
             # M/R/k2 solver, while 0 also constructs baryonic mass, k3, and k4.
             if log_pressure_min is None:
@@ -154,6 +217,19 @@ class LALSimNeutronStarFamilyAdapter:
                 self.family = constructor(
                     eos, int(bool(minimal)), log_pressure_min
                 )
+        elif self._api == "released":
+            if log_pressure_min is None:
+                self.family = self.lalsim.CreateSimNeutronStarFamily(eos, int(bool(minimal)))
+            else:
+                log_pressure_min = float(log_pressure_min)
+                if not math.isfinite(log_pressure_min):
+                    raise ValueError("log_pressure_min must be finite ln(Pc / Pa)")
+                constructor = getattr(self.lalsim, "CreateSimNeutronStarFamilyWithPcmin", None)
+                if constructor is None:
+                    raise NotImplementedError(
+                        "released LALSimulation build does not expose CreateSimNeutronStarFamilyWithPcmin"
+                    )
+                self.family = constructor(eos, int(bool(minimal)), log_pressure_min)
         else:
             self.family = self.lalsim.CreateSimNeutronStarFamily(eos)
 
@@ -166,9 +242,8 @@ class LALSimNeutronStarFamilyAdapter:
         obj.lalsim = lalsim_module
         obj.eos = None
         obj.family = family
-        obj.is_multibranch_api = bool(multipart)
-        if obj.is_multibranch_api:
-            cls._require_multibranch_api(obj.lalsim)
+        obj._api = cls._family_api(obj.lalsim, multipart)
+        obj.is_multibranch_api = obj._api != "legacy"
         return obj
 
     @property
@@ -185,6 +260,8 @@ class LALSimNeutronStarFamilyAdapter:
                     return fn(self.family)
                 return min(self.minimum_mass(k) for k in range(self.number_of_branches))
             self._validate_branch_id(branch_id)
+            if self._api == "released":
+                return self.lalsim.SimNeutronStarFamMinMassPerBranch(self.family, int(branch_id))
             return self.lalsim.SimNeutronStarFamBranchMinMass(
                 int(branch_id), self.family
             )
@@ -199,6 +276,8 @@ class LALSimNeutronStarFamilyAdapter:
                     return fn(self.family)
                 return max(self.maximum_mass(k) for k in range(self.number_of_branches))
             self._validate_branch_id(branch_id)
+            if self._api == "released":
+                return self.lalsim.SimNeutronStarFamMaxMassPerBranch(self.family, int(branch_id))
             return self.lalsim.SimNeutronStarFamBranchMaxMass(
                 int(branch_id), self.family
             )
@@ -241,35 +320,50 @@ class LALSimNeutronStarFamilyAdapter:
             )
         )
 
+    @staticmethod
+    def _finite_observable(name, value):
+        # This must not be a ValueError: EOSBranchView reserves those for
+        # out-of-support samples and converts them to posterior rejection flags.
+        if not math.isfinite(value):
+            raise NonFiniteFamilyObservableError(
+                "LALSimulation returned nonfinite {} for a neutron-star family".format(name)
+            )
+        return value
+
     def radius(self, mass_si, branch_id=None):
         resolved = self.resolve_branch(mass_si, branch_id)
-        if self.is_multibranch_api:
-            return self.lalsim.SimNeutronStarFamBranchRadius(
-                mass_si, resolved, self.family
-            )
-        return self.lalsim.SimNeutronStarRadius(mass_si, self.family)
+        if self._api == "released":
+            value = self.lalsim.SimNeutronStarFamRadiusOfMassPerBranch(mass_si, self.family, resolved)
+        elif self.is_multibranch_api:
+            value = self.lalsim.SimNeutronStarFamBranchRadius(mass_si, resolved, self.family)
+        else:
+            value = self.lalsim.SimNeutronStarRadius(mass_si, self.family)
+        return self._finite_observable("radius", value)
 
     def love_number_k2(self, mass_si, branch_id=None):
         resolved = self.resolve_branch(mass_si, branch_id)
-        if self.is_multibranch_api:
-            return self.lalsim.SimNeutronStarFamBranchLoveNumberK2(
-                mass_si, resolved, self.family
-            )
-        return self.lalsim.SimNeutronStarLoveNumberK2(mass_si, self.family)
+        if self._api == "released":
+            value = self.lalsim.SimNeutronStarFamLoveNumberK2OfMassPerBranch(mass_si, self.family, resolved)
+        elif self.is_multibranch_api:
+            value = self.lalsim.SimNeutronStarFamBranchLoveNumberK2(mass_si, resolved, self.family)
+        else:
+            value = self.lalsim.SimNeutronStarLoveNumberK2(mass_si, self.family)
+        return self._finite_observable("Love number k2", value)
 
     def central_pressure(self, mass_si, branch_id=None):
         resolved = self.resolve_branch(mass_si, branch_id)
-        modern = getattr(
-            self.lalsim, "SimNeutronStarFamBranchCentralPressure", None
-        )
-        if self.is_multibranch_api:
+        if self._api == "released":
+            value = self.lalsim.SimNeutronStarFamCentralPressureOfMassPerBranch(mass_si, self.family, resolved)
+        elif self.is_multibranch_api:
+            modern = getattr(self.lalsim, "SimNeutronStarFamBranchCentralPressure", None)
             if modern is None:
                 raise NotImplementedError(
-                    "reviewed LALSimulation family API lacks branch-specific "
-                    "central pressure"
+                    "reviewed LALSimulation family API lacks branch-specific central pressure"
                 )
-            return modern(mass_si, resolved, self.family)
-        return self.lalsim.SimNeutronStarCentralPressure(mass_si, self.family)
+            value = modern(mass_si, resolved, self.family)
+        else:
+            value = self.lalsim.SimNeutronStarCentralPressure(mass_si, self.family)
+        return self._finite_observable("central pressure", value)
 
     def _validate_branch_id(self, branch_id):
         branch_id = int(branch_id)

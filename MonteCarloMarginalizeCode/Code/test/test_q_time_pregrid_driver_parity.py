@@ -41,9 +41,9 @@ def _driver_env():
     return env
 
 
-def _run_driver(*extra_args, factor=8):
+def _run_driver(*extra_args, factor=8, dispatch=True):
     cmd = [sys.executable, str(BIN), "--event-time", "1000000000.0",
-           "--q-time-pregrid-factor", str(factor)] + list(extra_args)
+           "--q-time-pregrid-factor", str(factor)] + (["--time-marginalization", "--gpu", "--force-xpy"] if dispatch else []) + list(extra_args)
     return subprocess.run(cmd, env=_driver_env(), stdout=subprocess.PIPE,
                            stderr=subprocess.STDOUT, universal_newlines=True, timeout=120)
 
@@ -72,7 +72,7 @@ _GUARD_CASES = [
 def test_builder_refuses_exactly_when_driver_refuses(label, driver_args, builder_ile_args):
     proc = _run_driver(*driver_args)
     driver_refuses = proc.returncode != 0 and _DRIVER_EXCLUSION_MESSAGE in proc.stdout
-    missing = q_time_pregrid_pipeline_prereqs(8, "X " + builder_ile_args)
+    missing = q_time_pregrid_pipeline_prereqs(8, "X --time-marginalization --gpu " + builder_ile_args)
     builder_refuses = bool(missing)
     assert builder_refuses == driver_refuses, (
         label, "builder missing=%r" % (missing,), proc.stdout[-2000:])
@@ -85,7 +85,7 @@ def test_stencil_conflict_wording_matches_the_shared_constant():
     proc = _run_driver("--vectorized", "--interpolate-time", "nearest")
     assert proc.returncode != 0, proc.stdout[-2000:]
     assert STENCIL_CONFLICT_MESSAGE in proc.stdout, proc.stdout[-2000:]
-    missing = q_time_pregrid_pipeline_prereqs(8, "X --vectorized --interpolate-time nearest")
+    missing = q_time_pregrid_pipeline_prereqs(8, "X --time-marginalization --gpu --vectorized --interpolate-time nearest")
     assert any(STENCIL_CONFLICT_MESSAGE in m for m in missing), missing
 
 
@@ -95,7 +95,7 @@ def test_explicit_cubic_stencil_is_accepted_by_both():
     # physical parameter; what is under test is only that OUR guard did not fire.
     assert STENCIL_CONFLICT_MESSAGE not in proc.stdout, proc.stdout[-2000:]
     assert _DRIVER_EXCLUSION_MESSAGE not in proc.stdout, proc.stdout[-2000:]
-    missing = q_time_pregrid_pipeline_prereqs(8, "X --vectorized --interpolate-time cubic")
+    missing = q_time_pregrid_pipeline_prereqs(8, "X --time-marginalization --gpu --vectorized --interpolate-time cubic")
     assert missing == [], missing
 
 
@@ -103,7 +103,7 @@ def test_explicit_cubic_stencil_is_accepted_by_both():
 # starts accepting a NEARBY factor: widening the driver's legal set to (1, 4, 8) left this
 # test at 3 with nothing to say about 4 (PR #291 review, MAJOR #2, mutation-tested).
 # Parametrized over several illegal values on both sides of the legal set.
-@pytest.mark.parametrize("factor", [2, 3, 4, 16])
+@pytest.mark.parametrize("factor", [0, -1, 3, 16])
 def test_illegal_factor_is_refused_by_both(factor):
     proc = _run_driver("--vectorized", factor=factor)
     assert proc.returncode != 0, proc.stdout[-2000:]
@@ -147,10 +147,66 @@ def test_ambiguous_abbreviation_refuses_on_both_sides_with_matching_classificati
     for candidate in candidates:
         assert candidate in proc.stdout, (candidate, proc.stdout[-2000:])
 
-    missing = q_time_pregrid_pipeline_prereqs(8, "X " + builder_ile_args)
+    missing = q_time_pregrid_pipeline_prereqs(8, "X --time-marginalization --gpu " + builder_ile_args)
     assert missing, (label, "builder approved an ambiguous token")
     assert any("ambiguous option:" in m for m in missing), missing
     # And NOT misattributed to one of the ordinary exclusion guards (the bug this test is for):
     assert not any(m.startswith("incompatible") for m in missing), missing
     for candidate in candidates:
         assert any(candidate in m for m in missing), (candidate, missing)
+
+
+@pytest.mark.parametrize("factor", [2, 4, 8])
+@pytest.mark.parametrize("flags", [
+    ["--vectorized", "--gpu", "--force-xpy"],
+    ["--time-marginalization", "--vectorized"],
+    ["--time-marginalization", "--gpu", "--force-xpy"],
+])
+def test_refinement_requires_actual_noloop_dispatch(factor, flags):
+    proc = _run_driver(*flags, factor=factor, dispatch=False)
+    assert proc.returncode != 0
+    assert _DRIVER_EXCLUSION_MESSAGE in proc.stdout, proc.stdout[-3000:]
+    assert q_time_pregrid_pipeline_prereqs(factor, "X " + " ".join(flags))
+
+
+@pytest.mark.parametrize("factor", [2, 4])
+def test_new_factors_reach_the_real_driver_past_the_refinement_guard(factor):
+    proc = _run_driver("--vectorized", factor=factor)
+    assert "ENABLED factor=" + str(factor) in proc.stdout, proc.stdout[-3000:]
+    assert "currently accepts only" not in proc.stdout
+    assert _DRIVER_EXCLUSION_MESSAGE not in proc.stdout
+
+
+@pytest.mark.parametrize("factor", [2, 4, 8])
+def test_refinement_refuses_td_gs_in_driver_and_emitted_argument_guard(factor):
+    proc = _run_driver("--vectorized", "--internal-ile-inner-product", "td-gs", factor=factor)
+    assert proc.returncode != 0
+    assert _DRIVER_EXCLUSION_MESSAGE in proc.stdout, proc.stdout[-3000:]
+    missing = q_time_pregrid_pipeline_prereqs(factor,
+        "X --time-marginalization --gpu --vectorized --internal-ile-inner-product td-gs")
+    assert any("td-gs" in item for item in missing)
+
+
+@pytest.mark.parametrize("factor", [2, 4, 8])
+def test_refinement_refuses_zero_likelihood_in_driver_and_builder(factor):
+    proc = _run_driver("--vectorized", "--zero-likelihood", factor=factor)
+    assert proc.returncode != 0
+    assert "--zero-likelihood" in proc.stdout, proc.stdout[-3000:]
+    missing = q_time_pregrid_pipeline_prereqs(factor,
+        "X --time-marginalization --gpu --vectorized --zero-likelihood")
+    assert any("--zero-likelihood" in item for item in missing)
+
+
+@pytest.mark.parametrize("factor", [2, 4, 8])
+@pytest.mark.parametrize("conflict", [
+    ["--srate-resample-time-marginalization", "32768"],
+    ["--time-posterior-export", "grid"],
+])
+def test_d4_fixed_time_export_conflict_refuses_in_builder_and_driver(factor, conflict):
+    flags = ["--vectorized", "--time-marginalization-quadrature", "bandlimited", *conflict]
+    proc = _run_driver(*flags, factor=factor)
+    assert proc.returncode != 0
+    assert "continuous" in proc.stdout, proc.stdout[-3000:]
+    missing = q_time_pregrid_pipeline_prereqs(factor,
+        "X --time-marginalization --gpu " + " ".join(flags))
+    assert any("continuous time export" in item for item in missing)

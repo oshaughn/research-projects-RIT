@@ -794,7 +794,7 @@ if not (opts.random_parameter is None) and not(opts.parameter is None):
     grid_extra = np.zeros( (len(grid),len(opts.random_parameter)) )
 #    print grid_extra.shape
     for indx in np.arange(len(opts.random_parameter)):
-        range_here = np.array(param_ranges[ indx_base+indx])
+        range_here = np.array(param_ranges[ indx_base+indx], dtype=float)
         if param_names[indx_base+indx] in ['mc','mtot','m1','m2']:
             range_here *= lal.MSUN_SI
         print(opts.random_parameter_exponent)
@@ -813,7 +813,7 @@ elif opts.parameter is None:
     print(param_names, param_ranges)
     grid = np.zeros( (opts.grid_cartesian_npts,len(opts.random_parameter)) )
     for indx in np.arange(len(opts.random_parameter)):
-        range_here = np.array(param_ranges[ indx])
+        range_here = np.array(param_ranges[ indx], dtype=float)
         if param_names[indx] in ['mc','mtot','m1','m2']:
             range_here *= lal.MSUN_SI
         grid[:,indx] = np.random.uniform( range_here[0],range_here[1],size=len(grid))

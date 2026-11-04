@@ -17,7 +17,8 @@ RIFT/calmarg/DESIGN_adaptive_driver.md).  This is the single executable the DAG 
 The ILE command line is taken from the run's args_ile.txt (the same args the wide jobs
 use); pilot-specific flags (--sim-xml, --n-events-to-analyze, --output-file,
 --calibration-dump-responsibilities, --calibration-proposal-breadcrumb) are stripped and
-re-supplied.  Steps 1-4 run as subprocesses so this composes with the existing tools.
+re-supplied.  --calibration-bank-per-point is dropped: the pilot needs one shared bank.
+Steps 1-4 run as subprocesses so this composes with the existing tools.
 
   util_CalPilotStage.py --composite consolidated_3.composite --ile-args-file args_ile.txt \
       --iteration 3 --output-breadcrumb cal_consolidated_3.npz \
@@ -34,14 +35,23 @@ import subprocess
 # tokens we re-supply ourselves -> strip them (and their value) from the inherited ILE args
 _STRIP_OPTS = {"--sim-xml", "--n-events-to-analyze", "--output-file", "--event",
                "--calibration-dump-responsibilities", "--calibration-proposal-breadcrumb"}
+# wide-stage flags (no value) the pilot must not inherit.  --calibration-bank-per-point:
+# the pilot sums responsibilities by realization index, so it needs one shared bank, and
+# the driver refuses the flag together with --calibration-dump-responsibilities.
+# Each maps to its shortest prefix optparse accepts as unambiguous in the ILE driver.
+_STRIP_FLAGS = {"--calibration-bank-per-point": "--calibration-ba"}
 
 
-def strip_opts(arg_str, strip=_STRIP_OPTS):
-    """Remove `--opt value` pairs (and bare flags) for opts in `strip` from an arg string."""
+def strip_opts(arg_str, strip=_STRIP_OPTS, strip_flags=_STRIP_FLAGS):
+    """Remove `--opt value` pairs for opts in `strip`, and bare flags in `strip_flags`
+    (also spelled as any prefix optparse would accept)."""
     toks = shlex.split(arg_str)
     out, i = [], 0
     while i < len(toks):
         t = toks[i]
+        if any(f.startswith(t) and t.startswith(p) for f, p in strip_flags.items()):
+            i += 1
+            continue
         if t in strip:
             i += 1
             # skip a following value if it is not itself an option
@@ -51,6 +61,26 @@ def strip_opts(arg_str, strip=_STRIP_OPTS):
         out.append(t)
         i += 1
     return " ".join(out)
+
+
+def pilot_ile_command(ile_args, ile_exe, grid, n_pts, output_file, resp, prev_breadcrumb=None):
+    """The pilot's ILE command: the wide args_ile.txt line, stripped, plus the pilot's own options."""
+    # args_ile.txt convention: the first token is a placeholder ('X', stripped by
+    # create_event_parameter_pipeline) -- or, in some hand-written files, the exe path.
+    # Drop it either way; otherwise it is passed to ILE as a stray positional arg.
+    toks = shlex.split(ile_args)
+    if toks and (toks[0] == "X" or "integrate_likelihood" in toks[0]):
+        rest = " ".join(toks[1:])
+    else:
+        rest = ile_args
+    rest = strip_opts(rest)
+    cmd = [ile_exe] + shlex.split(rest) + [
+        "--sim-xml", grid, "--n-events-to-analyze", str(n_pts),
+        "--output-file", output_file,
+        "--calibration-dump-responsibilities", resp]
+    if prev_breadcrumb and os.path.exists(prev_breadcrumb):
+        cmd += ["--calibration-proposal-breadcrumb", prev_breadcrumb]   # refinement
+    return cmd
 
 
 def _which(name):
@@ -91,22 +121,9 @@ def main(argv=None):
     # --- 2. ILE dump (cheap: skips the extrinsic sampler) ---------------------------
     with open(opts.ile_args_file) as f:
         ile_args = f.read().strip()
-    # args_ile.txt convention: the first token is a placeholder ('X', stripped by
-    # create_event_parameter_pipeline) -- or, in some hand-written files, the exe path.
-    # Drop it either way; otherwise it is passed to ILE as a stray positional arg.
-    toks = shlex.split(ile_args)
     ile_exe = opts.ile_exe or _which("integrate_likelihood_extrinsic_batchmode")
-    if toks and (toks[0] == "X" or "integrate_likelihood" in toks[0]):
-        rest = " ".join(toks[1:])
-    else:
-        rest = ile_args
-    rest = strip_opts(rest)
-    cmd = [ile_exe] + shlex.split(rest) + [
-        "--sim-xml", grid, "--n-events-to-analyze", str(n_pts),
-        "--output-file", os.path.join(wd, "cal_pilot_out_%d" % it),
-        "--calibration-dump-responsibilities", resp]
-    if opts.prev_breadcrumb and os.path.exists(opts.prev_breadcrumb):
-        cmd += ["--calibration-proposal-breadcrumb", opts.prev_breadcrumb]   # refinement
+    cmd = pilot_ile_command(ile_args, ile_exe, grid, n_pts,
+                            os.path.join(wd, "cal_pilot_out_%d" % it), resp, opts.prev_breadcrumb)
     print(" [calpilot %d] DUMP: %s" % (it, " ".join(cmd)))
     subprocess.check_call(cmd)
 

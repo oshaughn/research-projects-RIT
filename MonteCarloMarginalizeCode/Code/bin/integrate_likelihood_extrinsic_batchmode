@@ -59,7 +59,8 @@ from RIFT.likelihood.time_interp_choice import TIME_INTERP_DEFAULT
 # driver cannot silently drift apart (PR #291 review, MAJOR #2: this used to be an independent
 # literal here, and a pipeline-side docstring claimed drift was impossible while nothing
 # enforced it).
-from RIFT.likelihood.q_time_pregrid import validate_q_time_pregrid_factor
+from RIFT.likelihood.q_time_pregrid import (
+    validate_q_time_pregrid_factor, QTimePregridError, Q_TIME_PREGRID_RESTRICTION)
 from RIFT.precision import RiftFloat
 import RIFT.integrators.mcsampler as mcsampler
 from RIFT.integrators.rvs_record import (RvsRecord as _RvsRecord,   # see DESIGN_rvs_naming.md
@@ -333,6 +334,29 @@ optp.add_option("--srate",default=16384,type=int,help="Sampling rate. Change ONL
 optp.add_option("--srate-internal",default=None,type=int,help="If provided, internal-use sampling rate. If not provided, all calculations performed with 'srate'. Change ONLY IF YOU ARE ABSOLUTELY SURE YOU KNOW WHAT YOU ARE DOING.")
 optp.add_option("-t", "--event-time", type=float, help="GPS time of the event --- probably the end time. Required if --coinc-xml not given.")
 optp.add_option("-i", "--inv-spec-trunc-time", type=float, default=8., help="Timescale of inverse spectrum truncation in seconds (Default is 8 - give 0 for no truncation)")
+optp.add_option("--internal-ile-inner-product", type=str, default="fd-diagonal", help="Inner product used in the Precompute step: 'fd-diagonal' (default, the classic frequency-domain-diagonal lsu.ComplexIP/ComplexOverlap, zero behavioral change) 'td-toeplitz' (time-domain Toeplitz precision kernel; TD_LIKELIHOOD.md task T3), or 'td-gs' (fully time-domain code path: unwindowed TD data, untapered TD template modes, Toeplitz covariance C=Toeplitz(ACF) on hard-cut analysis pieces solved with tdanalysis' ToeplitzSolver (tdanalysis >= 1.1: Cholesky for short pieces, Gohberg-Semencul for long ones), Q(t),U(t),V(t) by direct quadratic forms, no FFT of data or templates; see --td-mref/--td-piece/--td-acf-file. Requires --vectorized; calibration marginalization runs as exact FIR filters on the template (--td-calibration-correction-type); no glitch marginalization yet). EXPERIMENTAL.")
+optp.add_option("--td-mref", type=float, default=None, help="td-gs: reference total mass [Msun, detector frame] that sets the time unit of --td-piece (1 M = M_ref * G Msun / c^3).")
+optp.add_option("--td-piece", action="append", default=None, help="td-gs: analysis piece 'START,END' in units of M_ref (--td-mref) relative to the event time (geocenter, or detector-frame via --td-ifo-time-offset). Repeatable; disjoint pieces are independent blocks (block-diagonal covariance). None = the full data segment (IMR). A piece may not extend before the template's first non-zero sample for any storage-grid shift (an abrupt turn-on inside a piece biases real-data fits): refused.")
+optp.add_option("--td-ifo-time-offset", action="append", default=None, help="td-gs: 'IFO:SECONDS' added to the event time for that detector before placing the --td-piece intervals (e.g. the detector-frame peak time minus the geocenter event time). Repeatable; default 0.")
+optp.add_option("--td-acf-file", action="append", default=None, help="td-gs: 'IFO:PATH.npy' autocorrelation for that detector in the tdanalysis format (float64 (2,N) [tau, R(tau)], tau[k]=k/fs). Repeatable. The lag spacing must equal the analysis deltaT: run ILE at the ACF's sample rate (the real-event files are 4096 Hz -> --srate 4096; ILE defaults to 16384 and would refuse them). The ACF must cover the longest piece. Without a file the ACF is built from the PSD with tdanalysis PSDToAutocorr (band [fmin, fmax] walled, see --td-acf-cond).")
+optp.add_option("--td-acf-cond", type=float, default=1e8, help="td-gs: target condition number of the Toeplitz covariance when the ACF is built from the PSD (tdanalysis PSDToAutocorr target_condition_number; the out-of-band wall is cond x the in-band floor, and in-band bins below S_max/cond are floored -- the floored count is printed and warned about). Default 1e8, as the tdanalysis ACF files.")
+optp.add_option("--td-dense-max-n", type=int, default=4096, help="td-gs: pieces with at most this many samples use a Cholesky factor of C (tdanalysis ToeplitzSolver, built once); longer pieces use its Gohberg-Semencul method. Both are exact. Default 4096.")
+optp.add_option("--td-u-stride", type=int, default=1, help="td-gs: compute U(t),V(t) every K samples of the storage grid and cubic-interpolate between (1 = exact at every sample, default). Q(t) is always exact.")
+optp.add_option("--td-subsample", type=int, default=1, help="td-gs: place templates to 1/K of a sample (default 1 = whole samples, the historical behaviour). Precompute evaluates Q(t), U(t), V(t) for K template sets moved by j/K of a sample with tdanalysis' Lanczos fractional-shift resampler (tdanalysis.utils.subsample_align.fractional_shift, half-width 16; tdanalysis >= 1.1), each through the same exact methods, so the series live on a grid of spacing deltaT/K and the likelihood finds each extrinsic sample's arrival time on that grid (residual step deltaT/K with the default nearest lookup; --interpolate-time applies its cubic stencil on the fine grid). Removes the one-sample staircase of lnL in t_c and in the sky. COST: Precompute x K per intrinsic point; the likelihood stage is unchanged (one gather per time bin, Simpson over the same coarse bins). Memory of the packed series x K.")
+optp.add_option("--td-u-method", type=str, default="auto", help="td-gs: how U(t),V(t) are evaluated; every method is exact. 'auto' (default): 'chunked' on Cholesky pieces, 'prefix' on GS pieces where the shifted template ends (or, mirrored, starts) inside the piece for every grid shift, 'recursion' on GS pieces it overruns at both ends. 'prefix': windowed sums of one Gohberg-Semencul kernel correlation per mode (O(n + N_window) per mode pair; refuses pieces where its condition fails). 'recursion': the kernel correlations slid sample by sample, any cut, no per-shift solve. 'prefix' and 'recursion' use Gohberg-Semencul generators of the ACF on every piece, so on Cholesky pieces with a badly conditioned ACF they differ from 'chunked' by ~cond(C) eps. 'batched': stack the cut shifted templates and apply C^-1 once (reference; memory n x N_window per mode). 'chunked': 'batched' in column blocks under a memory bound. The methods are tdanalysis' (tdanalysis.forms.sliding.sliding_self_terms, tdanalysis >= 1.1).")
+optp.add_option("--td-highpass", type=float, default=None, help="td-gs: zero-phase 8th-order Butterworth high-pass of the time-domain data at this corner frequency [Hz] before C^-1 d (tdanalysis.utils.filters.highpass_zero_phase; default off). Needed on real strain when the ACF walls the band below f_min (the conditioned tdanalysis ACFs do): use e.g. 10 Hz, which is flat to 2e-5 at 20 Hz. Analysis pieces should stay a few / corner seconds away from the data edges.")
+optp.add_option("--td-u-svd-tol", type=float, default=None, help="td-gs: compress the time-indexed cross terms U(t),V(t) per detector by an SVD over time, keeping the components with singular value > TOL x the largest (RIFT.likelihood.factored_likelihood.compress_time_indexed_cross_terms). The self term then costs r gathers per time bin instead of n_modes(n_modes+1); exact up to the dropped components, so TOL at rounding level (recommended 1e-13) reproduces the uncompressed likelihood to ~1e-12 relative. Done once per intrinsic point on the CPU after packing, before any GPU transfer; r and the reconstruction error are printed per detector. Default None = off.")
+optp.add_option("--td-calibration-correction-type", type=str, default="rift", help="td-gs with --calibration-envelope-directory: how a realization eta_c(f) becomes the factor on the TEMPLATE. 'rift' (default): C_c = eta_c for every detector, which reproduces RIFT's frequency-domain calibration marginalization exactly (eta_c on the data in RIFT's reversed packing is eta_c on the template at face value in the standard convention); 'bilby': bilby_pipe's per-detector semantics, C_c = eta_c for V1 (envelope of 'template' type) and C_c = 1/eta_c for H1, L1, K1 ('data' type: eta maps calibrated data to theoretical strain). --calibration-conjugate-phase conjugates C_c in both cases. See docs/td_gs_route.md.")
+optp.add_option("--td-calibration-fir-half-length", type=int, default=None, help="td-gs calibration: force the symmetric half-length L (samples) of the FIR filters applied to the template. Default None = exact: per intrinsic point the taps are truncated at the template's reach (beyond which no tap meets a non-zero template sample), or all N taps are used, so the result equals the N-tap inverse-DFT filter of each realization to rounding. A forced L shorter than the reach is an approximation (speed studies only).")
+optp.add_option("--td-whiteness-check", action="store_true", default=False, help="td-gs: in addition to the always-printed d^T C^-1 d / n per piece (should be ~1), whiten each piece (tdanalysis ToeplitzSolver.whiten: the Cholesky factor on Cholesky pieces, a Levinson-Durbin recursion on GS pieces, O(n^2) once per job) and print the variance and lag-1 autocorrelation of L^-1 d. Diagnostic only (the data are not high-passed on this code path; a value far from 1 means the ACF does not describe the data).")
+optp.add_option("--td-solver", type=str, default="auto", help="Solver mode for --internal-ile-inner-product td-toeplitz: {auto,dense,pcg}. Affects only the physical-covariance/augmentation path; the full-segment precision-kernel inner products are FFT-based and solver-independent. Default auto.")
+optp.add_option("--td-acf-duration", type=float, default=None, help="Optional ACF truncation duration [s] for --internal-ile-inner-product td-toeplitz (Stage-3 truncated-segment path). Default None = full segment; sets N_seg = round(duration*srate) and builds the truncated precision kernel K_seg = Toeplitz(kappa[:N_seg]).")
+optp.add_option("--td-analysis-start", type=float, default=None, help="TD segment analysis START offset [seconds], geocenter, relative to the TEMPLATE peak-amplitude reference. The template is hard-cut (no taper) to [t_ref+start, t_ref+end] in its own frame and slides inside the data segment. Geometric-unit (xM) start times convert as t[s] = xM * (G Mtot/c^3) ~ xM * 4.925e-6 * (Mtot/Msun); pick xM externally and pass the resulting seconds (one run per start-time choice, embarrassingly parallel). Requires --internal-ile-inner-product td-toeplitz. Default None = no start cut.")
+optp.add_option("--td-analysis-end", type=float, default=None, help="TD segment analysis END offset [seconds], geocenter, relative to the template peak reference. See --td-analysis-start for the xM conversion. Default None = no end cut (keep to segment end, e.g. ringdown-only with --td-analysis-start >=0).")
+optp.add_option("--td-gap", action="append", default=None, help="DISABLED (refused at startup). TD gap interval 'tstart,tend' in geocenter seconds relative to the event time. To excise data use --internal-ile-inner-product td-gs with disjoint --td-piece intervals.")
+optp.add_option("--glitch-basis", action="append", default=None, help="Analytic GLITCH MARGINALIZATION basis for one detector. Format 'IFO:t1,t2,f1,f2[:r]': IFO the glitchy detector; t1,t2 geocenter seconds relative to the event time (glitch time support); f1,f2 Hz (glitch band); optional :r number of Slepian columns (default from the 2*W*T time-bandwidth theorem). A per-detector, band-limited Slepian (DPSS) basis is built and its coefficients are analytically marginalized (Woodbury) in the TD Toeplitz Precompute: Q'/U' corrections + a per-detector Delta-lnZ evidence term added to lnL_marg. Repeatable (one glitch block per detector). Requires --internal-ile-inner-product td-toeplitz. EXPERIMENTAL.")
+optp.add_option("--glitch-basis-file", action="append", default=None, help="Analytic GLITCH MARGINALIZATION basis for one detector from a FILE (data-informed basis, TD_LIKELIHOOD.md Sec. 3 modes 3/4: e.g. glitschen-style PCA of real glitches, or BayesWave-draw SVD). Format 'IFO:path.npz'; the npz must contain 'basis' (n_snip x r time-domain snippet columns at the analysis sample rate), 'lambda0' (length-r dimensionless shape prior, max entry 1 per design Sec. 2b -- sigma_g carries the strain scale), 't0' (scalar: geocenter seconds RELATIVE TO THE EVENT TIME of snippet sample 0), and 'fs' (snippet sample rate [Hz], checked against the analysis rate). The snippet columns are zero-embedded into the analysis segment at t0 and their coefficients marginalized exactly like --glitch-basis (same Woodbury Q'/U' corrections + per-detector Delta-lnZ). Repeatable (one block per detector); mutually exclusive per-IFO with --glitch-basis. Requires --internal-ile-inner-product td-toeplitz. EXPERIMENTAL.")
+optp.add_option("--glitch-sigma", type=str, default="profile", help="Glitch amplitude hyperparameter sigma_g mode for --glitch-basis: 'profile' (default, and the only mode wired in G3: empirical-Bayes maximize Delta-lnZ over sigma_g per detector from the data). Grid marginalization is a documented follow-on (out of scope for G3).")
 optp.add_option("-w", "--window-shape", type=float, default=0, help="Shape of Tukey window to apply to data (default is no windowing)")
 optp.add_option("--psd-window-shape", type=float, default=0, help="Shape of Tukey window that *was* applied to the PSD being passed. If nonzero, we will rescale the PSD by the ratio of window shape results")
 optp.add_option("-m", "--time-marginalization", action="store_true", help="Perform marginalization over time via direct numerical integration. Default is false.")
@@ -348,7 +372,8 @@ optp.add_option("--calibration-envelope-directory",default=None, help="Name of d
 optp.add_option("--calibration-n-realizations", default=100, type=int, help="Number of realizations to use for calmarg, recommend 100")
 optp.add_option("--calibration-spline-count", default=10,type=int)
 optp.add_option("--calibration-fused-kernel", action="store_true", default=False, help="Opt-in: use the fused GPU kernel (Option C) for in-loop calibration marginalization. GPU only, no phase marginalization; with distance marginalization it uses the fused distmarg kernel. Falls back to the loop method (Option B) otherwise.")
-optp.add_option("--calibration-conjugate-phase", action="store_true", default=False, help="Opt-in calmarg phase-convention fix: apply conj(C) instead of C to the data when building the per-realization rholms, so the recovered calibration PHASE tracks the correct sign (matches the template-side <d|C h> convention).  Needed only for a phase-UNmarginalized or large-phase treatment; under phase marginalization with small phase it changes lnL by <0.05 nats.  Independent of the per-realization self-term amplitude fix (|C|^2 is conjugation-invariant), which is on by default when calibration marginalization is active.")
+optp.add_option("--calibration-conjugate-phase", action="store_true", default=False, help="FD routes: deprecated and ignored, since conjugation reverses the calibration phase in RIFT's FFT packing. TDGS: retain the explicit conjugation of the template response.")
+optp.add_option("--calibration-correction-type", default=None, help="Envelope convention: data, template, or per-detector H1:data,L1:data,V1:template. Defaults match bilby-pipe: V1 template; H1/L1/K1 data.")
 optp.add_option("--calibration-global-norm", action="store_true", default=False, help="Opt-in cheaper calmarg route: use the calibration-INDEPENDENT template norm <h|h> for every realization instead of the complete per-realization self-term <C_c h|C_c h>.  Skips the amplitude-basis precompute (an SVD of {|C_c|^2} plus rank-M(M+1)/2 weighted template blocks), which can dominate the per-intrinsic-point cost for long low-mass templates and large --calibration-n-realizations.  The dropped term is the amplitude self-term, whose evidence bias scales as ~0.5 rho^4 sigma_A^2 (amplitude-only, phase-independent): negligible at low/moderate SNR unless the amplitude envelope is wide, but growing as rho^4, so NOT for loud sources or wide amplitude envelopes.")
 optp.add_option("--calibration-proposal-breadcrumb",default=None, help="Opt-in (Option C / adaptive pilot): path to a breadcrumb .npz (RIFT.calmarg.breadcrumbs) carrying a LEARNED Gaussian proposal over cal spline nodes. When set, the cal realizations are drawn from that proposal instead of the broad prior, and the marginalization carries Phase-0 importance weights log(prior/proposal) so it stays unbiased. Requires --calibration-envelope-directory (the prior).")
 optp.add_option("--calibration-dump-responsibilities",default=None, help="Opt-in (Option C / adaptive pilot): path to write per-cal-realization log-responsibilities (length n_cal), accumulated over the evaluated grid, plus the cal node draws. This is the pilot's output, fitted into a proposal by util_CalPilotFit.py. No effect on the returned likelihood.")
@@ -363,6 +388,7 @@ optp.add_option("--calibration-neff-cal-target",default=10,type=float, help="Cal
 optp.add_option("--calibration-n-realizations-max",default=0,type=int, help="Cap for the adaptive cal draw count (see --calibration-neff-cal-target).  Default 0 = 8x --calibration-n-realizations.")
 optp.add_option("--calibration-burn-in-neff",default=None,type=float, help="Opt-in: before the production cal-marginalized integration, BURN IN the extrinsic sampler on the cheap ZERO-CAL (n_cal=1) likelihood until this effective sample count, then switch to the full cal-marginalized likelihood. The extrinsic posterior is ~cal-independent. CAVEAT: the AV sampler RESETS between integrate() calls (no seedable AV yet), so this gives AV no speedup (correctness-safe only). It can warm-start GMM/portfolio (model reuse). Awaiting a seedable / boundary-shifting AV; see DESIGN_adaptive_driver.md. No effect unless calmarg is active.")
 optp.add_option("--calibration-burn-in-nmax",default=None,type=int, help="Cap on the number of samples drawn during the zero-cal burn-in (default: the run's --n-max). Keeps the burn-in bounded if it cannot reach --calibration-burn-in-neff.")
+optp.add_option("--calibration-bank-per-point",action='store_true',default=False, help="Opt-in (calmarg active): draw a fresh calibration bank for EACH intrinsic point, instead of one bank per job shared by every point.  The draw stream is derived from --seed and the point's grid index (--event plus its offset in this job) only, so with the same --seed a grid index gets the same random draws whichever job analyzes it, and also in every iteration and every grid run with that --seed: the draws depend on the row number, not on the point, and give the same bank whenever the source (prior, or breadcrumb) and the calibration settings are unchanged.  Only the starting bank is independent of how points are split into jobs: the cal error probe and adaptive growth still draw from job-wide streams.  Unseeded runs take fresh entropy.  Same source as the shared bank (prior, or --calibration-proposal-breadcrumb), at the starting --calibration-n-realizations.  Not with --calibration-dump-responsibilities.")
 optp.add_option("--calibration-export-posterior",action='store_true',default=False, help="Opt-in (final fairdraw export, calmarg active): for each fair-draw output sample, draw ONE calibration realization in proportion to its posterior weight (L_c * w_c, from the per-realization likelihood components) and write a SELF-CONTAINED sibling <output>_<event>_cal.dat with the FULL draw -- intrinsic + extrinsic + the drawn realization's spline-node values as labeled columns cal_<IFO>_amp_<k>/cal_<IFO>_phase_<k>.  The recovered cal posterior is then those columns, plottable with the standard tooling.  Requires --calibration-envelope-directory; retains the cal node vectors.")
 optp.add_option("--extrinsic-proposal-breadcrumb",default=None, help="Opt-in (GMM sampler): SEED the extrinsic GMM sampler from a learned proposal breadcrumb (RIFT.calmarg.extrinsic_handoff): the per-group GMMs from a previous iteration's posterior pre-fill gmm_dict, so the sampler starts on the posterior instead of cold.  The extrinsic posterior barely moves iteration-to-iteration.  Groups matched by parameter name; missing groups fall back to the default.")
 optp.add_option("--extrinsic-proposal-output",default=None, help="Opt-in (GMM sampler): after the integration, fit the run's extrinsic posterior samples to a per-group GMM and WRITE it as a proposal breadcrumb (to seed a later iteration via --extrinsic-proposal-breadcrumb).")
@@ -387,6 +413,9 @@ optp.add_option("--response-order-p-reference", type=int, default=2, help="Highe
 optp.add_option("--response-order-Q-reference", "--response-order-q-reference", dest="response_order_Q_reference", type=int, default=8, help="Highest Q used by the diagnostic reference bank (default 8).")
 optp.add_option("--response-order-max-bank-gib", type=float, default=4.0, help="Refuse a diagnostic whose dense U,V planning estimate exceeds this many GiB (default 4).")
 optp.add_option("--force-xpy", action="store_true", help="Use the xpy code path.  Use with --vectorized --gpu to use the fallback CPU-based code path. Useful for debugging.")
+optp.add_option("--early-time-multirate", default=None, help="Opt-in prototype (RIFT/likelihood/DESIGN_early_time_multirate.md): path to a schedule JSON. Replaces the precompute with factored_likelihood_multirate.PrecomputeLikelihoodTermsMultirate (data-side weighting; kind two_rate, or one_segment as the matched full-rate control). IMRPhenomXHM/XPHM with aligned spins only; refuses calibration marginalization, --rotation-slow, --freqresponse, ROM, NR, gwsignal, extra waveform arguments and --internal-precompute-ignore-threshold, before data loading, with a nonzero exit. Default off.")
+optp.add_option("--early-time-multirate-backend", type="choice", choices=["numpy", "cupy", "reference"], default=None, help="Backend for opt-in multirate precompute. Default follows --gpu and the ILE array backend. Explicit cupy requires a usable GPU; reference uses the CPU reference arithmetic.")
+optp.add_option("--early-time-multirate-waveform", type="choice", choices=["lal", "xp"], default=None, help="Template source for opt-in multirate precompute: lal (default, lalsimulation) or xp (RIFT.likelihood.gpu_waveform_xhm on the multirate backend; IMRPhenomXHM only, not with backend reference).")
 optp.add_option("-o", "--output-file", help="Save result to this file.")
 optp.add_option("-O", "--output-format", default='xml', help="[xml|hdf5]")
 optp.add_option("-S", "--save-samples", action="store_true", help="Save sample points to output-file (sparse sim_inspiral XML). Requires --output-file to be defined. NOTE: the XML carries lnL only, not the importance weight -- it does NOT persist the joint prior / sampling prior, so it must not be reweighted by likelihood for a weighted-posterior/shape check. For that, use the ASCII per-sample outputs --extrinsic-proposal-output (full log-weight) or --calibration-export-posterior.")
@@ -398,7 +427,7 @@ optp.add_option("--internal-hard-fail-on-error",action='store_true',help='If tru
 optp.add_option("--internal-soft-fail-on-cuda-error",action='store_true',help='If true, returns with exit code 0 on any CUDA error. Use with care (e.g., if many jobs failing)')
 optp.add_option("--internal-make-empty-file-on-error",action='store_true',help='If true, failed points generate empty output file. Protects against OSG workflow problems')
 optp.add_option("--internal-waveform-fd-L-frame",action='store_true',help='If true, passes extra_waveform_kwargs = {fd_L_frame=True} to lalsimutils hlmoft. Impacts outputs of ChooseFDWaveform calls only.')
-optp.add_option("--internal-waveform-fd-no-condition",action='store_true',help='If true, adds extra_waveform_kwargs = {no_condition=True} to lalsimutils hlmoft. Impacts outputs of ChooseFDWaveform calls only. Provided to enable controlled tests of conditioning impact on PE')
+optp.add_option("--internal-waveform-fd-no-condition",action='store_true',help='If true, adds extra_waveform_kwargs = {no_condition=True} to lalsimutils hlmoft: skips the ChooseFDModes high-pass/taper AND the start tapers hlmoft applies to its time-domain branches (ChooseTDModes/TDModesFromPolarizations, SEOB, SEOBv3, IMRPhenomP). Provided to enable controlled tests of conditioning impact on PE; the td-gs code path sets it unconditionally.')
 optp.add_option("--internal-waveform-extra-lalsuite-args",type=str,default=None)
 optp.add_option("--internal-waveform-extra-kwargs",type=str,default=None)
 optp.add_option("--internal-precompute-ignore-threshold",default=None,type=float)
@@ -439,7 +468,7 @@ integration_params.add_option("--internal-gmm-inflate",type=float,default=1.0,he
 integration_params.add_option("--interpolate-time", default=None,help="Sub-sample stencil for evaluating Q_lm at fractional detector times, instead of snapping to the nearest sample bin. Accepts 'nearest', 'cubic', 'sinc', or a legacy truthy value (True/1/yes) meaning 'cubic'. DEFAULT CHANGED 2026-09-02 from 'nearest' to %r (issue #233); the value is time_interp_choice.TIME_INTERP_DEFAULT, shared with the jax driver's --interp so the two cannot ship opposite defaults again. THIS CHANGES RESULTS for anyone who did not pass --interpolate-time; pass '--interpolate-time nearest' to reproduce a pre-2026-09-02 run. WHICH TO USE is set by the bandwidth of Q(t), which is NOT fmax -- Q is band-limited by whichever is lower, fmax or the template's own cutoff, so it depends on the MASSES and on FMIN. MEASURED with SEOBNRv4 (an IMR model): %s. fmin matters as much as mass -- cubic degrades from fmin 20 to 150 at fixed mass (endpoint ratios 6.5x at M=9 and 9.6x at M=20, and NOT monotone in between) while sinc stays flat, which is why the crossover rises. NEAREST is never competitive (200-443 nats) and reaches 1 nat of error by SNR 2-6. Do not trust inspiral-only (TaylorT4) numbers for this: no merger-ringdown, understates the band by 2-3.7x. Error grows as SNR^2. COST of sinc vs cubic: ~4.2-4.5x on CPU, ~1.6-3.0x on GPU. All three stencils have CPU and GPU implementations. Requires the maintained NoLoop likelihood: an EXPLICIT request is REFUSED, not ignored, if the configuration cannot honour it, while the DEFAULT falls back to 'nearest' with a printed reason rather than turning a working configuration into a startup error. Measured tables and limitations: RIFT/likelihood/DESIGN_q_window_stencil.md. (Default=%s)" % (TIME_INTERP_DEFAULT, _CROSSOVER_GUIDANCE, TIME_INTERP_DEFAULT))
 integration_params.add_option("--q-time-pregrid-factor", default=1, type=int,
   help="OPT-IN ordinary-NoLoop Q pregrid.  Value 8 reflects each finite cut Q window, FFT-interpolates it onto an 8x finer grid once after packing, and uses four-tap cubic interpolation for detector arrival times while leaving the geocentric time-integration grid at the data deltaT.  Default 1 preserves current behavior and memory.  Other factors are refused until separately validated.")
-integration_params.add_option("--time-marginalization-quadrature", default="simpson", type=str, help="Rule for the TIME integral of the marginalized likelihood: 'simpson' (default, historical), 'bandlimited', or 'peak-local'. 'simpson' integrates exp(lnL(t)) with Simpson's rule at the FIXED spacing deltaT=1/srate. That spacing is a property of the DATA; the integrand's width is a property of the SIGNAL -- after angle marginalization exp(lnL(t)) is a near-Gaussian peak of width sigma_t = 1/(2 pi rho sigma_f) -- so resolving it needs srate >~ 2 pi sigma_f rho, a requirement that GROWS LINEARLY WITH SNR and that production does not meet. MEASURED on a 35+30 Msun SEOBNRv4 H1L1V1 injection at rho=40 (sigma_t = 61.2 us): rigidly scanning the grid phase over 2*deltaT moves the reported lnL by 1.649 / 0.385 / 0.0095 nats at srate 4096 / 8192 / 16384. Simpson makes an under-resolved peak WORSE than trapezoid, not better: (4T_h - T_2h)/3 carries the coarser T_2h and inherits its 2h alias. 'bandlimited' costs no extra likelihood evaluations and no extra precompute: kappa(t) is band-limited below Nyquist by construction and rho_sq is time-independent on this path, so the samples already computed determine the continuous integrand exactly, and one zero-padded FFT per row recovers it. Against a converged dense reference at srate 4096, rho=40: -0.007 nats, versus +0.745 for Simpson at the same grid phase. THERE IS DELIBERATELY NO RESOLUTION OPTION: the refinement factor is derived from the measured peak width and re-asserted on the refined grid. Cost scales with that factor and is paid only where the integrand actually demands it (a well-resolved peak derives a factor of 1 and costs nothing). Requires --time-marginalization --vectorized --gpu (--force-xpy is accepted), excludes --rotation-slow / --freqresponse / calibration marginalization, and is REFUSED, not ignored, if the configuration cannot honour it. Rationale, measured tables and exclusions: RIFT/likelihood/time_marginalization_quadrature.py. 'peak-local' is the same argument with the refined grid placed only where the integrand has support, because the dense rule refines the WHOLE window to a peak whose width shrinks as 1/rho -- it works hardest exactly where the peak occupies least of the domain. kappa's extrema are ENUMERATED on a small, SNR-INDEPENDENT upsample (kappa is band-limited at Nyquist, so enumerating it is not a function of SNR); an interval of a few sigma_t is built around each; overlapping intervals are MERGED into disjoint ones (without which the shared region is double-counted, measured +1.6 nats at rho~6); and each merged interval is integrated at its own derived spacing. The mass left OUTSIDE the intervals is bounded per row and CHECKED, so the truncation is not an assumption -- a row whose bound is not small enough, or whose local grid would cost more than the dense one, is given the 'bandlimited' value rather than an approximation with a caveat. Accuracy is that of 'bandlimited' by construction and is measured against it (max 1.9e-11 nats over 4000 extrinsic rows). COST: measured through this code path on CPU at n_extrinsic 4000, npts 614, it is NOT the prototype's headline figure -- that was measured with an analytic kappa in hand, where evaluating the interpolant at an arbitrary time was free, and here it is not. See RIFT/likelihood/DESIGN_time_marginalization_peak_local.md for the measured table. Same prerequisites and same exclusions as 'bandlimited', PLUS: 'peak-local' REFUSES phase marginalization. That is a deliberate scope cut -- production marginalizes over distance, not phase, and under phase marginalization the time peak's Laplace width picks up an (I1/I0)(|kappa|/D) factor that does not reduce, so the local spacing is no longer derivable from rho_sq and the curvature alone. 'bandlimited' still supports it. (Default=simpson)")
+integration_params.add_option("--time-marginalization-quadrature", default="simpson", type=str, help="Rule for the TIME integral of the marginalized likelihood: 'simpson' (default, historical), 'trapezoid', 'bandlimited', or 'peak-local'. 'simpson' integrates exp(lnL(t)) with Simpson's rule at the FIXED spacing deltaT=1/srate. That spacing is a property of the DATA; the integrand's width is a property of the SIGNAL -- after angle marginalization exp(lnL(t)) is a near-Gaussian peak of width sigma_t = 1/(2 pi rho sigma_f) -- so resolving it needs srate >~ 2 pi sigma_f rho, a requirement that GROWS LINEARLY WITH SNR and that production does not meet. MEASURED on a 35+30 Msun SEOBNRv4 H1L1V1 injection at rho=40 (sigma_t = 61.2 us): rigidly scanning the grid phase over 2*deltaT moves the reported lnL by 1.649 / 0.385 / 0.0095 nats at srate 4096 / 8192 / 16384. Simpson makes an under-resolved peak WORSE than trapezoid, not better: (4T_h - T_2h)/3 carries the coarser T_2h and inherits its 2h alias. 'bandlimited' costs no extra likelihood evaluations and no extra precompute: kappa(t) is band-limited below Nyquist by construction and rho_sq is time-independent on this path, so the samples already computed determine the continuous integrand exactly, and one zero-padded FFT per row recovers it. Against a converged dense reference at srate 4096, rho=40: -0.007 nats, versus +0.745 for Simpson at the same grid phase. THERE IS DELIBERATELY NO RESOLUTION OPTION: the refinement factor is derived from the measured peak width and re-asserted on the refined grid. Cost scales with that factor and is paid only where the integrand actually demands it (a well-resolved peak derives a factor of 1 and costs nothing). Requires --time-marginalization --vectorized --gpu (--force-xpy is accepted), excludes --rotation-slow / --freqresponse / calibration marginalization, and is REFUSED, not ignored, if the configuration cannot honour it. Rationale, measured tables and exclusions: RIFT/likelihood/time_marginalization_quadrature.py. 'peak-local' is the same argument with the refined grid placed only where the integrand has support, because the dense rule refines the WHOLE window to a peak whose width shrinks as 1/rho -- it works hardest exactly where the peak occupies least of the domain. kappa's extrema are ENUMERATED on a small, SNR-INDEPENDENT upsample (kappa is band-limited at Nyquist, so enumerating it is not a function of SNR); an interval of a few sigma_t is built around each; overlapping intervals are MERGED into disjoint ones (without which the shared region is double-counted, measured +1.6 nats at rho~6); and each merged interval is integrated at its own derived spacing. The mass left OUTSIDE the intervals is bounded per row and CHECKED, so the truncation is not an assumption -- a row whose bound is not small enough, or whose local grid would cost more than the dense one, is given the 'bandlimited' value rather than an approximation with a caveat. Accuracy is that of 'bandlimited' by construction and is measured against it (max 1.9e-11 nats over 4000 extrinsic rows). COST: measured through this code path on CPU at n_extrinsic 4000, npts 614, it is NOT the prototype's headline figure -- that was measured with an analytic kappa in hand, where evaluating the interpolant at an arbitrary time was free, and here it is not. See RIFT/likelihood/DESIGN_time_marginalization_peak_local.md for the measured table. Same prerequisites and same exclusions as 'bandlimited', PLUS: 'peak-local' REFUSES phase marginalization. That is a deliberate scope cut -- production marginalizes over distance, not phase, and under phase marginalization the time peak's Laplace width picks up an (I1/I0)(|kappa|/D) factor that does not reduce, so the local spacing is no longer derivable from rho_sq and the curvature alone. 'bandlimited' still supports it. 'trapezoid' is the trapezoidal rule on the same fixed deltaT grid: no refinement and no extra cost. For a peak well inside the window it converges exponentially in sigma_t/deltaT and is more accurate than Simpson; like Simpson it does not fix under-resolution. Each choice is the same rule on CPU and GPU. Same prerequisites and exclusions as 'bandlimited'. (Default=simpson)")
 integration_params.add_option("--d-prior",default='Euclidean' ,type=str,help="Distance prior for dL.  Options are dL^2 (Euclidean), 'pseudo_cosmo', and 'cosmo'  and 'cosmo_sourceframe' .")
 integration_params.add_option("--d-prior-redshift", action='store_true', help="If true, distance prior is computed in redshift. This option MAY be enforced for 'cosmo' sampling")
 integration_params.add_option("--d-max", default=10000,type=float,help="Maximum distance in volume integral. Used to SET THE PRIOR; changing this value changes the numerical answer.")
@@ -534,6 +563,15 @@ intrinsic_params.add_option("--distance-slice-wing-neff",type=int,default=30,hel
 intrinsic_params.add_option("--distance-slice-chunk",type=int,default=None,help="AV block size for each fresh per-slice integration. DEFAULT: inherit --n-chunk, i.e. run the slice path at the same block size as the main extrinsic loop (10000) instead of a private number; this replaces a hardcoded 2000. An inherited value below 10000 is raised to 10000 (AV's live volume only contracts and each cycle's threshold comes from nsel=min(1000,0.1*n_chunk) samples, so a smaller block makes every threshold a permanent support cut decided by too few samples; 10000 is where nsel saturates) -- this matters because the input-skymap path sets --n-chunk 500. Setting this flag explicitly overrides both, unclamped. Measured on a real event, 2000 -> 10000 takes rms(dlnL) 3.58 -> 0.35 and sigma-understatement 38.8x -> 4.0x for +9% cost, and removes the 'cap-burner' slices (3.1% of slices, 40.9% of all evaluations) that exhaust n-max without reaching the n_eff target. Larger is not uniformly better: 40000 was worse than 10000-15000 on hard targets. Must be >=1. MEMORY: fresh slices preserve the adaptive-volume block's native array backend. On GPU runs the angular and pinned-distance arrays stay on device through the likelihood call; only the returned likelihood vector and summary bookkeeping move to host. On CPU runs block arrays remain in system memory. Budget and measure both host and device memory for the selected backend rather than assuming either is immune. Interacts with --distance-slice-wing-nmax, which is a block-granular budget, not a hard cap.")
 intrinsic_params.add_option("--distance-slice-skip-threshold",type=float,default=1.0,help="Absolute lnL scale: if the PEAK lnL across core slices is below this many nats, treat the event as effectively undetected and skip wing integrations. (lnL is a likelihood ratio vs noise, so this is an absolute detectability cut, not a relative-spread test.)")
 intrinsic_params.add_option("--distance-slice-wing-delta-lnL",type=float,default=7.0,help="Target lnL drop below peak used to place wing slice centers: wings span from the core edge out to where the parabolic lnL(1/d) model falls this many nats below peak (default 7 ~ prior weight <1e-3 outside). Falls back to log-uniform full-range placement if the parabolic fit is degenerate.")
+intrinsic_params.add_option("--distance-slice-walkout-delta-lnL",type=float,default=0.0,help="(all-fresh only) After the K quantile-placed fresh slices, walk each edge outward with extra fresh slices (steps doubling in ln d, from twice the edge spacing) until lnL + ln pi(d) at the edge is this many nats below its peak, the distance range ends, or --distance-slice-walkout-max-steps slices were added on that side. 0 (default) disables. Quantile placement from a main loop at n_eff ~ 10 ends where the conditional is typically only 1-3 nats below peak; this measures the tails instead of leaving them to extrapolation. Adds a variable number of rows per point. COST: up to 2 x --distance-slice-walkout-max-steps extra sequential fresh integrations per point (16 at the default), each budgeted like a slice (--distance-slice-wing-nmax); measured +14-29% of the quantile slices' samples on O4 events at delta 5.")
+intrinsic_params.add_option("--distance-slice-walkout-max-steps",type=int,default=8,help="Cap on walk-out slices per side (see --distance-slice-walkout-delta-lnL).")
+intrinsic_params.add_option("--distance-slice-refine-dlnL",type=float,default=0.0,help="(all-fresh only) After the walk-out, bisect (in ln d) any pair of neighbouring slices whose lnL + ln pi(d) differ by more than this many nats while either is within the walk-out target (--distance-slice-walkout-delta-lnL, else 5) of the peak, repeating until none remain or --distance-slice-refine-max slices were added.  The walk-out's doubling steps can jump over an edge where the conditional falls from flat to nothing; interpolating across that gap moves the edge inward and drops mass (S240615dg: a quarter of points had a >6 nat jump between slices still holding mass).  0 (default) disables.  Uses the same per-slice sampler as the walk-out (warm or fresh).")
+intrinsic_params.add_option("--distance-slice-refine-max",type=int,default=12,help="Cap on slices added per point by --distance-slice-refine-dlnL.")
+intrinsic_params.add_option("--distance-slice-warm-start",action="store_true",default=False,help="(all-fresh only) Replace each slice's fresh AV integration with adaptive importance sampling over all extrinsic axes, warm-started: the first slice's proposal is a kernel density fitted to the main loop's samples (tempered by --distance-slice-warm-seed-temper), each later slice's to the nearest finished slice, refitted after every block; a uniform component over the prior box keeps the estimate unbiased if the seed is off. Assumes the main loop found every mode of each slice's conditional. Walk-out slices are warm-started too. Default off.")
+intrinsic_params.add_option("--distance-slice-warm-block",type=int,default=None,help="Block size (likelihood evaluations per proposal refit) for --distance-slice-warm-start.  Default: the slice chunk (--distance-slice-chunk, else --n-chunk; 10000 on a default run).  Small blocks are cheaper on easy events but adapt badly on hard ones.")
+intrinsic_params.add_option("--distance-slice-warm-khat-max",type=float,default=float("inf"),help="--distance-slice-warm-start: a warm slice whose estimate-phase Pareto k-hat exceeds this is redone by the cold AV (and the proposal does not freeze while a block's k-hat exceeds it).  Default: no k-hat gate; k-hat is logged.  On O4 slices at n_eff 30 good slices show k-hat 1-2 (60 slices paired against the cold AV agreed within error), so the textbook 0.7 rejects every slice.")
+intrinsic_params.add_option("--distance-slice-warm-local-k",type=int,default=30,help="--distance-slice-warm-start: each proposal kernel takes the covariance of its k nearest neighbours (shrunk toward the shared one).  At fixed distance the O4 conditionals split into separated phase/polarization copies, which one shared covariance spans: on S240514x, 30 gave 8x fewer slice samples than the cold AV where a shared covariance gave ~1x.  0: one shared covariance.")
+intrinsic_params.add_option("--distance-slice-warm-seed-temper",type=float,default=0.3,help="Exponent applied to the main loop's posterior weights before they seed --distance-slice-warm-start; < 1 broadens the seed so it covers the conditionals at the edge slices.")
 optp.add_option_group(intrinsic_params)
 
 
@@ -568,6 +606,37 @@ def _normalize_interpolate_time_argv(argv):
     return out
 
 opts, args = optp.parse_args(_normalize_interpolate_time_argv(sys.argv[1:]))
+if opts.td_gap:
+    # Refused for every inner product, before any other option check.
+    raise ValueError("--td-gap is disabled: the gap-marginalized td-toeplitz likelihood depends on an "
+                     "unregularized pseudo-inverse when fMax < fNyq.  To excise data, use "
+                     "--internal-ile-inner-product td-gs --vectorized with --td-mref M and disjoint "
+                     "--td-piece START,END intervals (units of M_ref, relative to the event) covering "
+                     "the data to KEEP.  Pieces are independent blocks: correlations across the gap "
+                     "are dropped.")
+if (opts.distance_slice_warm_block is not None and opts.distance_slice_warm_block < 1) or not (0 < opts.distance_slice_warm_seed_temper <= 1):
+    optp.error("--distance-slice-warm-block must be >= 1 and --distance-slice-warm-seed-temper in (0, 1]")
+if not (opts.distance_slice_refine_dlnL >= 0) or opts.distance_slice_refine_max < 0:   # also rejects NaN
+    optp.error("--distance-slice-refine-dlnL and --distance-slice-refine-max must be >= 0")
+if opts.distance_slice_walkout_delta_lnL < 0 or opts.distance_slice_walkout_max_steps < 0:
+    optp.error("--distance-slice-walkout-delta-lnL and --distance-slice-walkout-max-steps must be >= 0")
+if opts.early_time_multirate and opts.internal_ile_inner_product != "fd-diagonal":
+    optp.error("--early-time-multirate requires --internal-ile-inner-product fd-diagonal; "
+               "TD likelihood operators are not supported by multirate precomputation")
+if opts.early_time_multirate_waveform and not opts.early_time_multirate:
+    optp.error("--early-time-multirate-waveform requires --early-time-multirate")
+if opts.early_time_multirate_backend and not opts.early_time_multirate:
+    optp.error("--early-time-multirate-backend requires --early-time-multirate")
+# td-gs (fully time-domain Precompute) produces time-indexed U(t), V(t); several options
+# below are restricted for it, so the request is recorded before they are resolved.
+_td_gs_requested = (opts.internal_ile_inner_product == "td-gs")
+# Validate the requested Q route before optional unsupported-backend imports.
+opts.q_time_pregrid_factor = validate_q_time_pregrid_factor(opts.q_time_pregrid_factor)
+if opts.q_time_pregrid_factor > 1 and (
+        not opts.time_marginalization or not opts.vectorized or not opts.gpu
+        or opts.rotation_slow or opts.freqresponse or opts.calibration_envelope_directory
+        or _td_gs_requested or opts.zero_likelihood):
+    raise NotImplementedError(Q_TIME_PREGRID_RESTRICTION)
 # The GWSignal route does not consume RIFT's LAL-dictionary options. Reject the
 # explicit combination before data loading and the per-event exception handler,
 # so a requested physics option cannot disappear in a successful worker run.
@@ -580,6 +649,55 @@ if opts.gwsignal_mode_conditioning == "native" and opts.internal_waveform_fd_no_
     optp.error("--gwsignal-mode-conditioning native conflicts with --internal-waveform-fd-no-condition")
 if opts.log_noise_evidence_only and opts.log_noise_evidence_output is None:
   opts.log_noise_evidence_output = "log_noise_evidence.json"
+
+# The --td-* options below belong to the finite-covariance td-gs code path; on any other
+# inner product they would be ignored, so they are refused before any data are read.
+_gs_options = (opts.td_mref is not None or opts.td_piece or opts.td_ifo_time_offset or
+               opts.td_acf_file or opts.td_highpass is not None or opts.td_u_svd_tol is not None or
+               opts.td_whiteness_check or opts.td_acf_cond != 1e8 or opts.td_dense_max_n != 4096 or
+               opts.td_u_stride != 1 or opts.td_u_method != 'auto' or opts.td_subsample != 1 or
+               opts.td_calibration_correction_type != 'rift' or opts.td_calibration_fir_half_length is not None)
+if _gs_options and opts.internal_ile_inner_product != 'td-gs':
+    optp.error("TD-GS settings require --internal-ile-inner-product td-gs")
+if opts.internal_ile_inner_product == 'td-gs':
+    if opts.calibration_correction_type is not None:
+        optp.error("td-gs uses --td-calibration-correction-type; "
+                   "--calibration-correction-type is for the frequency-domain routes")
+    # The time-indexed U(t), V(t) are consumed only by the time-marginalized NoLoop likelihood.
+    if not opts.time_marginalization:
+        optp.error("td-gs requires --time-marginalization")
+    # Refused here, before data loading: inside analyze_event the same refusal (generate_td_modes,
+    # precompute_likelihood_terms_td_gs) is caught as a failed analysis.
+    from RIFT.likelihood.td_gs_precompute import template_route_is_fd
+    if (opts.use_gwsignal or opts.use_external_EOB or
+        opts.nr_lookup or opts.nr_group or opts.rom_group or opts.nr_hybrid_use or opts.nr_use_provided_strain or
+        template_route_is_fd(lalsimutils.lalsim.GetApproximantFromString(opts.approximant))):
+        optp.error("td-gs requires an untapered native TD waveform generator")
+
+# These upstream paths build FD-diagonal statistics independently of IP_factory.
+# Refuse the combination before loading data or writing a mislabeled noise evidence.
+if opts.internal_ile_inner_product == "td-toeplitz":
+    if opts.rotation_slow or opts.freqresponse:
+        raise ValueError("td-toeplitz does not support --rotation-slow or --freqresponse")
+    if opts.log_noise_evidence_output:
+        raise ValueError("td-toeplitz does not support FD --log-noise-evidence-output/only")
+
+if _td_gs_requested and opts.log_noise_evidence_output:
+    raise ValueError("td-gs does not support FD --log-noise-evidence-output/only")
+
+if opts.internal_ile_inner_product != "td-toeplitz":
+    if (opts.td_analysis_start is not None or opts.td_analysis_end is not None
+            or opts.td_gap or opts.td_acf_duration is not None or opts.td_solver != "auto"):
+        raise ValueError("TD cuts, gaps and solver settings require "
+                         "--internal-ile-inner-product td-toeplitz")
+if (opts.glitch_basis or opts.glitch_basis_file) and opts.internal_ile_inner_product != "td-toeplitz":
+    raise ValueError("--glitch-basis/--glitch-basis-file requires "
+                     "--internal-ile-inner-product td-toeplitz")
+
+if (opts.glitch_basis or opts.glitch_basis_file) and (
+        opts.td_analysis_start is not None or opts.td_analysis_end is not None or opts.td_gap):
+    raise ValueError("Glitch marginalization requires the full segment; "
+                     "cannot combine glitch bases with TD cuts or gaps")
 
 _response_order_active = any((opts.check_slowrot_pmax, opts.check_finite_size_Qmax,
                               opts.choose_slowrot_pmax, opts.choose_slowrot_Qmax))
@@ -644,20 +762,14 @@ else:
             "--interpolate-time: unrecognised value %r. Use a stencil name (nearest|cubic|sinc) "
             "or a legacy boolean (%s)." % (opts.interpolate_time,
                                            "|".join(_TI_LEGACY_BOOLEAN)))
-opts.q_time_pregrid_factor = validate_q_time_pregrid_factor(opts.q_time_pregrid_factor)
-if opts.q_time_pregrid_factor == 8:
-    if not opts.vectorized or opts.rotation_slow or opts.freqresponse or opts.calibration_envelope_directory:
-        raise NotImplementedError(
-            "--q-time-pregrid-factor 8 is currently restricted to ordinary vectorized "
-            "NoLoop without rotation, frequency-dependent response, or calibration marginalization")
+if opts.q_time_pregrid_factor > 1:
     if not opts._interp_time_from_default and opts._noloop_time_interp != "cubic":
         raise ValueError(
-            "--q-time-pregrid-factor 8 uses four-tap cubic interpolation; remove the "
+            "--q-time-pregrid-factor >1 uses four-tap cubic interpolation; remove the "
             "explicit --interpolate-time option or set it to cubic")
-    opts._q_pregrid_fallback_interp = opts._noloop_time_interp
     opts._noloop_time_interp = "cubic"
-    print(" Q_lm pregrid: ENABLED factor=8 boundary=even-reflection arrival_stencil=cubic "
-          "integration_grid=unchanged")
+    print(" Q_lm pregrid: ENABLED factor={} boundary=even-reflection arrival_stencil=cubic "
+          "integration_grid=unchanged".format(opts.q_time_pregrid_factor))
 # The LEGACY scalar path (FactoredLogLikelihoodTimeMarginalized) takes a plain boolean and has
 # nothing to do with the NoLoop stencils.  It used to be handed opts.interpolate_time raw, which
 # was fine while that was only ever truthy/falsy -- but 'nearest' is a non-empty string, so once
@@ -680,7 +792,7 @@ from RIFT.likelihood.time_posterior import resolve_time_posterior_export_mode
 _ti_for_export = 'nearest' if opts._interp_time_from_default else opts._noloop_time_interp
 opts._time_posterior_export = resolve_time_posterior_export_mode(
     opts.time_posterior_export, _ti_for_export,
-    continuous_available=not (opts.rotation_slow or opts.freqresponse))
+    continuous_available=not (opts.rotation_slow or opts.freqresponse or _td_gs_requested))
 # NOTE: deliberately NOT announcing the stencil here.  opts.gpu is not resolved yet at this
 # point, so we cannot yet tell whether the stencil will actually be used -- and a banner that
 # names a stencil the run then ignores is worse than no banner, because it reads as proof.
@@ -835,6 +947,23 @@ if opts.gpu and xpy_default is numpy:
     if opts.force_xpy:
         opts.gpu=True
 
+if opts.internal_ile_inner_product == "td-gs" and not opts.gpu:
+    # td-gs produces time-indexed U(t), V(t), which only the xpy (NoLoop) likelihood consumes.
+    # Without --gpu, run that code path on the CPU with numpy.
+    print("  [td-gs] using the xpy (NoLoop) likelihood on the CPU (numpy); pass --gpu for cupy")
+    xpy_default = numpy
+    opts.gpu = True
+    opts.force_xpy = True
+
+# GPU availability may have changed dispatch since the parser guard above.
+# A requested Q refinement cannot follow the inherited-stencil downgrade path.
+if opts.q_time_pregrid_factor > 1 and not (
+        opts.time_marginalization and opts.vectorized and opts.gpu
+        and not opts.zero_likelihood):
+    raise ValueError(
+        "--q-time-pregrid-factor requires --time-marginalization --vectorized "
+        "--gpu (use --force-xpy on CPU), without --zero-likelihood")
+
 # --interpolate-time IS SILENTLY IGNORED ON SEVERAL PATHS.  Now that opts.gpu is final, refuse to
 # proceed if a sub-sample stencil was asked for and this configuration cannot honour it.
 #
@@ -954,6 +1083,14 @@ if (opts._noloop_time_interp != 'nearest' and _fused_calmarg_would_run
         "kernel -- that combination is ACCEPTED, not refused: calibration marginalization runs "
         "the 'loop' method and the driver says so -- or pass '--interpolate-time nearest' to "
         "make the current behaviour explicit" % TIME_INTERP_DEFAULT))
+# td-gs: the time-indexed self term U(t), V(t) is gathered with the 'nearest' or 'cubic'
+# stencil only, so a 'sinc' default falls back to 'nearest' and an explicit 'sinc' is refused.
+if (_td_gs_requested and opts._noloop_time_interp not in ('nearest', 'cubic')
+        and not _stencil_downgrades):
+    _stencil_downgrades.append((
+        "--internal-ile-inner-product td-gs gathers its time-indexed self term with the "
+        "'nearest' or 'cubic' stencil only",
+        "pass '--interpolate-time cubic' (or 'nearest') explicitly"))
 if _stencil_downgrades and opts._interp_time_from_default:
     for _dg_reason, _dg_remedy in _stencil_downgrades:
         print(" Q_lm stencil DEFAULT %r NOT APPLIED -- %s. Falling back to 'nearest' (the "
@@ -975,7 +1112,7 @@ if _stencil_downgrades and opts._interp_time_from_default:
     opts._legacy_interpolate_time = False
     opts._time_posterior_export = resolve_time_posterior_export_mode(
         opts.time_posterior_export, 'nearest',
-        continuous_available=not (opts.rotation_slow or opts.freqresponse))
+        continuous_available=not (opts.rotation_slow or opts.freqresponse or _td_gs_requested))
 if opts._noloop_time_interp != 'nearest' and _fused_calmarg_would_run:
     # SAY SO.  This combination is not refused -- the user named both flags and the stencil is
     # the one that is honoured -- but until now the loss of the fused kernel was silent at all
@@ -998,6 +1135,17 @@ if opts._noloop_time_interp != 'nearest' and not _stencil_is_honoured:
         "present, which keeps the identical NoLoop code path on numpy -- or drop "
         "--interpolate-time. Refusing rather than running a different likelihood than the one "
         "you asked for." % (opts._noloop_time_interp, ", ".join(_stencil_missing)))
+if _td_gs_requested and opts._noloop_time_interp not in ('nearest', 'cubic'):
+    raise ValueError(
+        "--interpolate-time %r was requested, but --internal-ile-inner-product td-gs gathers "
+        "its time-indexed self term U(t), V(t) with the 'nearest' or 'cubic' stencil only. "
+        "Use --interpolate-time cubic or nearest." % (opts._noloop_time_interp,))
+if (_td_gs_requested and opts.resample_time_marginalization and
+        opts._time_posterior_export == "continuous"):
+    raise NotImplementedError(
+        "continuous time-posterior export is not implemented for --internal-ile-inner-product "
+        "td-gs (the time-indexed self term is evaluated on the likelihood's own time grid "
+        "only); use --time-posterior-export grid")
 if (opts.resample_time_marginalization and
         opts._time_posterior_export == "continuous" and
         (not opts.gpu or opts.rotation_slow or opts.freqresponse)):
@@ -1022,6 +1170,8 @@ _tq_prereqs = (
      not bool(opts.freqresponse)),
     ('no calibration marginalization (--calibration-envelope-directory)',
      not bool(opts.calibration_envelope_directory)),
+    ('not --internal-ile-inner-product td-gs (time-indexed rho_sq; only the historical '
+     'Simpson rule has been checked for it)', not _td_gs_requested),
 )
 # Phase marginalization is refused by 'peak-local' ONLY -- 'bandlimited' supports it
 # and must not regress.  It is not a plain CLI boolean: it is a property of the
@@ -1030,6 +1180,9 @@ _tq_prereqs = (
 # likelihood also refuses it, but by then the run is under way.
 _tq_phase_marg = bool(opts.distance_marginalization) and bool(
     lookup_table["phase_marginalization"])
+if _td_gs_requested and _tq_phase_marg:
+    raise ValueError("td-gs requires explicit orbital-phase sampling: the finite-segment "
+                     "template norm depends on phase; use a distance-only lookup table")
 if opts._time_quadrature == 'peak-local' and _tq_phase_marg:
     _tq_prereqs = _tq_prereqs + ((
         "not phase marginalization (the peak-local width picks up an (I1/I0)(|kappa|/D) "
@@ -1476,6 +1629,39 @@ else:
     )
  P_list= [P]
 
+# Opt-in early-time multirate: refuse a configuration it cannot honour HERE, before data loading
+# and before the event loop.  Inside analyze_event a refusal is caught by the per-point handler,
+# which prints FAILED ANALYSIS and exits 0 with no output, so a pipeline would drop the point.
+if opts.early_time_multirate:
+    import RIFT.likelihood.factored_likelihood_multirate as factored_likelihood_multirate
+    _etm_refused = [name for name, on in (
+        ("calibration marginalization", opts.calibration_envelope_directory),
+        ("--rotation-slow", opts.rotation_slow), ("--freqresponse", opts.freqresponse),
+        ("--force-hyperbolic-22", opts.force_hyperbolic_22),
+        ("--internal-waveform-fd-L-frame", opts.internal_waveform_fd_L_frame),
+        ("--internal-waveform-fd-no-condition", opts.internal_waveform_fd_no_condition),
+        ("--internal-waveform-extra-lalsuite-args", opts.internal_waveform_extra_lalsuite_args),
+        ("--internal-waveform-extra-kwargs", opts.internal_waveform_extra_kwargs),
+        ("--use-gwsignal", opts.use_gwsignal),
+        ("--use-gwsignal-lmax-nyquist", opts.use_gwsignal_lmax_nyquist is not None),
+        ("--use-external-EOB", opts.use_external_EOB),
+        ("NR templates (--nr-*)", getattr(opts, "nr_group", None) or opts.nr_lookup or opts.nr_hybrid_use
+                                  or opts.nr_use_provided_strain or opts.nr_perturbative_extraction
+                                  or opts.nr_perturbative_extraction_full),
+        ("ROM templates (--rom-*)", opts.rom_group or opts.rom_use_basis),
+        # the multirate precompute keeps every mode; PrecomputeLikelihoodTerms' threshold is not ported
+        ("--internal-precompute-ignore-threshold", opts.internal_precompute_ignore_threshold),
+    ) if on]
+    try:
+        if _etm_refused:
+            raise ValueError("refuses %s" % ", ".join(_etm_refused))
+        factored_likelihood_multirate.validate_job(
+            opts.early_time_multirate, P_list, opts.l_max,
+            backend=opts.early_time_multirate_backend, waveform=opts.early_time_multirate_waveform)
+    except Exception as _etm_exc:
+        sys.exit("ILE --early-time-multirate: refusing this job before analysis: %s: %s"
+                 % (type(_etm_exc).__name__, _etm_exc))
+
 # User requested bounds for data segment
 if not (opts.data_start_time == None) and  not (opts.data_end_time == None):
     start_time =  opts.data_start_time
@@ -1514,13 +1700,56 @@ else:
 # Load in data and PSDs
 #
 data_dict, psd_dict = {}, {}
+use_td_gs = (opts.internal_ile_inner_product == "td-gs")
+td_gs_n_valid = {}     # td-gs: number of real (unpadded) samples per detector
+# td-gs: the data stays a TIME series and is never windowed.  Pipelines pass --window-shape
+# automatically, so it is reported as skipped rather than refused.  The data-side <w^2>
+# PSD rescale is therefore the identity on this code path (window_shape_data = 0); the
+# --psd-window-shape factor, which undoes how the PSD was estimated, still applies.
+window_shape_data = opts.window_shape
+if opts.td_highpass and not use_td_gs:
+    print("FAIL: --td-highpass applies to --internal-ile-inner-product td-gs only")
+    sys.exit(1)
+if opts.td_subsample != 1 and not use_td_gs:
+    print("FAIL: --td-subsample applies to --internal-ile-inner-product td-gs only")
+    sys.exit(1)
+if opts.td_subsample < 1:
+    print("FAIL: --td-subsample must be a positive integer, got %r" % (opts.td_subsample,))
+    sys.exit(1)
+td_subsample_for_likelihood = int(opts.td_subsample)   # td-gs: K entries per sample in the packed series
+if use_td_gs and opts.window_shape > 0:
+    print("  [td-gs] --window-shape %g is SKIPPED: the time-domain code path applies no Tukey "
+          "window to the data (and no <w^2> data-window PSD rescale)." % opts.window_shape)
+    window_shape_data = 0
+def _series_deltaF(series):
+    """deltaF of a frequency series, or 1/(N deltaT) of a time series (td-gs)."""
+    return getattr(series, 'deltaF', None) or 1./(series.data.length*series.deltaT)
 
 for inst, chan in map(lambda c: c.split("="), opts.channel_name):
     print( "Reading channel %s from cache %s" % (inst+":"+chan, opts.cache_file))
-    data_dict[inst] = lalsimutils.frame_data_to_non_herm_hoff(opts.cache_file,
+    if use_td_gs:
+        _ht = lalsimutils.frame_data_to_hoft(opts.cache_file,
+                inst+":"+chan, start=start_time, stop=end_time,
+                window_shape=0., deltaT=deltaT, deltaT_internal=deltaT_internal, use_gwpy=opts.internal_use_gwpy)
+        td_gs_n_valid[inst] = _ht.data.length
+        if opts.td_highpass:
+            from RIFT.likelihood.td_gs_precompute import highpass_zero_phase
+            _ht.data.data[:] = highpass_zero_phase(_ht.data.data, 1./_ht.deltaT, opts.td_highpass)
+            print("  [td-gs] %s: zero-phase high-pass at %g Hz (order 8) applied to the data" % (inst, opts.td_highpass))
+        # Zero-pad to a power of two exactly as frame_data_to_non_herm_hoff does, so the
+        # segment length, deltaF and every downstream grid match the default code path.  The
+        # padding never enters an analysis piece (pieces must lie inside the valid samples).
+        _TDlen = lalsimutils.nextPow2(_ht.data.length)
+        _ht = lal.ResizeREAL8TimeSeries(_ht, 0, _TDlen)
+        _ht.data.data[td_gs_n_valid[inst]:] = 0.
+        data_dict[inst] = _ht
+        print( "Time-domain data: deltaT %g, length %d (%d valid samples), epoch %.6f" % (
+                _ht.deltaT, _ht.data.length, td_gs_n_valid[inst], float(_ht.epoch)))
+    else:
+        data_dict[inst] = lalsimutils.frame_data_to_non_herm_hoff(opts.cache_file,
             inst+":"+chan, start=start_time, stop=end_time,
             window_shape=opts.window_shape,deltaT=deltaT,deltaT_internal=deltaT_internal,use_gwpy=opts.internal_use_gwpy)
-    print( "Frequency binning: %f, length %d" % (data_dict[inst].deltaF,
+        print( "Frequency binning: %f, length %d" % (data_dict[inst].deltaF,
             data_dict[inst].data.length) )
 # set global sampling rate, now that we have done import
 if deltaT_internal:
@@ -1538,7 +1767,7 @@ for inst, psdf in map(lambda c: c.split("="), opts.psd_file):
     print( "Reading PSD for instrument %s from %s" % (inst, psdf))
     psd_dict[inst] = lalsimutils.get_psd_series_from_xmldoc(psdf, inst)
 
-    deltaF = data_dict[inst].deltaF
+    deltaF = _series_deltaF(data_dict[inst])
     psd_dict[inst] = lalsimutils.resample_psd_series(psd_dict[inst], deltaF)
     print( "PSD deltaF after interpolation %f" % psd_dict[inst].deltaF)
 
@@ -1546,10 +1775,10 @@ for inst, psdf in map(lambda c: c.split("="), opts.psd_file):
     #   Idea:   PSD was *computed* using one window (not corrected for) and we want to remove that scale facto
     #              PSD used in noise with another window duration. We need to correct the PSD for the revised window duration
     #   We *assume* the PSD is not 'corrected' for the psd_window_shape factor (i.e., *not* trying to estimate a PSD idealized to correct for this windowing scale factor)
-    if opts.psd_window_shape > 0 or opts.window_shape > 0:
+    if opts.psd_window_shape > 0 or window_shape_data > 0:
       # Note this is just a constant scale factor in the likelihood, but it *can* have some effect on parameters if one windowing size is small (as it stretches/compresses the likleihood)
       window_fac_psd = lalsimutils.psd_windowing_factor(opts.psd_window_shape, len(psd_dict[inst].data.data))  # assume the windowing factor IS accounted for, and we have to undo it
-      window_fac_data = lalsimutils.psd_windowing_factor(opts.window_shape, len(data_dict[inst].data.data))
+      window_fac_data = lalsimutils.psd_windowing_factor(window_shape_data, len(data_dict[inst].data.data))
       psd_dict[inst].data.data *= window_fac_data/window_fac_psd   # scale the windowing factor to be appropriate for our actual data window: the PSD was measured using a windowing different than the one we use
 
     # implement cutoff.  
@@ -1640,9 +1869,207 @@ if opts.log_noise_evidence_output:
 
 
 #
+# Optional time-domain (Toeplitz) inner product for the Precompute step.
+#   Default 'fd-diagonal' leaves IP_factory=None => the classic lsu inner products, ZERO
+#   behavioral change.  'td-toeplitz' builds one TDInnerProductFactory (memoizing one
+#   ToeplitzInnerProductContext per detector configuration next to the PSD handling above)
+#   threaded into PrecomputeLikelihoodTerms.  --td-solver / --td-acf-duration configure it.
+#
+ile_ip_factory = None
+# --glitch-basis (G3) is only meaningful on the TD path (glitch marginalization augments the
+# TD Toeplitz PRECISION operator; there is no fd-diagonal analogue).  Error early otherwise.
+if (opts.glitch_basis or opts.glitch_basis_file) and opts.internal_ile_inner_product != "td-toeplitz":
+    print("FAIL: --glitch-basis/--glitch-basis-file requires --internal-ile-inner-product td-toeplitz "
+          "(glitch marginalization exists only on the TD Toeplitz path; got inner-product %r)"
+          % opts.internal_ile_inner_product)
+    sys.exit(1)
+if opts.internal_ile_inner_product == "td-toeplitz":
+    from RIFT.likelihood.td_inner_product import TDInnerProductFactory
+    td_gaps = None      # --td-gap is refused at startup
+    # Parse repeatable --glitch-basis 'IFO:t1,t2,f1,f2[:r]' (G3).  t1,t2 geocenter seconds
+    # relative to the event; f1,f2 Hz; optional r Slepian columns.  One block per detector.
+    glitch_specs = {}
+    if opts.glitch_basis:
+        for _spec in opts.glitch_basis:
+            _ifo, _rest = _spec.split(":", 1)
+            _parts = _rest.split(":")
+            _t1, _t2, _f1, _f2 = (float(x) for x in _parts[0].split(","))
+            _r = int(_parts[1]) if len(_parts) > 1 and _parts[1] != "" else None
+            if _ifo in glitch_specs:
+                raise ValueError("Duplicate --glitch-basis for %s" % _ifo)
+            glitch_specs[_ifo] = dict(t1=_t1, t2=_t2, f1=_f1, f2=_f2, r=_r)
+    # Parse repeatable --glitch-basis-file 'IFO:path.npz' (data-informed basis, Sec. 3 modes
+    # 3/4).  The npz payload (basis/lambda0/t0/fs) is validated when the factory attaches it.
+    glitch_basis_files = {}
+    if opts.glitch_basis_file:
+        for _spec in opts.glitch_basis_file:
+            _ifo, _path = _spec.split(":", 1)
+            if _ifo in glitch_basis_files:
+                raise ValueError("Duplicate --glitch-basis-file for %s" % _ifo)
+            if _ifo in glitch_specs:
+                print("FAIL: --glitch-basis and --glitch-basis-file both given for %s "
+                      "(one glitch block per detector)" % _ifo)
+                sys.exit(1)
+            if not os.path.isfile(_path):
+                print("FAIL: --glitch-basis-file %s: no such file %r" % (_ifo, _path))
+                sys.exit(1)
+            glitch_basis_files[_ifo] = _path
+    unknown_glitch_ifos = (set(glitch_specs) | set(glitch_basis_files)) - set(data_dict)
+    if unknown_glitch_ifos:
+        raise ValueError("Glitch basis requested for detectors without data: %s"
+                         % sorted(unknown_glitch_ifos))
+    # Gap offsets are relative to the event. Registered detector epochs let the
+    # factory place them at the correct samples of each stream.
+    ile_ip_factory = TDInnerProductFactory(
+        solver=opts.td_solver, acf_duration=opts.td_acf_duration,
+        template_start_offset=opts.td_analysis_start,
+        template_end_offset=opts.td_analysis_end,
+        gaps=td_gaps,
+        glitch_specs=glitch_specs, glitch_sigma=opts.glitch_sigma,
+        glitch_basis_files=glitch_basis_files,
+        window_shape=opts.window_shape)
+    # Register each detector's (psd, data, event time) so the per-IFO glitch basis can be
+    # placed and its sigma_g profiled (G3).  Keyed on id(psd) -- the object Precompute forwards.
+    for _inst in data_dict:
+        ile_ip_factory.register_detector_data(
+            _inst, psd_dict[_inst], data_dict[_inst],
+            event_time_geo=float(event_time))
+    print("  [TD] Using time-domain Toeplitz inner product (solver=%s, acf_duration=%s, "
+          "analysis=[%s,%s]s, gaps=%s, glitch=%s/sigma=%s). "
+          "EXPERIMENTAL; inverse-spectrum truncation is ignored; data conditioning remains required "
+          "."
+          % (opts.td_solver, opts.td_acf_duration, opts.td_analysis_start,
+             opts.td_analysis_end, td_gaps,
+             list(glitch_specs.keys()) + ["%s(file)" % k for k in glitch_basis_files],
+             opts.glitch_sigma))
+elif opts.internal_ile_inner_product == "td-gs":
+    pass    # built below, once the per-detector PSDs and fmax are final
+elif opts.internal_ile_inner_product != "fd-diagonal":
+    print("FAIL: --internal-ile-inner-product must be 'fd-diagonal', 'td-toeplitz' or 'td-gs', got %r"
+          % opts.internal_ile_inner_product)
+    sys.exit(1)
+
+#
+if opts.td_u_svd_tol is not None and opts.internal_ile_inner_product != "td-gs":
+    print("FAIL: --td-u-svd-tol compresses the time-indexed U(t),V(t) of --internal-ile-inner-product td-gs; "
+          "the other inner products have scalar cross terms (nothing to compress)")
+    sys.exit(1)
+
+# Fully time-domain code path (--internal-ile-inner-product td-gs): one TDGSDetectorContext per
+# detector, built ONCE here (ACF, per-piece covariance solvers, w = C^{-1} d) and reused for
+# every intrinsic point through PrecomputeLikelihoodTerms(td_gs_contexts=...).  The
+# likelihood receives U(t), V(t) arrays aligned with Q(t) instead of scalar cross terms.
+#
+ile_td_gs_contexts = None
+if use_td_gs:
+    from RIFT.likelihood.td_gs_precompute import TDGSDetectorContext, load_acf_file, parse_td_pieces
+    if not opts.vectorized:
+        print("FAIL: --internal-ile-inner-product td-gs requires --vectorized (the non-vectorized "
+              "likelihoods assume scalar <h|h> cross terms; td-gs produces U(t), V(t) arrays)")
+        sys.exit(1)
+    if opts.td_calibration_correction_type not in ("rift", "bilby"):
+        print("FAIL: --td-calibration-correction-type must be 'rift' or 'bilby', got %r" % (opts.td_calibration_correction_type,))
+        sys.exit(1)
+    if opts.calibration_envelope_directory:
+        if opts.calibration_fused_kernel:
+            print("FAIL: --calibration-fused-kernel is not implemented for --internal-ile-inner-product td-gs "
+                  "(the per-realization self term is time-indexed there); drop it, the loop method is used")
+            sys.exit(1)
+        if opts.td_u_svd_tol is not None:
+            print("FAIL: --td-u-svd-tol is not implemented together with calibration marginalization on td-gs "
+                  "(the per-realization U_c(t), V_c(t) are not compressed); drop one of them")
+            sys.exit(1)
+        if opts.td_calibration_fir_half_length is not None and opts.td_calibration_fir_half_length < 0:
+            print("FAIL: --td-calibration-fir-half-length must be >= 0")
+            sys.exit(1)
+    if opts.rotation_slow or opts.freqresponse:
+        print("FAIL: --rotation-slow / --freqresponse have their own Precompute and are not wired to td-gs")
+        sys.exit(1)
+    for _flag in ("td_solver", "td_acf_duration", "td_analysis_start", "td_analysis_end", "td_gap"):
+        if getattr(opts, _flag, None) not in (None, "auto"):
+            print("FAIL: --%s belongs to the td-toeplitz code path, not td-gs" % _flag.replace("_", "-"))
+            sys.exit(1)
+    if opts.td_u_svd_tol is not None and not (0. < opts.td_u_svd_tol < 1.):
+        print("FAIL: --td-u-svd-tol must satisfy 0 < tol < 1, got %r" % (opts.td_u_svd_tol,))
+        sys.exit(1)
+    td_ifo_offset = {}
+    for _spec in (opts.td_ifo_time_offset or []):
+        _ifo, _val = _spec.split(":", 1)
+        if _ifo not in data_dict or _ifo in td_ifo_offset:
+            raise ValueError("unknown or duplicate --td-ifo-time-offset detector: " + _ifo)
+        td_ifo_offset[_ifo] = float(_val)
+    td_acf_paths = {}
+    for _spec in (opts.td_acf_file or []):
+        _ifo, _path = _spec.split(":", 1)
+        if not os.path.isfile(_path):
+            print("FAIL: --td-acf-file %s: no such file %r" % (_ifo, _path))
+            sys.exit(1)
+        if _ifo not in data_dict or _ifo in td_acf_paths:
+            raise ValueError("unknown or duplicate --td-acf-file detector: " + _ifo)
+        td_acf_paths[_ifo] = _path
+    try:
+        td_pieces_s = parse_td_pieces(opts.td_piece, opts.td_mref)
+    except ValueError as _e:
+        print("FAIL: %s" % _e)
+        sys.exit(1)
+    ile_td_gs_contexts = {}
+    for inst in data_dict:
+        _flow = max(opts.fmin_template, flow_ifo_dict.get(inst, 0.))
+        _acf = None
+        if inst in td_acf_paths:
+            try:
+                _acf = load_acf_file(td_acf_paths[inst], P.deltaT)
+            except ValueError as _e:
+                print("FAIL: %s" % _e)
+                sys.exit(1)
+        _t_ref = float(event_time) + td_ifo_offset.get(inst, 0.)
+        _pieces = [(_t_ref + a, _t_ref + b) for (a, b) in td_pieces_s] or None
+        try:
+            ile_td_gs_contexts[inst] = TDGSDetectorContext(
+                data_dict[inst], psd_dict[inst], _flow, fmax, pieces=_pieces, acf=_acf,
+                n_valid=td_gs_n_valid[inst], dense_max_n=opts.td_dense_max_n,
+                u_stride=opts.td_u_stride, u_method=opts.td_u_method,
+                acf_condition_number=opts.td_acf_cond, whiteness_check=opts.td_whiteness_check,
+                ifo=inst, verbose=True,
+                calibration_correction_type=opts.td_calibration_correction_type,
+                calibration_fir_half_length=opts.td_calibration_fir_half_length,
+                subsample=opts.td_subsample)
+        except (ValueError, ImportError) as _e:
+            print("FAIL: td-gs context for %s: %s" % (inst, _e))
+            sys.exit(1)
+    print("  [td-gs] Using the fully time-domain code path (M_ref=%s Msun, pieces(M)=%s, ifo offsets=%s, "
+          "ACF files=%s, acf-cond=%g, dense-max-n=%d, u-stride=%d, u-method=%s, subsample=1/%d). EXPERIMENTAL; the TD "
+          "data were not windowed or high-passed, templates are untapered, inverse-spectrum "
+          "truncation is ignored."
+          % (opts.td_mref, opts.td_piece, td_ifo_offset, list(td_acf_paths.keys()),
+             opts.td_acf_cond, opts.td_dense_max_n, opts.td_u_stride, opts.td_u_method, opts.td_subsample))
+    if opts.calibration_envelope_directory:
+        print("  [td-gs] calibration marginalization: realizations applied as exact FIR filters on the template "
+              "(correction type %s%s, FIR half-length %s); per-realization time-indexed Q_c(t) and %s; "
+              "likelihood reduction cal_method='loop'%s."
+              % (opts.td_calibration_correction_type, ", conjugate phase" if opts.calibration_conjugate_phase else "",
+                 "exact (template reach)" if opts.td_calibration_fir_half_length is None else "FORCED %d (approximate)" % opts.td_calibration_fir_half_length,
+                 "the calibration-independent self term U(t), V(t) (--calibration-global-norm)" if opts.calibration_global_norm
+                 else "self terms U_c(t), V_c(t)",
+                 "" if opts.td_subsample == 1 else "; each realization block on the 1/%d sub-sample grid (shifted template, then its FIR)" % opts.td_subsample))
+
+
+
+
+#
 # Load in calibration realizations, if desired
 #
 calibration_marginalization=False
+from RIFT.calmarg.calibration import correction_types_for_ifos
+def _calibration_envelope_types(opts, ifos):
+    # TDGS consumes raw envelope draws and applies rift/bilby conversion in its
+    # template FIR. The FD generator instead converts priors before drawing.
+    # Suppress that earlier conversion for TDGS so the response is mapped once.
+    requested = "template" if opts.internal_ile_inner_product == "td-gs" else opts.calibration_correction_type
+    return correction_types_for_ifos(requested, ifos)
+
+calibration_correction_types = _calibration_envelope_types(opts, psd_dict)
+calibration_current_prior = None
 calibration_realization_dict = {}
 calibration_log_weights = None   # Phase-0 importance weights log(prior/proposal); None => uniform (prior draws)
 _calpilot = None                 # pilot bookkeeping (node draws + prior) when dumping responsibilities
@@ -1678,13 +2105,14 @@ def _cal_setup_prior_with_nodes(psd_dict):
         _ret = _genr.draw_prior_realizations_with_nodes(
             opts.calibration_envelope_directory, list(psd_dict.keys()), 1./P.deltaF, P.deltaT,
             opts.fmin_template, fmax, opts.calibration_spline_count, opts.calibration_n_realizations,
-            fmin_ifo=cal_fmin_ifo, rng=np.random.default_rng(getattr(opts,'seed',None)))
+            fmin_ifo=cal_fmin_ifo, correction_types=calibration_correction_types, rng=np.random.default_rng(getattr(opts,'seed',None)))
         calibration_realization_dict = _ret['realizations']
         calibration_nodes = _ret['nodes']; calibration_node_dets = list(_ret['dets']); calibration_n_nodes_amp = int(_ret['n_nodes_amp'])
     else:
         for ifo in psd_dict:
             fname = opts.calibration_envelope_directory + "/" + ifo + ".txt"
-            calibration_realization_dict[ifo] = _genr.create_realizations(fname, 1./P.deltaF, P.deltaT, cal_fmin_ifo[ifo], fmax, opts.calibration_spline_count, opts.calibration_n_realizations)
+            calibration_realization_dict[ifo] = _genr.create_realizations(fname, 1./P.deltaF, P.deltaT, cal_fmin_ifo[ifo], fmax, opts.calibration_spline_count, opts.calibration_n_realizations,
+                correction_type=calibration_correction_types[ifo])
 if opts.calibration_envelope_directory:
 #  t_ref_wind = opts.calibration_n_realizations * t_ref_wind  # changes length of buffer, should produce longer window. DOES NOT WORK PROPERLY
   import RIFT.calmarg.generate_realizations
@@ -1693,6 +2121,16 @@ if opts.calibration_envelope_directory:
   cal_fmin_ifo = {}
   for ifo in psd_dict:
      cal_fmin_ifo[ifo] = flow_ifo_dict[ifo] if opts.fmin_ifo else opts.fmin_template
+  from RIFT.calmarg.generate_realizations import prior_cal_breadcrumb_dict
+  calibration_current_prior = prior_cal_breadcrumb_dict(
+      opts.calibration_envelope_directory, list(psd_dict), opts.fmin_template, fmax,
+      opts.calibration_spline_count, fmin_ifo=cal_fmin_ifo,
+      correction_types=calibration_correction_types)
+  if opts.calibration_conjugate_phase and not use_td_gs:
+      print(" WARNING: --calibration-conjugate-phase is deprecated and ignored; realizations are applied unconjugated.")
+  print(" Calibration envelope conventions:", calibration_correction_types,
+        "; internal nodes and saved posterior columns use the template-response convention")
+
   # Graceful fallback: a seeded run is given a per-iteration breadcrumb path, but the
   # FIRST iteration (and any iteration before a pilot has run) has no breadcrumb yet.  If
   # the path is missing OR EMPTY, fall back to the broad prior -- so the SAME fixed ILE args
@@ -1722,8 +2160,10 @@ if opts.calibration_envelope_directory:
            RIFT.calmarg.generate_realizations.seed_realizations_from_breadcrumb(
               _bc, 1./P.deltaF, P.deltaT, opts.fmin_template, fmax,
               opts.calibration_spline_count, opts.calibration_n_realizations,
-              fmin_ifo=cal_fmin_ifo, rng=np.random.default_rng(getattr(opts,'seed',None)))
-        _cal = _bc["cal"]
+              fmin_ifo=cal_fmin_ifo, prior=calibration_current_prior, rng=np.random.default_rng(getattr(opts,'seed',None)))
+        _cal = dict(_bc["cal"], prior_mean=calibration_current_prior["prior_mean"],
+                    prior_sigma=calibration_current_prior["prior_sigma"],
+                    node_log_f=calibration_current_prior["node_log_f"])
         _calpilot = dict(nodes=_pilot_nodes, prior_mean=_cal["prior_mean"], prior_sigma=_cal["prior_sigma"],
                          node_log_f=_cal["node_log_f"], n_nodes_amp=int(_cal["n_nodes_amp"]),
                          dets=list(_cal["dets"]), log_w=np.asarray(calibration_log_weights))
@@ -1733,7 +2173,7 @@ if opts.calibration_envelope_directory:
         _calpilot = RIFT.calmarg.generate_realizations.draw_prior_realizations_with_nodes(
            opts.calibration_envelope_directory, list(psd_dict.keys()), 1./P.deltaF, P.deltaT,
            opts.fmin_template, fmax, opts.calibration_spline_count, opts.calibration_n_realizations,
-           fmin_ifo=cal_fmin_ifo, rng=np.random.default_rng(getattr(opts,'seed',None)))
+           fmin_ifo=cal_fmin_ifo, correction_types=calibration_correction_types, rng=np.random.default_rng(getattr(opts,'seed',None)))
         calibration_realization_dict = _calpilot['realizations']
         _calpilot['log_w'] = np.zeros(opts.calibration_n_realizations)   # prior draws -> uniform
         print(" Calibration PILOT mode (cold): prior cal draws; responsibilities -> {}".format(
@@ -1749,7 +2189,7 @@ if opts.calibration_envelope_directory:
           RIFT.calmarg.generate_realizations.seed_realizations_from_breadcrumb(
              _bc, 1./P.deltaF, P.deltaT, opts.fmin_template, fmax,
              opts.calibration_spline_count, opts.calibration_n_realizations,
-             fmin_ifo=cal_fmin_ifo, rng=_rng)
+             fmin_ifo=cal_fmin_ifo, prior=calibration_current_prior, rng=_rng)
        if opts.calibration_export_posterior:
           calibration_nodes = _seed_nodes
           calibration_node_dets = list(_bc["cal"]["dets"]); calibration_n_nodes_amp = int(_bc["cal"]["n_nodes_amp"])
@@ -1792,7 +2232,7 @@ def _draw_more_calibration_draws(n_more, psd_dict):
         new, _lw, _nodes = _genr.seed_realizations_from_breadcrumb(
             _bc, 1./P.deltaF, P.deltaT, opts.fmin_template, fmax,
             opts.calibration_spline_count, n_more, fmin_ifo=cal_fmin_ifo,
-            rng=_rng)
+            prior=calibration_current_prior, rng=_rng)
         calibration_log_weights = np.concatenate([np.asarray(calibration_log_weights), np.asarray(_lw)])
         if calibration_nodes is not None:
             calibration_nodes = np.vstack([calibration_nodes, _nodes])
@@ -1800,18 +2240,80 @@ def _draw_more_calibration_draws(n_more, psd_dict):
         _ret = _genr.draw_prior_realizations_with_nodes(
             opts.calibration_envelope_directory, list(psd_dict.keys()), 1./P.deltaF, P.deltaT,
             opts.fmin_template, fmax, opts.calibration_spline_count, n_more,
-            fmin_ifo=cal_fmin_ifo, rng=_rng)
+            fmin_ifo=cal_fmin_ifo, correction_types=calibration_correction_types, rng=_rng)
         new = _ret['realizations']
         calibration_nodes = np.vstack([calibration_nodes, _ret['nodes']]) if calibration_nodes is not None else _ret['nodes']
     else:
         for ifo in psd_dict:
             fname = opts.calibration_envelope_directory + "/" + ifo + ".txt"
             new[ifo] = _genr.create_realizations(fname, 1./P.deltaF, P.deltaT,
-                cal_fmin_ifo[ifo], fmax, opts.calibration_spline_count, n_more)
+                cal_fmin_ifo[ifo], fmax, opts.calibration_spline_count, n_more,
+                correction_type=calibration_correction_types[ifo])
     for ifo in new:
         calibration_realization_dict[ifo] = np.concatenate([calibration_realization_dict[ifo], new[ifo]], axis=1)
     return new
 
+_calibration_n_realizations_initial = opts.calibration_n_realizations
+def _redraw_calibration_bank_for_point(point_index, psd_dict):
+    """--calibration-bank-per-point: replace the bank with a fresh one for this point.
+
+    Stream derived_rng('calmarg.bank_per_point', point_index): keyed on --seed and the
+    grid index only.  Distinct indices get independent streams, also independent of the
+    shared startup bank; with a fixed --seed the same index repeats its random draws in
+    every iteration and every grid, whatever point sits there, so it repeats its bank
+    whenever the source and the calibration settings are unchanged.  Same source as that
+    bank (proposal breadcrumb, else the prior), at the starting size; adaptive growth at
+    an earlier point is not carried over."""
+    global calibration_realization_dict, calibration_log_weights, calibration_nodes
+    import RIFT.calmarg.generate_realizations as _genr
+    from RIFT.integrators.seeding import derived_rng
+    rng = derived_rng('calmarg.bank_per_point', int(point_index))
+    n = int(_calibration_n_realizations_initial)
+    opts.calibration_n_realizations = n
+    if opts.calibration_proposal_breadcrumb:
+        # Still set only if the startup load succeeded; reuse that breadcrumb (_bc) rather
+        # than reloading per point, which would add a failure the startup path falls back from.
+        calibration_realization_dict, calibration_log_weights, _nodes = _genr.seed_realizations_from_breadcrumb(
+            _bc, 1./P.deltaF, P.deltaT, opts.fmin_template, fmax,
+            opts.calibration_spline_count, n, fmin_ifo=cal_fmin_ifo,
+            prior=calibration_current_prior, rng=rng)
+    else:
+        _ret = _genr.draw_prior_realizations_with_nodes(
+            opts.calibration_envelope_directory, list(psd_dict.keys()), 1./P.deltaF, P.deltaT,
+            opts.fmin_template, fmax, opts.calibration_spline_count, n,
+            fmin_ifo=cal_fmin_ifo, correction_types=calibration_correction_types, rng=rng)
+        calibration_realization_dict = _ret['realizations']; _nodes = _ret['nodes']
+    if opts.calibration_export_posterior:
+        calibration_nodes = _nodes
+    print(" [calmarg bank] point {}: fresh bank of {} realizations, node checksum {:.12e}".format(
+          int(point_index), n, float(np.sum(_nodes))))
+
+
+# The per-realization calibration self term <C_c h|C_c h> is frequency-domain-diagonal only
+# (it reweights IP.weights2side; the TD Toeplitz kernel never reads that).  Combining it with
+# --internal-ile-inner-product td-toeplitz would compute the U/V cross terms with the TD
+# precision kernel and the calibration self terms with the FD-diagonal kernel -- two inner
+# products in one likelihood.  PrecomputeLikelihoodTerms refuses it, but that happens per
+# intrinsic point AFTER all the setup above; check here so a misconfigured job dies at
+# startup with the fix in hand.  Predicate is shared with FL so the two cannot drift.
+if (ile_ip_factory is not None) and calibration_marginalization:
+    if (opts.td_acf_duration is not None or opts.td_analysis_start is not None
+            or opts.td_analysis_end is not None or opts.td_gap
+            or opts.glitch_basis or opts.glitch_basis_file):
+        raise ValueError("Calibration with TD cuts, gaps or glitch projection is unsupported, "
+                         "including --calibration-global-norm; data-side calibration "
+                         "does not commute with these operators")
+if (ile_ip_factory is not None) and calibration_marginalization and not opts.calibration_global_norm:
+    if not factored_likelihood.CalibrationSelfTermInnerProductSupported(ile_ip_factory):
+        print("FAIL: --internal-ile-inner-product %r cannot be combined with calibration "
+              "marginalization using the per-realization self term.  The |C_c|^2-weighted "
+              "self-term cross terms are frequency-domain-diagonal only, so this run would "
+              "compute the U/V cross terms with the TD precision kernel and the calibration "
+              "self terms with the FD-diagonal kernel.  Use EITHER "
+              "--internal-ile-inner-product fd-diagonal OR --calibration-global-norm (the "
+              "calibration-independent norm <h|h>, computed with the same TD inner product)."
+              % opts.internal_ile_inner_product)
+        sys.exit(1)
 
 
 #
@@ -2809,7 +3311,11 @@ if opts.sampler_method == 'adaptive_cartesian_gpu' and opts.skymap_file:
 
 
 def resample_samples(my_samples,
-                     lookupNKDict=None, rholmArrayDict=None, ctUArrayDict=None, ctVArrayDict=None,epochDict=None, n_cal=1, cal_log_weights=None, ctUArrayDict_cal=None, ctVArrayDict_cal=None): # uses LOTS of global variables, don't pass them all
+                     lookupNKDict=None, rholmArrayDict=None, ctUArrayDict=None, ctVArrayDict=None,epochDict=None, n_cal=1, cal_log_weights=None, ctUArrayDict_cal=None, ctVArrayDict_cal=None, *, P): # uses LOTS of global variables, don't pass them all
+  # P: the CURRENT intrinsic point's params object.  The drawn extrinsic arrays are written
+  # into it, and the --calibration-export-posterior block reads them back from it.  Never the
+  # module-global P (= P_list[0]): with --n-events-to-analyze > 1 that left later points
+  # exporting the last sampler batch instead of their fair draws.
   global fSample # access global sampling rate
   # will look a LOT like the likelihood function definitions, unfortunately
   if not opts.vectorized:
@@ -2854,7 +3360,7 @@ def resample_samples(my_samples,
                           tvals, P, lookupNKDict, rholmArrayDict, ctUArrayDict,
                           ctVArrayDict, epochDict, Lmax=opts.l_max, xpy=xpy_default,
                           n_cal=n_cal, cal_log_weights=cal_log_weights,
-                          time_interp=opts._noloop_time_interp,
+                          time_interp=opts._noloop_time_interp, td_subsample=td_subsample_for_likelihood,
                           ctUArrayDict_cal=ctUArrayDict_cal,
                           ctVArrayDict_cal=ctVArrayDict_cal,
                           time_quadrature="bandlimited", return_time_draw=True)
@@ -2867,7 +3373,7 @@ def resample_samples(my_samples,
     # marginalized likelihood.
     lnLt = factored_likelihood.DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals,
                           P, lookupNKDict, rholmArrayDict, ctUArrayDict, ctVArrayDict,epochDict,Lmax=opts.l_max,xpy=xpy_default,return_lnLt=True,n_cal=n_cal,cal_log_weights=cal_log_weights,
-                          time_interp=opts._noloop_time_interp,
+                          time_interp=opts._noloop_time_interp, td_subsample=td_subsample_for_likelihood,
                           ctUArrayDict_cal=ctUArrayDict_cal, ctVArrayDict_cal=ctVArrayDict_cal)
 
     if opts._time_posterior_export == "continuous":
@@ -2898,7 +3404,7 @@ def resample_samples(my_samples,
                             ctUArrayDict, ctVArrayDict, epochDict, Lmax=opts.l_max,
                             xpy=xpy_default, return_lnLt=True, n_cal=n_cal,
                             cal_log_weights=cal_log_weights,
-                            time_interp=opts._noloop_time_interp,
+                            time_interp=opts._noloop_time_interp, td_subsample=td_subsample_for_likelihood,
                             ctUArrayDict_cal=ctUArrayDict_cal,
                             ctVArrayDict_cal=ctVArrayDict_cal,
                             explicit_time_values=True)
@@ -3841,14 +4347,46 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
             "fused_calmarg_in_use's early substitution must be updated in the same commit. "
             "Refusing rather than integrating with a stencil chosen for the wrong reason."
             % (_fused_calmarg_would_run, use_fused_calmarg, opts._noloop_time_interp))
+    if calibration_marginalization and opts.calibration_bank_per_point:
+      _redraw_calibration_bank_for_point(opts.event + indx_event, psd_dict)
     if calibration_marginalization:
       extra_kwargs['calibration_realizations'] = calibration_realization_dict
-      extra_kwargs['calibration_conjugate'] = bool(opts.calibration_conjugate_phase)
+      extra_kwargs['calibration_conjugate'] = bool(opts.calibration_conjugate_phase) if use_td_gs else False
       # --calibration-global-norm falls back to the cheaper <h|h> route: skip the
       # per-realization self-term cross terms (and their SVD-basis precompute) entirely.
       extra_kwargs['calibration_self_term'] = not bool(opts.calibration_global_norm)
       n_cal_for_likelihood = opts.calibration_n_realizations
-    rholms_intp, cross_terms, cross_terms_V,  rholms,  guess_snr, rest, cross_terms_cal, cross_terms_cal_V=factored_likelihood.PrecomputeLikelihoodTerms(
+    if ile_ip_factory is not None:
+      extra_kwargs['IP_factory'] = ile_ip_factory
+    if ile_td_gs_contexts is not None:
+      extra_kwargs['td_gs_contexts'] = ile_td_gs_contexts   # td-gs: fully time-domain Precompute
+    if opts.early_time_multirate:
+        import RIFT.likelihood.factored_likelihood_multirate as factored_likelihood_multirate
+        _bad = [n for n, v in (("calibration marginalization", calibration_marginalization),
+                               ("--rotation-slow", opts.rotation_slow), ("--freqresponse", opts.freqresponse),
+                               # ILE always sets these two; the schedule's own post-event time replaces the first
+                               ("extra waveform arguments %s" % sorted(set(extra_waveform_kwargs) - {"fd_alignment_postevent_time", "e_freq"}),
+                                bool(set(extra_waveform_kwargs) - {"fd_alignment_postevent_time", "e_freq"})),
+                               ("--force-hyperbolic-22", opts.force_hyperbolic_22)) if v]
+        if _bad:
+            raise ValueError("--early-time-multirate refuses %s" % _bad)
+        _etm_schedule = factored_likelihood_multirate.load_schedule(opts.early_time_multirate)
+        _wg = {k: v for k, v in waveform_generation_kwargs.items() if k not in ("extra_waveform_kwargs", "use_gwsignal_approx")}
+        _etm_backend = opts.early_time_multirate_backend
+        if _etm_backend is None:
+            _etm_backend = "cupy" if opts.gpu and xpy_default is not numpy else "numpy"
+        rholms_intp, cross_terms, cross_terms_V,  rholms,  guess_snr, rest, cross_terms_cal, cross_terms_cal_V=factored_likelihood_multirate.PrecomputeLikelihoodTermsMultirate(
+            fiducial_epoch, t_window, P, data_dict, psd_dict, opts.l_max, fmax,
+            False, inv_spec_trunc_Q, T_spec,
+            return_calibration_crossterms=True,
+            verbose=opts.verbose,quiet=not opts.verbose,
+            skip_interpolation=opts.vectorized, schedule=_etm_schedule,
+            multirate_xpy="numpy" if _etm_backend == "reference" else _etm_backend,
+            multirate_reference=_etm_backend == "reference",
+            multirate_waveform=opts.early_time_multirate_waveform,
+            **_wg, **extra_kwargs)
+    else:
+     rholms_intp, cross_terms, cross_terms_V,  rholms,  guess_snr, rest, cross_terms_cal, cross_terms_cal_V=factored_likelihood.PrecomputeLikelihoodTerms(
             fiducial_epoch, t_window, P, data_dict, psd_dict, opts.l_max, fmax,
             False, inv_spec_trunc_Q, T_spec,
             return_calibration_crossterms=True,
@@ -3858,9 +4396,9 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
             **waveform_generation_kwargs, **extra_kwargs)
 
     # skip nan ! Something horrible has happened
-    if np.isnan(guess_snr):
-      print("  --- NAN SNR GUESS, ABORTING THIS EVENT {} --".format(indx_event))
-      raise Exception(" NAN SNR ")
+    if not np.isfinite(guess_snr):
+      print("  --- NONFINITE SNR GUESS, SKIPPING THIS EVENT {} --".format(indx_event))
+      raise Exception(" NONFINITE SNR ")
 
     if opts.auto_logarithm_offset and guess_snr:
       # important: this only impacts *this* analysis
@@ -3905,38 +4443,62 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
             if _have_cal_crossterms:
                 ctUArrayDict_cal[det], ctVArrayDict_cal[det] = factored_likelihood.PackCalCrossTermsAsArrays(
                     list(rholms[det].keys()), lookupKNDict[det], cross_terms_cal[det], cross_terms_cal_V[det])
-        if opts.q_time_pregrid_factor == 8:
-            _q_transfer = cupy.asarray if opts.gpu and (not xpy_default is np) else None
-            _q_cleanup = (lambda: cupy.get_default_memory_pool().free_all_blocks()) \
-                if _q_transfer is not None else None
-            rholmArrayDict, _q_pregrid_reports, _q_pregrid_error = \
-                factored_likelihood.prepare_reflected_q_pregrid(
-                    rholmArrayDict, factor=8, transfer=_q_transfer, cleanup=_q_cleanup)
-            if _q_pregrid_error is None:
-                q_deltaT = float(P.deltaT) / 8.0
-                print(" Q_lm pregrid telemetry: status=active q_deltaT={:.12g} input_bytes={} "
-                      "retained_bytes={} peak_allocation_bytes={} max_roundtrip={:.3g}".format(
+            # td-gs --td-u-svd-tol: compress U(t),V(t) ONCE per intrinsic point, here on the
+            # CPU (LAPACK SVD of an N_window x n_modes(n_modes+1) matrix, a few 10 ms) before
+            # the GPU transfer, which then moves r component series instead of two
+            # (N_window, n_modes, n_modes) arrays.  Both dict entries hold the same object.
+            if (ile_td_gs_contexts is not None) and (opts.td_u_svd_tol is not None):
+                _comp = factored_likelihood.compress_time_indexed_cross_terms(ctUArrayDict[det], ctVArrayDict[det], opts.td_u_svd_tol)
+                print("  [td-gs] %s: U(t),V(t) SVD-compressed: %d of %d pair columns kept (tol %g; s_1/s_0 = %.2e, s_r/s_0 = %.2e); "
+                      "reconstruction error %.2e (Frobenius), %.2e (max)"
+                      % (det, _comp.r, _comp.n_cols, opts.td_u_svd_tol,
+                         (_comp.singular_values[1] / _comp.singular_values[0]) if _comp.singular_values.size > 1 and _comp.singular_values[0] > 0 else 0.,
+                         (_comp.singular_values[_comp.r - 1] / _comp.singular_values[0]) if _comp.r > 0 else 0.,
+                         _comp.rel_err_fro, _comp.rel_err_max))
+                ctUArrayDict[det] = _comp
+                ctVArrayDict[det] = _comp
+        if opts.q_time_pregrid_factor > 1:
+            try:
+                _q_transfer = cupy.asarray if opts.gpu and (not xpy_default is np) else None
+                _q_cleanup = (lambda: cupy.get_default_memory_pool().free_all_blocks()) \
+                    if _q_transfer is not None else None
+                rholmArrayDict, _q_pregrid_reports, _q_pregrid_error = \
+                    factored_likelihood.prepare_reflected_q_pregrid(
+                        rholmArrayDict, factor=opts.q_time_pregrid_factor,
+                        transfer=_q_transfer, cleanup=_q_cleanup)
+                if _q_pregrid_error is not None:
+                    raise QTimePregridError(
+                        "Requested Q refinement failed: %r" % _q_pregrid_error)
+                q_deltaT = float(P.deltaT) / opts.q_time_pregrid_factor
+                print(" Q_lm pregrid telemetry: status=active factor={} "
+                      "waveform_deltaT={:.12g} integration_deltaT={:.12g} "
+                      "q_deltaT={:.12g} input_bytes={} retained_bytes={} "
+                      "peak_allocation_bytes={} max_roundtrip={:.3g}".format(
+                          opts.q_time_pregrid_factor, float(P.deltaT), float(P.deltaT),
                           q_deltaT,
                           sum(item['input_bytes'] for item in _q_pregrid_reports),
                           sum(item['retained_bytes'] for item in _q_pregrid_reports),
                           max(item['peak_allocation_bytes'] for item in _q_pregrid_reports),
                           max(item['roundtrip_max'] for item in _q_pregrid_reports)))
-            else:
-                q_deltaT = float(P.deltaT)
-                opts.q_time_pregrid_factor = 1
-                opts._noloop_time_interp = opts._q_pregrid_fallback_interp
-                print(" Q_lm pregrid telemetry: status=fallback reason={!r} q_deltaT={:.12g} "
-                      "arrival_stencil={}".format(
-                          _q_pregrid_error, q_deltaT, opts._noloop_time_interp))
+            except QTimePregridError:
+                raise
+            except Exception as _q_error:
+                # Includes failure of cleanup or the helper's recovery transfer.
+                raise QTimePregridError(
+                    "Requested Q refinement could not be prepared") from _q_error
         if opts.gpu and (not xpy_default is np):
             for det in rholmArrayDict:
                 lookupNKDict[det] = cupy.asarray(lookupNKDict[det])
                 # Q was transferred inside the pregrid transaction.  The
-                # default/fallback path still needs its ordinary transfer.
-                if opts.q_time_pregrid_factor != 8 and not isinstance(rholmArrayDict[det], cupy.ndarray):
+                # default path still needs its ordinary transfer.
+                if opts.q_time_pregrid_factor == 1 and not isinstance(rholmArrayDict[det], cupy.ndarray):
                     rholmArrayDict[det] = cupy.asarray(rholmArrayDict[det])
-                ctUArrayDict[det] = cupy.asarray(ctUArrayDict[det])
-                ctVArrayDict[det] = cupy.asarray(ctVArrayDict[det])
+                if isinstance(ctUArrayDict[det], factored_likelihood.TimeIndexedCrossTermsSVD):
+                    ctUArrayDict[det] = ctUArrayDict[det].to_xpy(cupy)
+                    ctVArrayDict[det] = ctUArrayDict[det]
+                else:
+                    ctUArrayDict[det] = cupy.asarray(ctUArrayDict[det])
+                    ctVArrayDict[det] = cupy.asarray(ctVArrayDict[det])
                 epochDict[det] = cupy.asarray(epochDict[det])
                 if _have_cal_crossterms:
                     ctUArrayDict_cal[det] = cupy.asarray(ctUArrayDict_cal[det])
@@ -3944,6 +4506,12 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
         # NoLoop keeps P.deltaT as the geocentric integration spacing and reads
         # this independent spacing only for Q-grid coordinates.
         P.q_deltaT = q_deltaT
+        if ile_td_gs_contexts is not None:
+            _det0 = list(ctUArrayDict.keys())[0]
+            print("  [td-gs] cross terms packed as time-dependent arrays, shape %s = (%s, n_modes, n_modes), "
+                  "aligned with rholms; the likelihood must consume U(t), V(t) (scalar-U likelihoods will fail here)."
+                  % (tuple(ctUArrayDict[_det0].shape),
+                     "N_window" if td_subsample_for_likelihood == 1 else "%d*N_window (sub-sample grid, deltaT/%d)" % (td_subsample_for_likelihood, td_subsample_for_likelihood)))
         # Pass None (not empty dicts) downstream when the fix is inactive, so the
         # likelihood keeps its exact cal-independent behavior.
         if not _have_cal_crossterms:
@@ -4159,6 +4727,18 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
             if n_cap is None:
                 n_cap = max(int(opts.calibration_mc_error_extrinsic or 0), n_start)
             _warned = []
+            # The probe writes extrinsic ARRAYS into the shared P; restore the scalars
+            # afterwards, because the incremental Precompute of the adaptive draw growth
+            # regenerates the waveform from this same P (array-valued phiref/dist would
+            # be refused by the generator).
+            _P_saved = {k: getattr(P, k) for k in ('phi', 'theta', 'incl', 'psi', 'phiref', 'tref', 'dist')}
+            try:
+                return _cal_error_probe_body(n_cal_now, n_start, n_cap, rel_tol, _adapt, _lse, _rng, _warned)
+            finally:
+                for k, v in _P_saved.items():
+                    setattr(P, k, v)
+
+        def _cal_error_probe_body(n_cal_now, n_start, n_cap, rel_tol, _adapt, _lse, _rng, _warned):
             def _draw_dist(n):
                 if 'distance' in pinned_params:
                     if not _warned:
@@ -4203,7 +4783,7 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
                 _comp = factored_likelihood.DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(
                     _tv, P, lookupNKDict, rholmArrayDict, ctUArrayDict, ctVArrayDict, epochDict,
                     Lmax=opts.l_max, xpy=xpy_default, n_cal=n_cal_now, cal_method='loop',
-                    return_cal_components=True, time_interp=opts._noloop_time_interp,
+                    return_cal_components=True, time_interp=opts._noloop_time_interp, td_subsample=td_subsample_for_likelihood,
                     ctUArrayDict_cal=ctUArrayDict_cal, ctVArrayDict_cal=ctVArrayDict_cal)
                 comp_list.append(np.atleast_2d(np.asarray(identity_convert(_comp), dtype=float)))
                 corr_list.append(_corr)
@@ -4291,7 +4871,7 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
             _comp = factored_likelihood.DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(
                 _tvals, P, lookupNKDict, rholmArrayDict, ctUArrayDict, ctVArrayDict, epochDict,
                 Lmax=opts.l_max, xpy=xpy_default, n_cal=n_cal_for_likelihood, cal_method='loop',
-                return_cal_components=True, time_interp=opts._noloop_time_interp,
+                return_cal_components=True, time_interp=opts._noloop_time_interp, td_subsample=td_subsample_for_likelihood,
                 ctUArrayDict_cal=ctUArrayDict_cal, ctVArrayDict_cal=ctVArrayDict_cal)
             _comp = np.asarray(identity_convert(_comp))                       # (Next, n_cal) -> CPU
             from scipy.special import logsumexp as _logsumexp
@@ -4305,6 +4885,15 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
 
 
     # Likelihood
+    # Include the Gaussian data-normalization term in every evaluated likelihood,
+    # including saved sample likelihoods and returned integral/error estimates.
+    # Shift the numerical offset by the same amount to keep large constants safe.
+    _glitch_lnL_constant = 0.0
+    if ile_ip_factory is not None and not opts.zero_likelihood:
+        _glitch_lnL_constant = float(ile_ip_factory.glitch_delta_lnZ_total())
+    if _glitch_lnL_constant != 0.0:
+        manual_avoid_overflow_logarithm += _glitch_lnL_constant
+
     if not opts.time_marginalization:
 
       if opts.psi_marginalization:
@@ -4353,6 +4942,8 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
             # skipped sampler.add_parameter("psi") above): the analytic marginal is normalized,
             # this driver's psi prior is not.  Without it the flag reports lnZ - ln 2.
             lnL += _psi_marg_ln_prior_mass
+            if _glitch_lnL_constant != 0.0:
+              lnL = lnL + _glitch_lnL_constant
             if return_lnL:
               return lnL - manual_avoid_overflow_logarithm
             return numpy.exp(lnL - manual_avoid_overflow_logarithm)
@@ -4388,6 +4979,8 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
                         P, rholms, rholms_intp, cross_terms, cross_terms_V,
                         opts.l_max)
                 i+=1
+            if _glitch_lnL_constant != 0.0:
+              lnL = lnL + _glitch_lnL_constant
             if return_lnL:
               return lnL - manual_avoid_overflow_logarithm
             return numpy.exp(lnL - manual_avoid_overflow_logarithm)
@@ -4427,6 +5020,8 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
                 i+=1
             if supplemental_ln_likelihood:
               lnL += supplemental_ln_likelihood(right_ascension, declination, phi_orb,inclination, psi, distance)
+            if _glitch_lnL_constant != 0.0:
+              lnL = lnL + _glitch_lnL_constant
             if return_lnL:
               return lnL -manual_avoid_overflow_logarithm 
             return numpy.exp(lnL -manual_avoid_overflow_logarithm)
@@ -4497,6 +5092,8 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
 #            nEvals +=len(right_ascension)
             if supplemental_ln_likelihood:
               lnL += supplemental_ln_likelihood(P.phi, P.theta, P.phiref ,P.incl, P.psi, P.dist) # use these variables so they are already float-type
+            if _glitch_lnL_constant != 0.0:
+              lnL = lnL + _glitch_lnL_constant
             if return_lnL:
               return lnL -manual_avoid_overflow_logarithm
             return numpy.exp(lnL-manual_avoid_overflow_logarithm)
@@ -4569,7 +5166,7 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
                   lnL = factored_likelihood.DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals,
                         P, lookupNKDict, rholmArrayDict, ctUArrayDict, ctVArrayDict,epochDict,Lmax=opts.l_max,xpy=xpy_default,n_cal=n_cal_for_likelihood,
                         cal_method=('fused' if use_fused_calmarg and opts._noloop_time_interp == 'nearest' else 'loop'), cal_log_weights=calibration_log_weights,
-                        time_interp=opts._noloop_time_interp,
+                        time_interp=opts._noloop_time_interp, td_subsample=td_subsample_for_likelihood,
                         ctUArrayDict_cal=ctUArrayDict_cal, ctVArrayDict_cal=ctVArrayDict_cal)  # non-distmarg: default-helper fused kernel (cal_distmarg=None)
 #                nEvals +=len(right_ascension)
                 if opts.internal_reparam_dl_incl:
@@ -4587,6 +5184,8 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
                   lnL = xpy_default.where((_dl >= dmin) & (_dl <= dmax), lnL, -1e300)
                 if supplemental_ln_likelihood:
                   lnL += supplemental_ln_likelihood(P.phi, P.theta, P.phiref ,P.incl, P.psi, P.dist,xpy=xpy_default) # use these variables so they are already float-type
+                if _glitch_lnL_constant != 0.0:
+                  lnL = lnL + _glitch_lnL_constant
                 if return_lnL:
                   return identity_convert_lnL(lnL -manual_avoid_overflow_logarithm)
                 return identity_convert_lnL(xpy_default.exp(lnL-manual_avoid_overflow_logarithm))
@@ -4632,6 +5231,26 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
                 return A
 
               def distmarg_loglikelihood(kappa_sq, rho_sq):
+                if ile_td_gs_contexts is not None:
+                    # A time-indexed self term (td-gs pieces) is exactly zero at shifts where the
+                    # cut template does not overlap any piece; the template vanishes there, so
+                    # lnL = 0 at every distance.  Dividing by it gave NaN, which the time
+                    # integral then spread over the whole sample.
+                    has_template = rho_sq > 0
+                    if opts._noloop_time_interp == 'nearest':
+                        # With the nearest stencil a norm is a sum of Gram-matrix values, so a
+                        # negative one, or a zero one with a nonzero data overlap, means the
+                        # time-indexed terms (or the per-realization ones) are inconsistent.
+                        scale = xpy_default.max(xpy_default.abs(rho_sq))
+                        if bool(xpy_default.any(rho_sq < -1e-10 * scale)):
+                            raise ValueError("td-gs has a negative template norm")
+                        # (Not with --calibration-global-norm: there the norm is the uncalibrated
+                        # template's while the overlap is the FIR-filtered template's, which reaches
+                        # further, so a zero norm can meet a nonzero overlap.)
+                        if (not (opts.calibration_envelope_directory and opts.calibration_global_norm) and
+                                bool(xpy_default.any((~has_template) & (xpy_default.abs(kappa_sq) > 0)))):
+                            raise ValueError("td-gs zero template norm has nonzero data overlap")
+                    rho_sq = xpy_default.where(has_template, rho_sq, 1.0)
                 x0 = kappa_sq / rho_sq
 #                lnI = np.ones(shape=x0.shape) * -np.inf
                 lnI = xpy_default.full_like(x0, -xpy_default.inf)
@@ -4640,6 +5259,8 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
 #                in_bounds = (s > smin) * (s < smax) * (t < tmax)
                 in_bounds = (s > smin) & (s < smax) & (t < tmax)
                 lnI[in_bounds] = intp(s[in_bounds], t[in_bounds])
+                if ile_td_gs_contexts is not None:
+                    return xpy_default.where(has_template, exponent_max(x0, rho_sq) + lnI, 0.0)
                 return exponent_max(x0, rho_sq) + lnI
 
               # Opt-in: package the distmarg table for the fused kernel (Option C).
@@ -4709,11 +5330,13 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
                   lnL = factored_likelihood.DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals,
                     P, lookupNKDict, rholmArrayDict, ctUArrayDict, ctVArrayDict,epochDict,Lmax=opts.l_max,xpy=xpy_default, loglikelihood=distmarg_loglikelihood, phase_marginalization=True,n_cal=n_cal_for_likelihood,
                     cal_method=('fused' if cal_distmarg_dict is not None and opts._noloop_time_interp == 'nearest' else 'loop'), cal_distmarg=(cal_distmarg_dict if opts._noloop_time_interp == 'nearest' else None), cal_log_weights=calibration_log_weights,
-                    time_interp=opts._noloop_time_interp,
+                    time_interp=opts._noloop_time_interp, td_subsample=td_subsample_for_likelihood,
                     ctUArrayDict_cal=ctUArrayDict_cal, ctVArrayDict_cal=ctVArrayDict_cal)
 #                  nEvals +=len(right_ascension)
                   if supplemental_ln_likelihood:
                     lnL += supplemental_ln_likelihood(P.phi, P.theta, P.phiref ,P.incl, P.psi, 0,xpy=xpy_default) # Same API
+                  if _glitch_lnL_constant != 0.0:
+                    lnL = lnL + _glitch_lnL_constant
                   if return_lnL:
                     return identity_convert_lnL(lnL -manual_avoid_overflow_logarithm)
                   return identity_convert_lnL(xpy_default.exp(lnL-manual_avoid_overflow_logarithm))
@@ -4755,11 +5378,13 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
                   lnL = factored_likelihood.DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals,
                     P, lookupNKDict, rholmArrayDict, ctUArrayDict, ctVArrayDict,epochDict,Lmax=opts.l_max,xpy=xpy_default, loglikelihood=distmarg_loglikelihood,n_cal=n_cal_for_likelihood,
                     cal_method=('fused' if cal_distmarg_dict is not None and opts._noloop_time_interp == 'nearest' else 'loop'), cal_distmarg=(cal_distmarg_dict if opts._noloop_time_interp == 'nearest' else None), cal_log_weights=calibration_log_weights,
-                    time_interp=opts._noloop_time_interp,
+                    time_interp=opts._noloop_time_interp, td_subsample=td_subsample_for_likelihood,
                     ctUArrayDict_cal=ctUArrayDict_cal, ctVArrayDict_cal=ctVArrayDict_cal)
 #                  nEvals +=len(right_ascension)
                   if supplemental_ln_likelihood:
                     lnL += supplemental_ln_likelihood(P.phi, P.theta, P.phiref ,P.incl, P.psi, 0,xpy=xpy_default) # Same API
+                  if _glitch_lnL_constant != 0.0:
+                    lnL = lnL + _glitch_lnL_constant
                   if return_lnL:
                     return identity_convert_lnL(lnL -manual_avoid_overflow_logarithm)
                   return identity_convert_lnL(xpy_default.exp(lnL-manual_avoid_overflow_logarithm))
@@ -4806,6 +5431,8 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
 #            t_end =lal.GPSTimeNow() 
 #            print " Cost per evaluation ", (t_end - t_start)/len(q)
 #            print " Max lnL for this iteration ", numpy.max(lnL)
+            if _glitch_lnL_constant != 0.0:
+              lnL = lnL + _glitch_lnL_constant
             if return_lnL:
               return lnL -manual_avoid_overflow_logarithm
             return numpy.exp(lnL - manual_avoid_overflow_logarithm)
@@ -5128,8 +5755,10 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
         except Exception as _e_fs:
             print("  NF: could not save flow (", _e_fs, ")")
 
-    if not(res): # no resut
-      raise ValueError(" No integral result returned")
+    if res is None or not numpy.isfinite(res):
+      raise ValueError("Nonfinite integral result; skipping this event")
+    if not(return_lnL) and res <= 0:
+      raise ValueError("Nonpositive integral result; skipping this event")
 
     # WHICH CONVENTION THE SAMPLER RETURNED -- `return_lnL`, not opts.internal_use_lnL.  This is
     # the same distinction the rvs_integrand_is_lnL derivation above spells out, applied to the
@@ -5146,6 +5775,9 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
     else:
       log_res = res
       sqrt_var_over_res =  numpy.exp(var/2 - log_res)
+
+    if not numpy.isfinite(log_res):
+      raise ValueError("Nonfinite log likelihood; skipping this event")
 
     # ------------------------------------------------------------------
     # MC-error stabilization (see RIFT/integrators/statutils.py helpers).
@@ -5461,6 +6093,9 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
             else:
                 res = log_res; var = 2*numpy.log(sqrt_var_over_res) + 2*log_res
 
+    if not numpy.isfinite(res) or not numpy.isfinite(log_res):
+      raise ValueError("Nonfinite combined likelihood; skipping this event")
+
     # Calibration MC error budget.  The sampler's `var` is the EXTRINSIC sampling
     # variance with the cal draw set held FIXED -- it is structurally blind to the
     # Monte-Carlo error of the (1/n_cal) sum over realizations, which dominates
@@ -5480,6 +6115,10 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
             print(" [calmarg error] WARNING: cal n_eff < 10: the marginalization is dominated by a few draws and the quoted sigma is a LOWER BOUND.  Increase --calibration-n-realizations / the adaptive cap (--calibration-n-realizations-max).")
       except Exception as _e_cme:
         print(" WARNING: calibration MC error estimate failed ({}); reported sigma is extrinsic-only.".format(_e_cme))
+
+    if (not numpy.isfinite(sqrt_var_over_res) or
+            not numpy.isfinite(log_res + manual_avoid_overflow_logarithm)):
+      raise ValueError("Nonfinite exported likelihood or uncertainty; skipping this event")
 
     # Extrinsic handoff: after the integration, fit the run's extrinsic POSTERIOR to a
     # per-group GMM and write it as a breadcrumb, so a later iteration can seed its extrinsic
@@ -5899,20 +6538,96 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
           # otherwise. Resolved once here so the advisories print once per event.
           slice_chunk = distance_slices.resolve_slice_chunk(
               getattr(opts, "distance_slice_chunk", None), opts.n_chunk)
+          if not all_fresh and float(getattr(opts, "distance_slice_walkout_delta_lnL", 0.0) or 0.0) > 0:
+            print("    : WARNING --distance-slice-walkout-delta-lnL is ignored: this export is not all-fresh"
+                  " (reweight core + parabolic wings)")
+          if not all_fresh and float(getattr(opts, "distance_slice_refine_dlnL", 0.0) or 0.0) > 0:
+            print("    : WARNING --distance-slice-refine-dlnL is ignored: this export is not all-fresh")
+          if not all_fresh and opts.distance_slice_warm_start:
+            print("    : WARNING --distance-slice-warm-start is ignored: this export is not all-fresh")
           if all_fresh:
             # All K slices fresh.  Place centers at posterior-d quantiles: rough
             # placement is fine even at low n_eff -- the precision of each row comes
             # from its own fresh fixed-d integral, not from where it is centered.
             d_wings = distance_slices.quantile_slice_centers(dL_samp, ln_w_full, K, randomize=getattr(opts, "distance_slice_randomize", False))
             print("    : running {} fresh integrations (all-fresh{}; no reweight core)".format(len(d_wings), ", randomized-d" if getattr(opts, "distance_slice_randomize", False) else ""))
-            lnL_wings_raw, sigmaL_wings, neff_wings, ntotal_wings = distance_slices.fresh_sample_slices(
+            warm = None
+            if opts.distance_slice_warm_start:
+              # Seed from the retained-set reserve, not _rvs: by now _rvs is usually the fair-draw
+              # export (a handful of rows, with replacement), which cannot seed a proposal.
+              _ws_seed, _ws_lnw, _ws_d = rvs, ln_w_full, dL_samp
+              _res_ds = _warm_seed_reserve_for(sampler)
+              if _res_ds is not None and "distance" in list(_res_ds.get("params_ordered") or []):
+                _rn = list(_res_ds["params_ordered"])
+                _rX = np.asarray(_res_ds["X"], float)
+                _ws_seed = {_n: _rX[:, _i] for _i, _n in enumerate(_rn)}
+                _ws_lnw = (np.asarray(_res_ds["lnL"], float) + np.asarray(_res_ds["log_joint_prior"], float)
+                           - np.asarray(_res_ds["log_joint_s_prior"], float))
+                _ws_d = _ws_seed["distance"]
+              else:
+                print("    : WARNING no retained-set reserve; warm slices seeded from _rvs ({} rows)".format(len(dL_samp)))
+              warm = distance_slices.WarmSliceSampler(
+                  sampler, like_to_integrate, _ws_seed, float(opts.distance_slice_warm_seed_temper) * _ws_lnw,
+                  seed_distance=_ws_d, n_block=int(opts.distance_slice_warm_block or slice_chunk), return_lnL=return_lnL,
+                  khat_max=float(opts.distance_slice_warm_khat_max),
+                  local_k=int(opts.distance_slice_warm_local_k) or None,
+                  xp=xpy_default,
+                  fallback=lambda dd: distance_slices.fresh_sample_slices(
+                      sampler, like_to_integrate, dd, n_max=int(opts.distance_slice_wing_nmax),
+                      n_eff_target=int(opts.distance_slice_wing_neff), n_chunk=slice_chunk, return_lnL=return_lnL))
+              print("    : warm-started slices ({} seed rows, seed n_eff {:.1f} after tempering, block {})".format(
+                  len(_ws_d), distance_slices._neff(float(opts.distance_slice_warm_seed_temper) * np.asarray(_ws_lnw, float)),
+                  int(opts.distance_slice_warm_block or slice_chunk)))
+              lnL_wings_raw, sigmaL_wings, neff_wings, ntotal_wings = warm.run(
+                  d_wings, n_max=int(opts.distance_slice_wing_nmax), n_eff_target=int(opts.distance_slice_wing_neff))
+              print("    : warm-started slices: {} of {} redone cold (k-hat or n_eff)".format(warm.n_fallback, len(d_wings)))
+            else:
+              lnL_wings_raw, sigmaL_wings, neff_wings, ntotal_wings = distance_slices.fresh_sample_slices(
                 sampler, like_to_integrate, d_wings,
                 n_max=int(opts.distance_slice_wing_nmax),
                 n_eff_target=int(opts.distance_slice_wing_neff),
                 n_chunk=slice_chunk,
                 return_lnL=return_lnL,
-            )
+              )
             lnL_wings = lnL_wings_raw + manual_avoid_overflow_logarithm
+            walk_delta = float(getattr(opts, "distance_slice_walkout_delta_lnL", 0.0) or 0.0)
+            if walk_delta > 0 and distance_slices.is_uninformative(lnL_wings, threshold=opts.distance_slice_skip_threshold):
+              print("    : peak slice lnL < {:.2f} nats (effectively undetected); skipping walk-out".format(
+                  opts.distance_slice_skip_threshold))
+            elif walk_delta > 0:
+              walk_why = []
+              _ln_pi_d = lambda dd: np.log(np.maximum(np.asarray(identity_convert(prior_pdf_d(np.asarray(dd, float))), float), np.finfo(float).tiny))
+              added = distance_slices.walk_out_fresh_slices(
+                  sampler, like_to_integrate, d_wings, lnL_wings, _ln_pi_d,
+                  float(sampler.llim["distance"]), float(sampler.rlim["distance"]),
+                  lnL_offset=manual_avoid_overflow_logarithm, delta_lnL=walk_delta,
+                  max_steps=int(opts.distance_slice_walkout_max_steps),
+                  n_max=int(opts.distance_slice_wing_nmax), n_eff_target=int(opts.distance_slice_wing_neff),
+                  n_chunk=slice_chunk, return_lnL=return_lnL, reasons=walk_why,
+                  runner=None if warm is None else (lambda dd: warm.run(
+                      dd, n_max=int(opts.distance_slice_wing_nmax), n_eff_target=int(opts.distance_slice_wing_neff))))
+              if warm is not None:
+                print("    : warm-started slices incl. walk-out: {} of {} redone cold".format(warm.n_fallback, len(d_wings) + len(added[0])))
+              print("    : walk-out added {} fresh slices (target {:.1f} nats below peak; stopped near/far: {})".format(
+                  len(added[0]), walk_delta, "/".join(walk_why)))
+              d_wings, lnL_wings, sigmaL_wings, neff_wings, ntotal_wings = distance_slices.merge_walkout(
+                  d_wings, lnL_wings, sigmaL_wings, neff_wings, ntotal_wings, added)
+            refine_dlnL = float(getattr(opts, "distance_slice_refine_dlnL", 0.0) or 0.0)
+            if refine_dlnL > 0 and not distance_slices.is_uninformative(lnL_wings, threshold=opts.distance_slice_skip_threshold):
+              refine_why = []
+              _ln_pi_d = lambda dd: np.log(np.maximum(np.asarray(identity_convert(prior_pdf_d(np.asarray(dd, float))), float), np.finfo(float).tiny))
+              added_r = distance_slices.refine_fresh_slices(
+                  sampler, like_to_integrate, d_wings, lnL_wings, _ln_pi_d, manual_avoid_overflow_logarithm,
+                  dlnL_max=refine_dlnL, delta_lnL=(walk_delta if walk_delta > 0 else 5.0),
+                  max_add=int(opts.distance_slice_refine_max),
+                  n_max=int(opts.distance_slice_wing_nmax), n_eff_target=int(opts.distance_slice_wing_neff),
+                  n_chunk=slice_chunk, return_lnL=return_lnL, reasons=refine_why,
+                  runner=None if warm is None else (lambda dd: warm.run(
+                      dd, n_max=int(opts.distance_slice_wing_nmax), n_eff_target=int(opts.distance_slice_wing_neff))))
+              print("    : gap refinement added {} slices (jumps > {:.1f} nats; {})".format(
+                  len(added_r[0]), refine_dlnL, "/".join(refine_why)))
+              d_wings, lnL_wings, sigmaL_wings, neff_wings, ntotal_wings = distance_slices.merge_walkout(
+                  d_wings, lnL_wings, sigmaL_wings, neff_wings, ntotal_wings, added_r)
           elif n_wing > 0:
             if distance_slices.is_uninformative(lnL_core, threshold=opts.distance_slice_skip_threshold):
               print("    : peak core lnL < {:.2f} nats (effectively undetected); skipping {} wing fresh integrations".format(
@@ -6112,7 +6827,12 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
             samples["alpha3"] = numpy.zeros(samples["psi"].shape)
 
       if opts.resample_time_marginalization:
-        samples = resample_samples(samples,lookupNKDict, rholmArrayDict, ctUArrayDict, ctVArrayDict,epochDict, n_cal=n_cal_for_likelihood, cal_log_weights=calibration_log_weights, ctUArrayDict_cal=ctUArrayDict_cal, ctVArrayDict_cal=ctVArrayDict_cal)
+        samples = resample_samples(samples,lookupNKDict, rholmArrayDict, ctUArrayDict, ctVArrayDict,epochDict, n_cal=n_cal_for_likelihood, cal_log_weights=calibration_log_weights, ctUArrayDict_cal=ctUArrayDict_cal, ctVArrayDict_cal=ctVArrayDict_cal, P=P)
+        # The time-draw helper evaluates raw NoLoop statistics, bypassing the
+        # sampler callback. Restore the same data-normalization term in its export;
+        # it is constant in arrival time and does not change the draw probabilities.
+        if _glitch_lnL_constant != 0.0:
+            samples["lnL_raw"] = samples["lnL_raw"] + _glitch_lnL_constant
         samples["loglikelihood" ] = samples["lnL_raw"]  # export the non-time-marginalized likelihood, if we are in the final stages
 #        print(samples['t_ref'] - fiducial_epoch, len(samples['t_ref']))
         # Recovered CALIBRATION posterior (opt-in): for each fair-draw sample, draw ONE cal
@@ -6134,7 +6854,7 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
             _comp = factored_likelihood.DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(_tv,
                        P, lookupNKDict, rholmArrayDict, ctUArrayDict, ctVArrayDict, epochDict,
                        Lmax=opts.l_max, xpy=xpy_default, n_cal=n_cal_for_likelihood,
-                       cal_method='loop', return_cal_components=True, time_interp=opts._noloop_time_interp,
+                       cal_method='loop', return_cal_components=True, time_interp=opts._noloop_time_interp, td_subsample=td_subsample_for_likelihood,
                        ctUArrayDict_cal=ctUArrayDict_cal, ctVArrayDict_cal=ctVArrayDict_cal)
             _comp = np.atleast_2d(np.asarray(identity_convert(_comp), dtype=float))   # (n_samples, n_cal)
             _calw = np.zeros(n_cal_for_likelihood) if calibration_log_weights is None else np.asarray(identity_convert(calibration_log_weights), dtype=float)
@@ -6414,6 +7134,8 @@ for indx in numpy.arange(len(P_list)):
       print("  [seq warm-start] skipped for point {} ({})".format(indx, _e_sw))
       _clear_warm_state(sampler)
   res = analyze_event(P_list, indx, data_dict, psd_dict, fmax, opts)
+  if res is None or not numpy.isfinite(res):
+    raise ValueError("Nonfinite event result; skipping this event")
   # capture this point's converged high-likelihood extrinsic samples as the seed
   # for the next point (in-memory; no files leave the job)
   if opts.sampler_sequential_warmstart and hasattr(sampler, 'bootstrap_from_samples'):
@@ -6449,6 +7171,8 @@ for indx in numpy.arange(len(P_list)):
       # Note this needs to be done in a few places
       pinned_params.update({"force_no_adapt":True,"save_intg":False, "igrand_threshold_deltalnL":20})  # massively reduce memory usage in logic branch, don't save all. Highly redundant sequence to self-document all related logic branches
  except Exception as exception_failure:
+  if isinstance(exception_failure, QTimePregridError):
+    raise
   print( "  ===> FAILED ANALYSIS <==== ")
   print( exception_failure)
   # The message alone ("boolean index did not match...", "index out of range", ...) is rarely enough

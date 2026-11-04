@@ -20,6 +20,19 @@ reproducibility.
 ------------
 development tree is rift_O4d; PRs refer to oshaughn/research-projects-RIT.
 
+   - Opt-in mu/random-transverse puffing for the first CIP batch, with an atomic
+     vectorized mass/aligned-spin inverse and independent random transverse redraws.
+     Later batches retain internal-puff-transverse covariance puffing; BasicIteration
+     accepts a puff argument schedule paired with the CIP batch schedule. Default
+     puff behavior is unchanged.
+
+   - Correct the CIP delta_mc prior Jacobian: with delta_mc sampled, raw CIP lnZ decreases by
+     ln(4).  Posteriors and prior-normalized lnB_H do not change; reconcile older raw lnZ
+     before reuse (fork PR #522).
+   - Divide the CIP q prior by its --eta-range norm factor N: (mtot, q) runs on the default q
+     prior gain -2 ln(N) in raw lnZ.  Posteriors and prior-normalized lnB_H do not change
+     (fork PR #523).
+
    - (rc0) O4d base refresh: modern Python/numpy support, portable GPU execution, generic workflow
      backends, hyperpipe and simulation-manager support; distance-likelihood export, parsimonious
      placement preview, waveform utilities and diagnostics (PRs #129, #132, #135, #143).
@@ -64,6 +77,12 @@ development tree is rift_O4d; PRs refer to oshaughn/research-projects-RIT.
      Add Asimov 0.8 compatibility; fix container transfers, disk requests and failure propagation.
      Add Bilby-compatible noise evidence and opt-in GPU GP, AV stopping and RF spin features;
      expand numerical, workflow and CPU/GPU regression coverage (PR #208).
+
+   - (unreleased) Time marginalization uses the same rule on CPU and GPU.  'simpson' is now
+     scipy's rule on every backend, so GPU lnL at even npts (srate 4096/8192) moves by up to
+     0.405 nats onto the CPU value; CPU results are unchanged.  New opt-in
+     --time-marginalization-quadrature trapezoid (NoLoop only; refused with --use-jax-ile).
+     Supersedes fork PR #204.
 
    - (unreleased) Fork PR #435 retires the physics3 RF transverse-spin mode, which
      gave CIP 11 fit coordinates for 8 degrees of freedom; every layer now refuses it.
