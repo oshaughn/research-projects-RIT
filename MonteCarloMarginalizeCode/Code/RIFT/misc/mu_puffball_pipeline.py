@@ -25,17 +25,17 @@ def discovery_arguments(arguments):
             output.append(name)
             i += 1
             continue
-        if name not in allowed | {'--parameter', '--reflect-parameter', '--force-away'}:
+        if name not in allowed | {'--parameter', '--reflect-parameter', '--force-away', '--unwrap-parameter', '--unwrap-center'}:
             raise ValueError('early mu/random-transverse puff cannot inherit ' + name)
         if not equals:
             i += 1
             if i == len(tokens):
                 raise ValueError('missing value for ' + name)
             value = tokens[i]
-        if name in ('--parameter', '--reflect-parameter'):
+        if name in ('--parameter', '--reflect-parameter', '--unwrap-parameter'):
             if value not in mass_spin:
                 raise ValueError('early mu puff cannot replace nuisance coordinate ' + value)
-        elif name != '--force-away':
+        elif name not in ('--force-away', '--unwrap-center'):
             output.extend((name, value))
         i += 1
     return shlex.join(['--puff-coordinate-system', 'mu-random-transverse',
