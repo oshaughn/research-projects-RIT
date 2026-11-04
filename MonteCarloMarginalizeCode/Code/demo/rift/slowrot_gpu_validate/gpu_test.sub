@@ -1,0 +1,26 @@
+# One GPU job to validate the xpy=cupy rotation likelihood (test_slowrot_gpu.py) on real
+# hardware, inside the RIFT container, with the rift_slowrot code transferred.
+universe   = vanilla
+executable = run_gpu_test.sh
+
++SingularityImage = "$ENV(SINGULARITY_RIFT_IMAGE)"
+# HAS_SINGULARITY + the pool's GPU-capability band (from setup_generic_env_vars.sh).
+Requirements = (HAS_SINGULARITY =?= True) && $ENV(RIFT_REQUIRE_GPUS)
+
+request_gpus   = 1
+request_cpus   = 1
+request_memory = 4096
+request_disk   = 4096
+
+should_transfer_files   = YES
+when_to_transfer_output = ON_EXIT
+transfer_input_files    = rift_code.tar.gz
+environment             = "NUMBA_CACHE_DIR=. PYTHON=python3"
+
+accounting_group      = $ENV(LIGO_ACCOUNTING)
+accounting_group_user = $ENV(LIGO_USER_NAME)
+
+output = gpu_test.out
+error  = gpu_test.err
+log    = gpu_test.log
+queue

@@ -26,12 +26,14 @@ parser.add_argument("--approximant",default="TaylorT4",help="Set approximant. Us
 # Add option to use NR waveforms!
 parser.add_argument("--group",default=None)
 parser.add_argument("--param",default=None)
+parser.add_argument("--fref",default=None,type=float)
 opts=  parser.parse_args()
 
 hasNR = False
+nrwf = None
 if opts.group:
-    import NRWaveformCatalogManager3 as nrwf
-    hasNR=True
+    from RIFT.physics._nrwf_loader import get_nrwf as _rift_get_nrwf
+    nrwf, hasNR = _rift_get_nrwf()    # prefers nrcatalog.compat_nrwf, falls back to NRWaveformCatalogManager3
 
 
 P=None
@@ -51,7 +53,8 @@ P.phi = 0
 P.phiref = 0
 P.psi = 0
 P.approx = lalsimutils.lalsim.GetApproximantFromString(opts.approximant)  # allow user to override the approx setting. Important for NR followup, where no approx set in sim_xml!
-
+if opts.fref:
+    P.fref = opts.fref
 param_names = opts.parameter
 for param in param_names:
     # Check if in the valid list

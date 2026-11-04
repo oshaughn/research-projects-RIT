@@ -1,0 +1,105 @@
+# End-to-end demo for the linear_coordinate_convert plugin with DECOUPLED
+# fit / sampling bases inside util_ConstructEOSPosterior.py.
+#
+# Goal
+# ----
+# Iteration (puff lane, marg evaluator, condor DAG) lives in (x, y, z) --
+# the data file's column basis.  The EOS posterior step FITS its GP/RF in
+# (u, v, w), a 45-degree rotation of (x, y, z) in the xy-plane that
+# axis-aligns the unequal-sigma Gaussian.  The MC integrator inside the
+# EOS posterior still SAMPLES in (x, y, z) so the output samples come out
+# in the same basis the rest of the pipeline expects.
+#
+# This is the configuration the IntrinsicPosterior-style coordinate
+# argument mechanism (--parameter-implied / --parameter-nofit) enables
+# inside the EOS posterior: implied = fit dim only, nofit = sample dim
+# only, the coordinate plugin routes between them.
+#
+# Reading this file
+# -----------------
+# Differences from hyperpipe_conf_tracer.yaml:
+#   * post.coords-fit is EMPTY -- no parameter is both fit and sampled.
+#   * post.coords-implied: "u v w" -- the FIT basis. The coordinate
+#     plugin produces these from the data file's (x, y, z) columns;
+#     the MC integrator never sees them.
+#   * post.coords-nofit: "x y z" -- the MC SAMPLING basis. These are the
+#     data file's columns; the integrator samples them, the puff lane
+#     puffs them, and the output posterior is in this basis.
+#   * post.coord-module: linear_coordinate_convert.py with the
+#     uvw_rotated chart, plus the ini that carries A and b.
+#   * marg-list[0].exe: example_gaussian_uvw.py, which uses the same
+#     plugin library to define its Gaussian likelihood in (u, v, w).
+#
+# Run with:
+#     util_RIFT_hyperpipe.py --config ./hyperpipe_conf_linear_uvw.yaml
+#
+# Then plot the (x, y, z) posterior from rundir_linear_uvw/:
+#     (cd rundir_linear_uvw; plot_posterior_corner.py \
+#          --posterior-file posterior-4.dat \
+#          --composite-file all.marg_net --composite-file-has-labels \
+#          --parameter x --parameter y --parameter z \
+#          --lnL-cut 15 --use-all-composite-but-grayscale)
+#
+# The recovered ellipsoid in (x, y, z) should point along the rotated
+# v-axis ((-1, +1, 0)/sqrt(2)) with the narrowest extent along the
+# u-axis ((+1, +1, 0)/sqrt(2)).
+
+arch:
+  method: default
+  n-iterations: 5
+  n-samples-per-job: 1000
+  explode-marg-jobs: 5
+  start-iteration: 0
+
+post:
+  # FIT basis -- only seen by the GP/RF.  Plugin produces these from the
+  # data-file columns.  Nothing about implied coords is sampled by the MC,
+  # so they don't need integration ranges.
+  coords-implied: "u v w"
+  # MC SAMPLING basis -- same as the data file's columns.  The integrator
+  # samples these and the output posterior is written in this basis.
+  coords-nofit:   "x y z"
+  # Sampling-basis integration ranges sized to enclose ~3 sigma of the
+  # rotated Gaussian (centred at (u, v, w) = (0, 4.95, 3.5), which back-
+  # projects to (x, y, z) ~= (-3.5, 3.5, 3.5); broadest extent is along
+  # z with sigma_w = 1.5).
+  coords-sample:  "x:[-7,1] y:[0,7] z:[-1,8]"
+  # The coordinate plugin sits in this directory.  ${hydra:runtime.cwd}
+  # resolves to where you invoked util_RIFT_hyperpipe.py from -- run it
+  # from demo/hyperpipe/ for the path below to work.
+  coord-module: ${hydra:runtime.cwd}/linear_coordinate_convert.py
+  # --supplementary-coordinate-{ini,chart,function} land here.  function
+  # defaults to convert_coordinates so we don't have to set it.
+  extra-args: "--supplementary-coordinate-ini ${hydra:runtime.cwd}/linear_coordinate_convert.ini --supplementary-coordinate-chart uvw_rotated"
+  settings:
+    fit-method: rf
+
+marg-list:
+  - name: Gaussian_uvw
+    exe: example_gaussian_uvw.py
+    args: "--outdir Gaussian_uvw_example --conforming-output-name --coord-plugin ${hydra:runtime.cwd}/linear_coordinate_convert.py --coord-ini ${hydra:runtime.cwd}/linear_coordinate_convert.ini --mu-uvw 0.0,4.95,3.5 --sigma-uvw 0.5,1.0,1.5"
+    n-chunk: 100
+
+puff:
+  # Tracer drop-in.  Reads all.marg_net (which has columns (x, y, z)) and
+  # produces grid-{k+1}.dat in (x, y, z).  Sees --parameter x y z because
+  # to_puff_args emits the SAMPLING basis (coords-fit + coords-nofit),
+  # not the fit basis.
+  exe: util_HyperparameterTracerUpdate.py
+  input-source: marg_net
+  puff-factor: 0.5
+  force-away: 0.03
+  settings:
+    update-method: smc-mala-bd
+    tracer-fit-method: rf
+    n-mala-steps: 8
+    target-ess-frac: 0.5
+    birth-death-rate: 1.0
+    rng-seed: null
+
+init:
+  file: blind_gaussian_3d_xy_plus.dat
+
+general:
+  rundir: rundir_linear_uvw
+  request-memory: 200

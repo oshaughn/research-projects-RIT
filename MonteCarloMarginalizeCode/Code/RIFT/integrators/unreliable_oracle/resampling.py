@@ -35,7 +35,15 @@ class ResamplingOracle(MCSamplerGeneric):
         if self.params_ordered and self.reference_params:
             print(self.params_ordered, self.reference_params)
             self.valid_params = [p for p in self.reference_params  if p in self.params_ordered] # valid parameters to sample from
-            self.other_params = list( set(self.params_ordered) - set(self.valid_params)) # remainder, will be uniform
+            # remainder, will be uniform.  ORDER MATTERS, so this is NOT a set difference:
+            # draw_simplified consumes a block of numpy's (seeded) global stream per entry, so
+            # set order decides which block lands on which parameter -- and str hashing is
+            # salted per process (PYTHONHASHSEED), so two runs with the SAME --seed drew
+            # different distances/inclinations.  Measured: five processes at --seed 101 gave
+            # four distinct distance blocks.  The oracle trains the sampling prior (and seeds
+            # the AV live volume), so that reaches lnZ.  params_ordered order is stable.
+            _valid = set(self.valid_params)
+            self.other_params = [p for p in self.params_ordered if p not in _valid]
 
     def update_sampling_prior(self, *args, **kwargs):
         True

@@ -59,3 +59,14 @@ The number of points specifies how many different points per simulation file wit
 Finally, once the data and the grid are present, the RIFTxNR run directory is ready to be built. First, the `EVENT_TIME` variable also needs to be specified in the Makefile. This value can be found on the GraceDB portal for that event. Similar to the channels, this value is passed to the ILE argument string. The user may also choose to change the reference frequency and the number of higher order modes to include. Once the arguments are set, the user runs  `make rundir`  to create the run directory based on the argument strings and a call to RIFT's internal script, `create_event_nr_pipeline_with_cip`. Once the run directory is build, go into the `rundir` and try running a command single to make sure that everything is running as expected. If it looks okay, the job can be submitted. You may need to verify the PSDs are present.
 
 One step worth mentioning that differs from a standard RIFT run is the "refine" stage. Refine calls an internal script named `util_TestSpokesIO.py`, which runs after ILE. This step removes duplicate mass entries in the output `all.net`, and refines the grid to points within a certain fraction of the peak log-likelihood. The refined grid gets passed back to a second (and usually for NR, final) iteration of ILE. CIP only runs a single time at the end to construct the final resultant posterior distribution.
+
+
+### Evidence-weighted catalog posteriors from existing runs
+
+For the discrete simulation-prior alternative to the CIP fit, use
+`util_NRBestEffortPosterior.py plan` on the cleaned `all.net`. It produces
+evidence-weighted intrinsic samples and optional XML followup grids. Its
+`combine` command mixes saved conditional extrinsic fair draws with weights
+independent of each file's sample count. See `docs/source/nr_best_effort.rst`
+(from the repository root) for mass priors, full commands, and the historical
+RIT O1/O2 method and CIT recovery notes.

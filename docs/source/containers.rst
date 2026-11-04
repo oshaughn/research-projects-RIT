@@ -15,6 +15,9 @@ That still works exactly as before.  This page documents two additions:
   capabilities, and let HTCondor pick the right one per matched machine; and
 * a **multi-target build** that produces such a family from one template.
 
+For an operator workflow that inventories a target GPU pool and creates
+container-cache warmup jobs, see :doc:`executables/survey_scan`.
+
 .. note::
 
    If ``SINGULARITY_RIFT_IMAGE`` is a plain ``.sif`` path or a single
@@ -112,7 +115,7 @@ source tree.
 What the pipeline generates
 ---------------------------
 
-For a manifest, the GPU ILE Condor submit files get:
+For a manifest, the ILE (and CIP) Condor submit files get:
 
 * **``MY.SingularityImage``** — an *unquoted* ``ifThenElse`` expression that
   selects the highest-capability image the matched machine can run, with the
@@ -124,9 +127,7 @@ For a manifest, the GPU ILE Condor submit files get:
 * **Selective transfer** — only ``osdf://`` images are fetched, and only on the
   machine that selected them, via a single HTCondor ``$$()`` match-time token
   appended to ``transfer_input_files``.  CVMFS/local images are referenced in
-  place and never transferred, so the **whole family is never pulled**.  Under
-  container universe this token is what actually delivers the image (the
-  ``container_image`` selector only names a basename — see the warning below)::
+  place and never transferred, so the **whole family is never pulled**::
 
       $$([ (TARGET.GPUs_Capability >= 8.0 ? "osdf:///.../rift_container_modern.sif" : "") ])
 
@@ -137,6 +138,7 @@ For a manifest, the GPU ILE Condor submit files get:
   combined (``&&``) with any ``RIFT_REQUIRE_GPUS`` you set.  Both apply; neither
   is dropped.  This stops jobs matching a GPU that *no* image in the family
   supports.
+
 
 * **A capability-defined ``Requirements`` clause** —
   ``TARGET.GPUs_Capability =!= undefined``.  The selection above is deliberately
@@ -239,6 +241,62 @@ Under asimov, set the variable from the blueprint rather than the shell:
    use ``RIFT_CONTAINER_RUNTIME_SELECT=1``.
 
 
+Per-host ILE executable and memory
+----------------------------------
+
+A family entry may also choose the ILE executable and the memory request.  For
+example, to run the JAX ILE on GPUs with at least 16 GB and the standard ILE
+elsewhere:
+
+.. code-block:: yaml
+
+   fallback: legacy
+   containers:
+     - label: legacy
+       image: osdf:///igwn/.../rift_cuda12.sif
+       cuda_capability_min: 6.0
+     - label: jax_big
+       image: osdf:///igwn/.../rift_cuda12.sif   # entries may share an image
+       cuda_capability_min: 6.0
+       select_requirements: TARGET.GPUs_GlobalMemoryMb >= 16000
+       ile_exe: integrate_likelihood_extrinsic_jax
+       request_memory: 16000                     # MB
+
+``select_requirements`` is ANDed into the entry's capability test as
+``(expr) =?= true``, so a slot that does not advertise an attribute it reads
+falls through to the next entry.  At equal ``cuda_capability_min`` an entry with
+``select_requirements`` is tested first.  It needs ``cuda_capability_min``, may
+not contain ``,`` or ``/``, and the fallback may not set it.  Entries without
+``ile_exe`` or ``request_memory`` use the job defaults.
+
+A GPU ILE job then carries one ClassAd selector per choice, all over the same
+branches: the image, ``request_memory``, ``MY.RIFTILEExe``, and
+``MY.RIFTILEProfile`` (the label).  The executable is passed as a trailing
+``--rift-ile-exe=$$([MY.RIFTILEExe])`` argument, which ``ile_pre.sh`` (or a small
+``ile_dispatch.sh`` when there is no frame prescript) removes before running it.  HTCondor carves the slot at the selected memory,
+and keeps the expressions so a job rematched after eviction selects again.  To see
+what each job got::
+
+   condor_history <cluster> -af MATCH_EXP_RIFTILEProfileMatched MemoryProvisioned
+
+Limits:
+
+* Opt-in per job (``ile_profiles=True``).  Only the ``ILE``, ``ILE_puff`` and
+  ``ILE_fetch`` jobs of ``create_event_parameter_pipeline_BasicIteration`` use it.
+  ``ILE_extr`` keeps the default executable, because its output converter
+  depends on which executable ran.
+* GPU jobs and HTCondor backends only.
+* Not available with ``RIFT_CONTAINER_RUNTIME_SELECT``, which picks the image
+  after the slot is carved and cannot evaluate ``select_requirements``.
+* The build-time checks ``util_RIFT_pseudo_pipe.py`` applies to
+  ``--use-jax-ile`` (calibration marginalization, OSG) do not see a manifest
+  ``ile_exe``.  Check that the run's ILE options are supported by every
+  executable the family names.
+* Select on attributes that are the same for the partitionable and the dynamic
+  slot (GPU capability, GPU memory, ``TotalCpus``), not on ``Memory``.
+* ``condor_qedit <job> RequestMemory <N>`` replaces the expression with a constant.
+
+
 GPU attribute names
 -------------------
 
@@ -313,14 +371,14 @@ The top-level :code:`rift_container.def` is unchanged and remains the default
 single-image build.
 
 
-Catching dependency breakage early
-----------------------------------
+Catching dependency breakage early (CI canary)
+----------------------------------------------
 
 The container ships an *unpinned* dependency set and clones RIFT at build time,
 so a fresh upstream release (for example ``swig>=4.4.0``) can silently break
-RIFT and only surface when a container rebuild fails.  ``rift_O4d`` carries two
-non-blocking GitHub Actions canaries for this (``container-dep-canary`` and
-``container-swig-canary``); they are not part of this branch, whose CI is
-GitLab-based.  Until an equivalent exists here, re-run the install of
-``containers/requirements-container.txt`` plus a RIFT import check by hand before
-a family rebuild.
+RIFT and only surface when a container rebuild fails.  Two **non-blocking** CI
+jobs guard against this — ``container-dep-canary`` (installs the same unpinned
+``containers/requirements-container.txt`` set and runs the import check) and
+``container-swig-canary`` (exercises the ``pixi`` ``swig-post44`` lane).  They
+run on every push/PR and on a weekly schedule, so a breaking upstream release is
+flagged even with no RIFT commit.

@@ -16,6 +16,7 @@ remap_ILE_2_LI = {
  "theta1":"tilt1",
  "theta2":"tilt2",
   "xi":"chi_eff", 
+  "shu":"shu",
   "chiMinus":"chi_minus", 
   "delta":"delta", 
   "delta_mc":"delta", 
@@ -27,13 +28,27 @@ remap_ILE_2_LI = {
   "thetaJN":"theta_jn"}
 remap_LI_to_ILE = { "a1z":"s1z", "a2z":"s2z", "chi_eff":"xi", "lambdat":"LambdaTilde", 'mtotal':'mtot', "distance":"dist", 'ra':'phi', 'dec':'theta',"phiorb":"phiref"}
 
+remap_bilby_to_rift={'chirp_mass':'mc', 'mass_ratio':'q', 'mass_1':'m1', 'mass_2':'m2','geocent_time':'time','luminosity_distance':'distance','phase':'phiorb','chi_1_in_plane':'chi1_perp','spin_1x': 'a1x', 'spin_1y':'a1y', 'spin_2x': 'a2x','spin_2y':'a2y', 'spin_1z':'a1z', 'spin_2z':'a2z', 'chi_2_in_plane':'chi2_perp','iota':'incl','lambda_1':'lambda1', 'lambda_2':'lambda2','lambdat':'LambdaTilde','log_likelihood':'lnL'}
+
 import numpy.lib.recfunctions as rfn
 
 def extract_combination_from_LI(samples_LI, p):
     """
-    extract_combination_from_LI
-      - reads in known columns from posterior samples
-      - for selected known combinations not always available, it will compute them from standard quantities
+    Extracts a specific parameter or computed combination from posterior samples.
+
+    This function reads known columns from the posterior samples. If the requested
+    parameter `p` is not directly available, it attempts to compute it from standard
+    quantities using predefined remapping and physics formulas (e.g., computing
+    effective spin `chi_eff` from individual spin components).
+
+    Args:
+        samples_LI (np.recarray): A structured numpy array containing posterior samples.
+        p (str): The name of the parameter or combination to extract.
+
+    Returns:
+        np.ndarray: An array containing the extracted or computed values for parameter `p`.
+            Returns an array of zeros if the parameter cannot be accessed to avoid
+            hard failures.
     """
     if p in samples_LI.dtype.names:  # e.g., we have precomputed it
         return samples_LI[p]
@@ -46,6 +61,13 @@ def extract_combination_from_LI(samples_LI, p):
          a1z = samples_LI['a1z']
          a2z = samples_LI['a2z']
          return (m1 * a1z + m2*a2z)/(m1+m2)
+    if (p == 'shu') and 'a1z' in samples_LI.dtype.names:
+         m1 = samples_LI['m1']
+         m2 = samples_LI['m2']
+         a1z = samples_LI['a1z']
+         a2z = samples_LI['a2z']
+         xi = (m1 * a1z + m2*a2z)/(m1+m2)
+         return xi - 0.5*(a1z+a2z) * ((m1*m2)/ (m1+m2)**2)
     # Return cartesian components of spin1, spin2.  NOTE: I may already populate these quantities in 'Add important quantities'
     if p == 'chiz_plus':
         print(" Transforming ")
@@ -97,6 +119,11 @@ def extract_combination_from_LI(samples_LI, p):
         m2v = samples_LI["m2"]
         return lalsimutils.symRatio(m1v,m2v)
 
+    if (p == 'chi1' or p=='a1') and 'a1x' in samples.dtype.names:
+        return np.sqrt(samples['a1x']**2 + samples['a1y']**2 + samples['a1z']**2)
+    if (p == 'chi2' or p=='a2') and 'a2x' in samples.dtype.names:
+        return np.sqrt(samples['a2x']**2 + samples['a2y']**2 + samples['a2z']**2)
+    
     if p == 'phi1':
         return np.angle(samples_LI['a1x']+1j*samples_LI['a1y'])
     if p == 'chi_pavg':
@@ -134,28 +161,22 @@ def extract_combination_from_LI(samples_LI, p):
     return np.zeros(len(samples_LI['m1']))  # to avoid causing a hard failure
 
 def add_field(a, descr):
-    """Return a new array that is like "a", but has additional fields.
+    """
+    Returns a new structured array with additional fields.
 
-    Arguments:
-      a     -- a structured numpy array
-      descr -- a numpy type description of the new fields
+    The contents of "a" are copied over to the appropriate fields in the new array,
+    while the new fields are left uninitialized. The original array "a" is not modified.
 
-    The contents of "a" are copied over to the appropriate fields in
-    the new array, whereas the new fields are uninitialized.  The
-    arguments are not modified.
+    Args:
+        a (np.ndarray): A structured numpy array.
+        descr (list): A numpy type description of the new fields to add 
+            (e.g., `[('field_name', float)]`).
 
-    >>> sa = numpy.array([(1, 'Foo'), (2, 'Bar')], \
-                         dtype=[('id', int), ('name', 'S3')])
-    >>> sa.dtype.descr == numpy.dtype([('id', int), ('name', 'S3')])
-    True
-    >>> sb = add_field(sa, [('score', float)])
-    >>> sb.dtype.descr == numpy.dtype([('id', int), ('name', 'S3'), \
-                                       ('score', float)])
-    True
-    >>> numpy.all(sa['id'] == sb['id'])
-    True
-    >>> numpy.all(sa['name'] == sb['name'])
-    True
+    Returns:
+        np.ndarray: A new structured array containing the original fields and the new fields.
+
+    Raises:
+        ValueError: If the input array `a` is not a structured numpy array.
     """
     if a.dtype.fields is None:
         raise ValueError("`A' must be a structured numpy array")
@@ -167,11 +188,26 @@ def add_field(a, descr):
 
 
 
-
 def standard_expand_samples(samples):
     """
-    Do some things which add a bunch of standard fields to the samples, if I don't have them.  
-    Used in plot_posterior_corner.py for example
+    Expands a sample set by adding standard derived parameters.
+
+    This function checks for the presence of certain base parameters and computes
+    derived quantities if they are missing. This is commonly used for preparing
+    samples for plotting (e.g., in `plot_posterior_corner.py`).
+
+    Added fields may include:
+    - Mass parameters: `mtotal`, `eta`, `m1`, `m2` (computed from `mc` and `q`).
+    - Spin parameters: `a1x`, `a1y`, `a2x`, `a2y`, `chi1_perp`, `chi2_perp`, `chi_eff` 
+      (computed from `a1`, `theta1`, `phi1`, etc.).
+    - Angles: `phi1`, `phi2`, `phi12`.
+    - Tidal parameters: `lambdat`, `dlambdat` (computed from `lambda1`, `lambda2`).
+
+    Args:
+        samples (np.recarray): A structured numpy array of posterior samples.
+
+    Returns:
+        np.recarray: The expanded structured array containing the original and derived fields.
     """
     if not 'mtotal' in samples.dtype.names and 'mc' in samples.dtype.names:  # raw LI samples use 
         q_here = samples['q']
@@ -181,8 +217,9 @@ def standard_expand_samples(samples):
         m1_here = mtot_here/(1+q_here)
         samples = add_field(samples, [('mtotal', float)]); samples['mtotal'] = mtot_here
         samples = add_field(samples, [('eta', float)]); samples['eta'] = eta_here
-        samples = add_field(samples, [('m1', float)]); samples['m1'] = m1_here
-        samples = add_field(samples, [('m2', float)]); samples['m2'] = mtot_here * q_here/(1+q_here)
+        if not 'm1' in samples.dtype.names:
+                       samples = add_field(samples, [('m1', float)]); samples['m1'] = m1_here
+                       samples = add_field(samples, [('m2', float)]); samples['m2'] = mtot_here * q_here/(1+q_here)
         
     if "theta1" in samples.dtype.names and not('chi1_perp' in samples.dtype.names):
         a1x_dat = samples["a1"]*np.sin(samples["theta1"])*np.cos(samples["phi1"])
@@ -209,6 +246,13 @@ def standard_expand_samples(samples):
         samples = add_field(samples, [('chi1_perp',float)]); samples['chi1_perp'] = chi1_perp
         samples = add_field(samples, [('chi2_perp',float)]); samples['chi2_perp'] = chi2_perp
 
+        if not ('a1' in samples.dtype.names):
+            chi1 = np.sqrt(samples['a1x']**2 + samples['a1y']**2 + samples['a1z']**2)
+            samples = add_field(samples, [('a1', float)]); samples['a1']= chi1
+        if not ('a2' in samples.dtype.names):
+            chi2 = np.sqrt(samples['a2x']**2 + samples['a2y']**2 + samples['a2z']**2)
+            samples = add_field(samples, [('a2', float)]); samples['a2']= chi2
+
         # Askold: this part will check if phi1, phi2, phi12 are present. If not, compute and add the missing ones
         phi_fields = ['phi1', 'phi2', 'phi12']
         phi_func_dict = {
@@ -222,6 +266,14 @@ def standard_expand_samples(samples):
                 samples = add_field(samples, [(field_name, float)])
                 samples[field_name] = phi_func_dict[field_name](samples)
 
+    if not('chi1' in samples.dtype.names):
+        chi1 = np.sqrt(samples['a1x']**2 + samples['a1y']**2+samples['a1z']**2)
+        samples = add_field(samples, [('chi1',float)])
+    if not('chi2' in samples.dtype.names):
+        chi2 = np.sqrt(samples['a2x']**2 + samples['a2y']**2+samples['a2z']**2)
+        samples = add_field(samples, [('chi2',float)])
+        
+                
     if 'lambda1' in samples.dtype.names and not ('lambdat' in samples.dtype.names):
         Lt,dLt = lalsimutils.tidal_lambda_tilde(samples['m1'], samples['m2'],  samples['lambda1'], samples['lambda2'])
         samples = add_field(samples, [('lambdat', float)]); samples['lambdat'] = Lt
@@ -230,46 +282,121 @@ def standard_expand_samples(samples):
 
     return samples
 
+def alt_expand_samples(samples):
+    """
+        Llike standard_expand_samples, but targeted specifically for composite files
+    """
+    if 'm1' in samples.dtype.names and not 'q' in samples.dtype.names:
+        samples=add_field(samples,[('mtotal',float)]); samples["mtotal"]= samples["m1"]+samples["m2"];
+        if not 'q' in samples.dtype.names:
+            samples=add_field(samples,[('q',float)]); samples["q"]= samples["m2"]/samples["m1"];
+        if not 'mc' in samples.dtype.names:
+            samples=add_field(samples,[('mc',float)]); samples["mc"] = lalsimutils.mchirp(samples["m1"], samples["m2"])
+        samples=add_field(samples,[('eta',float)]); samples["eta"] = lalsimutils.symRatio(samples["m1"], samples["m2"])
+        if not 'chi_eff' in samples.dtype.names:
+            samples=add_field(samples,[('chi_eff',float)]); samples["chi_eff"]= (samples["m1"]*samples["a1z"]+samples["m2"]*samples["a2z"])/(samples["mtotal"]); 
+        chi1_perp = np.sqrt(samples['a1x']*samples["a1x"] + samples['a1y']**2)
+        chi2_perp = np.sqrt(samples['a2x']**2 + samples['a2y']**2)
+        samples = add_field(samples, [('chi1_perp',float)]); samples['chi1_perp'] = chi1_perp
+        samples = add_field(samples, [('chi2_perp',float)]); samples['chi2_perp'] = chi2_perp
+
+        phi1 = np.arctan2(samples['a1x'], samples['a1y']);
+        phi2 = np.arctan2(samples['a2x'], samples['a2y']);
+        samples = add_field(samples, [('phi1',float), ('phi2',float), ('phi12',float)])
+        samples['phi1'] = phi1
+        samples['phi2'] = phi2
+        samples['phi12'] = phi2 - phi1
+        
+        chi1 = np.sqrt(samples['a1x']**2 + samples['a1y']**2+samples['a1z']**2)
+        chi2 = np.sqrt(samples['a2x']**2 + samples['a2y']**2+samples['a2z']**2)
+        samples = add_field(samples, [('chi1',float), ('chi2',float)])
+
+
+        if ('lambda1' in samples.dtype.names):
+            Lt,dLt = lalsimutils.tidal_lambda_tilde(samples['m1'], samples['m2'],  samples['lambda1'], samples['lambda2'])
+            samples= add_field(samples, [('LambdaTilde',float), ('DeltaLambdaTilde',float),('lambdat',float),('dlambdat',float)])
+            samples['LambdaTilde'] = samples['lambdat']= Lt
+            samples['DeltaLambdaTilde'] = samples['dlambdat']= dLt
+    return samples
+
 
 ######### MUlTIPROCESSING FUNCTIONS ############
 from multiprocessing import Pool 
 
 def fchipavg(sample):
-            P=lalsimutils.ChooseWaveformParams()
-            P.m1 = sample[0]
-            P.m2 = sample[1]
-            P.s1x = sample[2]
-            P.s1y = sample[3]
-            P.s1z = sample[4]
-            P.s2x = sample[5]
-            P.s2y = sample[6]
-            P.s2z = sample[7]
-            if (P.s1x == 0 and P.s1y == 0 and P.s2x == 0 and P.s2y == 0):
-                chipavg = 0
-            elif (P.s1x == 0 and P.s1y == 0 and P.s1z == 0) or (P.s2x == 0 and P.s2y == 0 and P.s2z == 0):
-                chipavg = P.extract_param('chi_p')
-            else:
-                chipavg = P.extract_param('chi_pavg')
-            return chipavg     
+    """
+    Helper function to compute the average effective spin chi_pavg for a single sample.
+
+    Designed for use with `multiprocessing.Pool.map`.
+
+    Args:
+        sample (tuple): A tuple containing [m1, m2, s1x, s1y, s1z, s2x, s2y, s2z].
+
+    Returns:
+        float: The computed chi_pavg value.
+    """
+    P=lalsimutils.ChooseWaveformParams()
+    P.m1 = sample[0]
+    P.m2 = sample[1]
+    P.s1x = sample[2]
+    P.s1y = sample[3]
+    P.s1z = sample[4]
+    P.s2x = sample[5]
+    P.s2y = sample[6]
+    P.s2z = sample[7]
+    if (P.s1x == 0 and P.s1y == 0 and P.s2x == 0 and P.s2y == 0):
+        chipavg = 0
+    elif (P.s1x == 0 and P.s1y == 0 and P.s1z == 0) or (P.s2x == 0 and P.s2y == 0 and P.s2z == 0):
+        chipavg = P.extract_param('chi_p')
+    else:
+        chipavg = P.extract_param('chi_pavg')
+    return chipavg     
 
 def fchip(sample):
-            P=lalsimutils.ChooseWaveformParams()
-            P.m1 = sample[0]
-            P.m2 = sample[1]
-            P.s1x = sample[2]
-            P.s1y = sample[3]
-            P.s1z = sample[4]
-            P.s2x = sample[5]
-            P.s2y = sample[6]
-            P.s2z = sample[7]
-            chip = P.extract_param('chi_p')
-            return chip  
-
-def dump_pesummary_samples_to_file_as_rift(fname_h5,key,fname_out):
     """
-    >>> import samples_utils
-    >>> samples_utils.dump_pesummary_samples_to_file_as_rift("metafile.h5", "bilby-IMRPhenomXPHM-SpinTaylor-3",'test.dat')
-    $ convert_output_format_inference2ile --posterior-samples test.dat --output-xml my.xml.gz
+    Helper function to compute the effective spin chi_p for a single sample.
+
+    Designed for use with `multiprocessing.Pool.map`.
+
+    Args:
+        sample (tuple): A tuple containing [m1, m2, s1x, s1y, s1z, s2x, s2y, s2z].
+
+    Returns:
+        float: The computed chi_p value.
+    """
+    P=lalsimutils.ChooseWaveformParams()
+    P.m1 = sample[0]
+    P.m2 = sample[1]
+    P.s1x = sample[2]
+    P.s1y = sample[3]
+    P.s1z = sample[4]
+    P.s2x = sample[5]
+    P.s2y = sample[6]
+    P.s2z = sample[7]
+    chip = P.extract_param('chi_p')
+    return chip  
+
+def dump_pesummary_samples_to_file_as_rift(fname_h5,key,fname_out,no_drop=False,no_rename=False):
+    """
+    Converts posterior samples from a pesummary HDF5 file to the RIFT text format.
+
+    Reads samples from the specified key in the HDF5 file, renames fields based on 
+    `remap_bilby_to_rift`, and optionally drops metadata fields (e.g., SNR, recalib).
+
+    Args:
+        fname_h5 (str): Path to the input pesummary HDF5 file.
+        key (str): The key within the HDF5 file where the samples are stored.
+        fname_out (str): Path to the output text file.
+        no_drop (bool, optional): If True, does not drop 'recalib' or 'snr' fields. Defaults to False.
+        no_rename (bool, optional): If True, does not rename fields using `remap_bilby_to_rift`. Defaults to False.
+
+    Raises:
+        Exception: If the provided key is not found in the HDF5 file.
+
+    Example:
+        >>> import samples_utils
+        >>> samples_utils.dump_pesummary_samples_to_file_as_rift("metafile.h5", "bilby-IMRPhenomXPHM-SpinTaylor-3",'test.dat')
+       $ convert_output_format_inference2ile --posterior-samples test.dat --output-xml my.xml.gz
     """
     import h5py
     BBH = h5py.File(fname_h5, 'r')
@@ -293,9 +420,30 @@ def dump_pesummary_samples_to_file_as_rift(fname_h5,key,fname_out):
             continue
         samp[name] = samples[name]
     # Rename
-    samp = rfn.rename_fields(samp, {'chirp_mass':'mc', 'mass_1':'m1', 'mass_2':'m2','geocent_time':'time','luminosity_distance':'distance','phase':'phiorb','chi_1_in_plane':'chi1_perp','spin_1x': 'a1x', 'spin_1y':'a1y', 'spin_2x': 'a2x','spin_2y':'a2y', 'spin_1z':'a1z', 'spin_2z':'a2z', 'chi_2_in_plane':'chi2_perp','iota':'incl','lambda_1':'lambda1', 'lambda_2':'lambda2','lambdat':'LambdaTilde'})
+    samp = rfn.rename_fields(samp,remap_bilby_to_rift )
     # Drop
-    ugly_fields = [x for x in samp.dtype.names if 'recalib' in x or 'snr' in x]
-    samp = rfn.drop_fields(samp,ugly_fields)
+    if not(no_drop):
+      ugly_fields = [x for x in samp.dtype.names if 'recalib' in x or 'snr' in x]
+      samp = rfn.drop_fields(samp,ugly_fields)
 
     np.savetxt(fname_out,samp,header=" ".join(samp.dtype.names) )
+
+
+
+if __name__ == "__main__":
+    import os
+    import sys
+    import argparse
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--key", default="rift-v5PHM-calmarg",help="Key for bilby file")
+    parser.add_argument("--no-drop",action='store_true',default=False)
+    parser.add_argument("fname_in",default=None,help="File name of result file")
+    parser.add_argument("fname_out",default=None,help="output file")
+    opts=  parser.parse_args()
+
+    dump_pesummary_samples_to_file_as_rift(opts.fname_in, opts.key, opts.fname_out,no_drop=opts.no_drop)
+    
+
+
+    

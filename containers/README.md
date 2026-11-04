@@ -40,9 +40,13 @@ containers/build_family.sh [--render-only] [OUTPUT_DIR]
 All matrix entries share the pip set in
 [`requirements-container.txt`](requirements-container.txt) (the cupy wheel is the
 only per-entry difference). That file is the **single source of truth** also
-consumed by the CI dependency canary (below). `build_family.sh` stages it into
-each image via the `.def`'s `%files` section, so the build does **not** depend on
-the cloned RIFT branch shipping the file.
+consumed by the CI dependency canary (below). The isolated PEP 517 build
+environments additionally use
+[`constraints-container-build.txt`](constraints-container-build.txt) for narrow
+build-tool compatibility bounds that do not pin the runtime solve.
+`build_family.sh` stages both files into each image via the `.def`'s `%files`
+section, so the build does **not** depend on the cloned RIFT branch shipping
+them.
 
 ### Build troubleshooting
 
@@ -258,13 +262,59 @@ reads it as a literal string. Use `RIFT_CONTAINER_UNIVERSE=1` on the OSG (see
 
 ---
 
-## 3. Not included on this branch
+## 3. Survey + Warmup Scans
 
-Two adjacent pieces live on ``rift_O4d`` and were deliberately left out of this
-port, which is scoped to the container *family* deployment path:
+`survey_scan.sh` records the target pool's GPU classes, emits one Condor warmup
+job per container/profile combination, and collects JSON timing/cache reports.
+The submit-side tools use only the Python standard library; the CuPy/JAX imports
+happen inside the container on the execute node.
 
-- `containers/survey_scan/` — an operator workflow that inventories a target
-  GPU pool and emits per-image container-cache warmup jobs.
-- the `container-dep-canary` GitHub Actions job, which tracks unpinned
-  dependency drift in `requirements-container.txt`. This branch has no
-  `.github/` workflows (CI is GitLab-based here).
+```console
+containers/survey_scan.sh survey \
+  --out survey/cit-YYYYMMDD \
+  --manifest container_family/rift_container_family.generated.yaml
+containers/survey_scan.sh emit-jobs \
+  --survey survey/cit-YYYYMMDD \
+  --manifest container_family/rift_container_family.generated.yaml
+cd survey/cit-YYYYMMDD/jobs
+./submit_all.sh
+containers/survey_scan.sh collect --survey survey/cit-YYYYMMDD
+```
+
+Profiles:
+
+- `cupy` warms common NoLoop/fused-calmarg CuPy kernels:
+  `Q_inner_product_cupy`, `Q_fused_calmarg_cupy`,
+  `Q_fused_calmarg_distmarg_cupy`, and `interp_gpu.interp`.
+- `jax` warms synthetic JAX ILE wrapper shapes. Use this only for JAX-enabled
+  images, for example `--profiles cupy,jax` on a JAX image manifest.
+
+Generated job wrappers set `CUPY_CACHE_DIR`, `RIFT_JAX_CACHE_ROOT`, and
+conservative thread defaults before `apptainer exec --nv`. If an image is listed
+as `osdf://...`, the wrapper fetches only that selected image with `stashcp` or
+`pelican`.
+
+The JAX profile writes RIFT's compatibility manifest into the warmed cache.
+`rift_jax_cache export` produces a checksummed transferable bundle, while
+`rift_jax_cache import` refuses mismatched JAX/JAXLIB/CUDA backend, GPU
+kind/capability, Python runtime, profile, or file hashes.
+
+See [`survey_scan/README.md`](survey_scan/README.md) and
+[`SURVEY_SCAN_PROPOSAL.md`](SURVEY_SCAN_PROPOSAL.md) for details.
+
+---
+
+## 4. CI dependency-resolution canary
+
+The default container build uses *unpinned* deps, so a fresh upstream release
+(e.g. `swig>=4.4.0`, see issue #136) can silently break RIFT and we only find out
+when a container rebuild fails. The `container-dep-canary` job in
+[`.github/workflows/ci.yml`](../.github/workflows/ci.yml) installs the unpinned
+[`requirements-container.txt`](requirements-container.txt) set (minus the
+GPU-only cupy wheel) and the pixi `swig-post44` lane, then runs the import check —
+on every push/PR **and weekly** — to flag such breakage early. The pip lane
+applies the same build-only constraints as the real containers; the Pixi lane
+expresses the equivalent build compatibility in `pixi.toml`. Runtime packages
+remain unpinned, so the canaries still detect new dependency incompatibilities.
+The jobs are non-blocking (advisory): they track upstream changes outside any PR
+author's control.

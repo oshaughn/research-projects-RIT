@@ -19,7 +19,8 @@ my_library_prefixes=["mcsampler", "mcsamplerGPU", "mcsamplerEnsemble", "MonteCar
 my_library_total = [("MonteCarloMarginalizeCode/Code/"+x+".py") for x in my_library_prefixes]
 
 import glob
-my_scripts = glob.glob("MonteCarloMarginalizeCode/Code/bin/*")
+import os
+my_scripts = [path for path in glob.glob("MonteCarloMarginalizeCode/Code/bin/*") if os.path.isfile(path)]
 #print my_scripts
 # No packages found
 #print setuptools.find_packages('MonteCarloMarginalizeCode/Code')
@@ -34,7 +35,7 @@ my_extra_source  = glob.glob("MonteCarloMarginalizeCode/Code/RIFT/likelihood/cud
 
 setuptools.setup(
     name="RIFT",
-    version="0.0.17.9rc0", # do not build on OSX machine, side effects
+    version="0.0.18.0rc6", # do not build on OSX machine, side effects
     author="Richard O'Shaughnessy",
     author_email="richard.oshaughnessy@ligo.org",
     description="RIFT parameter estimation pipeline. Note branch used is temp-RIT-Tides-port_python3_restructure_package (which will become master shortly)!",
@@ -55,10 +56,38 @@ setuptools.setup(
 # https://docs.python.org/2/distutils/setupscript.html
 # Would be preferable to be *global* path, not relative to install. Depends on if doing user install or not
 # This pathname puts it in the same place as the other files, in site-packages/
-   data_files=[('RIFT/likelihood',my_extra_source)],
+   data_files=[('RIFT/likelihood',my_extra_source),
+               ('share/RIFT/nr-best-effort', [
+                   'docs/source/nr_best_effort.rst',
+                   'MonteCarloMarginalizeCode/Code/demo/nr_best_effort/README.rst',
+                   'MonteCarloMarginalizeCode/Code/demo/nr_best_effort/bootstrap_existing_run.py'])],
    setup_requires=['setuptools','pip'],
    install_requires=REQUIREMENTS["install"],
+   # Optional JAX interpolator stack (RIFT.interpolators.jax_gp). Kept out of the
+   # base install so the production pipeline is unaffected; install with
+   #   pip install RIFT[jax-interp]
+   extras_require={
+        # EMRI direct likelihood (RIFT.LISA.emri_direct_cli). fastemriwaveforms 2.2.0
+        # publishes wheels for Python 3.12 only, so these extras fail to resolve on
+        # 3.10/3.11. fastlisaresponse 1.1.17 itself requires h5py<3.15.
+        'emri-few': ['fastemriwaveforms==2.2.0'],
+        'emri-response': ['fastemriwaveforms==2.2.0', 'fastlisaresponse==1.1.17',
+                          'lisaanalysistools==1.2.8'],
+        # Public optional PCG backend; requires Python >=3.11.
+        'td-pcg': ['tdanalysis>=1.0.0,<2'],
+        # Finite-covariance time-domain likelihood (--internal-ile-inner-product td-gs).
+        # Keep both extra names compatible with the >=1.1 backend API. tdanalysis
+        # supplies waveformtools and spectools; do not pin deleted transitive releases.
+        'td': ['tdanalysis>=1.1,<2'],
+        'td-gs': ['tdanalysis>=1.1,<2'],
+        'jax-interp': ['jax', 'optax', 'equinox', 'tinygp'],
+        # AD applications of the differentiable export (gradient sampling, AD
+        # population inference): RIFT.interpolators.jax_gp.applications
+        'jax-apps': ['jax', 'optax', 'equinox', 'tinygp', 'numpyro', 'flowMC'],
+   },
    entry_points={
+        'console_scripts':
+        ['rift-rimsky-analysis = RIFT.rimsky.integration:main'],
         'asimov.pipelines':
         ["rift = RIFT.asimov.rift:Rift"],
         'RIFT.integrator_plugins':

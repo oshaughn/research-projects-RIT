@@ -1,0 +1,101 @@
+#!/usr/bin/env bash
+# Calibration-marginalization regression gate (CPU).  Covers the in-loop calmarg
+# reduction and the per-realization self-term fix: precompute time-alignment +
+# identity-cal cross terms, the loop/fused reduction vs a brute-force reference
+# (incl. n_cal==1), the low-rank SVD self-term basis vs a direct band integral, and
+# the backtest of the cal reduction (default + distance-marginalization helpers),
+# and the driver's calibration OPTION-COMPATIBILITY gate (which flag combinations
+# are refused at startup instead of silently degrading to the zero-calibration
+# likelihood, and which must still be accepted).
+# Any nonzero exit fails the job (set -e).  GPU/CUDA paths are exercised separately
+# on hardware; here every check runs on the numpy backend.
+set -euo pipefail
+
+PY="${PYTHON:-python}"
+command -v "$PY" >/dev/null 2>&1 || PY="$(command -v python3)"
+CODE="MonteCarloMarginalizeCode/Code"
+export OMP_NUM_THREADS=1
+
+# INVARIANT: this gate tests THIS CHECKOUT, never an installed build.  Must PREPEND --
+# appending lets a caller's PYTHONPATH win.
+#
+# Without it the first check below runs as `python <path>/test_precompute_alignment.py`, which
+# puts the SCRIPT'S directory on sys.path and not Code/, so bare `import RIFT` resolves to
+# whatever is installed.  In CI that happens to be the editable install of this checkout, so
+# it passes; on a plain checkout with a real RIFT in the environment it silently tests the
+# INSTALLED code, and reports its staleness as a failure of this branch -- observed on CIT,
+# where the CVMFS IGWN RIFT predates a kwarg the checkout added:
+#   PrecomputeLikelihoodTerms() got an unexpected keyword argument 'calibration_realizations'
+# The `python -m RIFT.calmarg.*` runs below are already safe (cwd is on sys.path under -m);
+# this makes the whole script safe the same way its sibling gates are.
+export PYTHONPATH="$PWD/$CODE${PYTHONPATH:+:$PYTHONPATH}"
+
+# Independent Bilby envelope-prior parity (Bilby is installed in calmarg-check).
+"$PY" -m pytest -q "$CODE/test/test_calmarg_bilby_prior.py"
+
+# precompute alignment + identity-cal self-term cross terms == baseline
+"$PY" "$CODE/RIFT/calmarg/test_precompute_alignment.py"
+
+# reduction + self-term basis + backtest run as modules from the code root
+( cd "$CODE" \
+  && "$PY" -m RIFT.calmarg.test_selfterm_basis \
+  && "$PY" -m RIFT.calmarg.test_selfterm_reduction --backend cpu \
+  && "$PY" -m RIFT.calmarg.test_calmarg_reduction \
+  && "$PY" -m RIFT.calmarg.backtest_calmarg --backend cpu --n-cal 8 --methods reference,in_loop_B \
+  && "$PY" -m RIFT.calmarg.backtest_calmarg --backend cpu --n-cal 8 --loglikelihood distmarg --methods reference,in_loop_B )
+
+# Option-compatibility gate: which calibration option combinations the ILE driver
+# REFUSES at startup, and -- the load-bearing half -- which it must still ACCEPT.
+# pytest here, not a bare module run: these are parametrized accept/refuse pairs plus
+# real subprocess invocations of the driver, and `set -e` turns pytest's exit 5 ("no
+# tests ran") into a job failure rather than a silent green.  A collection floor is
+# asserted for the same reason: a file that stops collecting is a lost gate.
+_n=$( cd "$CODE" && "$PY" -m pytest -q --collect-only "RIFT/calmarg/test_option_compat.py" 2>/dev/null | grep -c '::' || true )
+if [ "${_n:-0}" -lt 20 ]; then
+  echo "test-calmarg.sh: option-compat suite collected ${_n:-0} tests, expected >= 20." >&2
+  echo "  Tests were renamed, removed, or the file stopped importing.  Fix it; as is," >&2
+  echo "  the gate covers less than it claims." >&2
+  exit 1
+fi
+( cd "$CODE" && PYTHONPATH="$PWD${PYTHONPATH:+:$PYTHONPATH}" "$PY" -m pytest -q "RIFT/calmarg/test_option_compat.py" )
+
+# --calibration-export-posterior with two intrinsic points in one job: each point's _cal.dat
+# must hold that point's own fair draws.  One driver subprocess on synthetic data, ~3 min.
+( cd "$CODE/test" && "$PY" -m pytest -q test_calexport_multievent.py )
+
+# --calibration-bank-per-point: per-point banks differ, reproduce under --seed, follow the
+# correction types, reach the likelihood, and leave the option-off outputs byte-identical.
+# Five driver subprocesses, ~6 min.
+( cd "$CODE/test" && "$PY" -m pytest -q test_calmarg_bank_per_point.py )
+
+# Source adapters retain generator conditioning and physical waveform epochs.
+( cd "$CODE/test" && "$PY" -m pytest -q test_calmarg_source_conditioning_epoch.py \
+    test_calmarg_rift_source.py )
+
+# Waveform-kwargs transport: builds real DAGs (pseudo_pipe -> CEPP), splits the arguments of
+# Calib_reweight.sub as condor does, and runs calibration_reweighting.py's own parser and
+# waveform-argument code on them.  Ten subprocess builds, ~10 minutes.  The alignment test
+# compares those options, and the modes they generate, with ILE's (five more builds).
+( cd "$CODE/test" && "$PY" -m pytest -q test_calmarg_extra_args_transport.py \
+    test_calmarg_ile_waveform_alignment.py )
+
+# GWSignal backend-option transport: ILE/calmarg option assembly, the three GWSignal entry
+# points, Asimov rendering, BasicIteration and the Condor/Glue/Slurm argument encoders.  Each
+# file importorskips its optional dependencies, so a skip here means a dependency went missing
+# and the leg stopped testing anything: fail instead.  ~20 s.
+_gws_log=$( cd "$CODE/test" && "$PY" -m pytest -q -rs test_gwsignal_options.py \
+    test_gwsignal_ile_options.py test_gwsignal_asimov_options.py \
+    test_calibration_backend_options.py test_ile_condor_argument_quoting.py \
+    test_gwsignal_mode_lengths.py test_seobnrv6ehm_pipeline.py 2>&1 ) \
+  || { echo "$_gws_log"; exit 1; }
+if echo "$_gws_log" | grep -Eq "[0-9]+ skipped"; then
+  echo "$_gws_log"
+  echo "test-calmarg.sh: GWSignal option-transport tests skipped; see SKIPPED lines above." >&2
+  exit 1
+fi
+echo "$_gws_log" | tail -n 1
+
+# Missing public v6 support is an expected skip; keep it outside _gws_log.
+( cd "$CODE/test" && "$PY" -m pytest -q -rs test_seobnrv6ehm_availability.py )
+
+echo "calmarg CPU regression gate: PASS"

@@ -33,6 +33,12 @@ absolutely essential to extremely helpful:
 	RIFT_GETENV=LD_LIBRARY_PATH,PATH,PYTHONPATH,*RIFT*,LIBRARY_PATH
 	SINGULARITY_RIFT_IMAGE=/cvmfs/singularity.opensciencegrid.org/james-clark/research-projects-rit/rift:production
 
+.. note::
+
+	``SINGULARITY_RIFT_IMAGE`` may also point at a YAML *container family*
+	manifest (instead of a single image) to deploy images matched to each
+	machine's GPU capability.  See :doc:`containers`.
+
 Additionally, if you are using a waveform model implemented in `gwsignal`,
 you must export an extra environment variable:
 

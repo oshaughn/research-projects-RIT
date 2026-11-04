@@ -13,6 +13,7 @@ from collections import defaultdict
 
 import numpy
 np=numpy #import numpy as np
+from RIFT.precision import RiftFloat  # platform-portable replacement for np.float128
 from scipy import integrate, interpolate, special
 import itertools
 import functools
@@ -62,7 +63,7 @@ except:
 
 try:
   import cupy
-  import cupyx   # needed for logsumexp
+  import cupyx.scipy.special   # needed for logsumexp
   xpy_default=cupy
   try:
     xpy_special_default = cupyx.scipy.special
@@ -103,6 +104,8 @@ except:
   cupy_ok = False
   cupy_pi = np.pi
 
+from RIFT.integrators.rvs_record import RvsRecord, SamplerOutputMixin   # see DESIGN_rvs_naming.md
+
 def set_xpy_to_numpy():
    xpy_default=numpy
    identity_convert = lambda x: x  # trivial return itself
@@ -130,6 +133,23 @@ from RIFT.likelihood import vectorized_general_tools
 __author__ = "R. O'Shaughnessy, A. H. Fernando"
 
 rosDebugMessages = True
+
+# Bounds on draw_simplified's refill loop (see draw_simplified).  A flow whose mass
+# has left the box cannot be refilled at any price, so cap the work and raise with
+# the measured acceptance instead of spinning.
+#
+# A pass is sized 1/A times what was asked for, so the two caps are MEMORY bounds,
+# not correctness ones: the ResidualNet activations, not the samples, are what would
+# run the host out of memory.  Spending more passes instead costs wall clock.
+# _NF_REFILL_MAX_BATCH is an ABSOLUTE row count and is the one that binds at scale:
+# n_chunk defaults to 400000 here, where the FACTOR alone would still permit 1.6M
+# rows in a single nflows call, so the factor bounds small chunks and the absolute cap
+# bounds large ones.  Together they fill a chunk whenever the acceptance is above
+# about n_to_get/(PASSES*min(FACTOR*n_to_get, MAX_BATCH)); below that the flow has
+# left the box and draw_simplified raises rather than spinning.
+_NF_REFILL_MAX_PASSES = 12
+_NF_REFILL_MAX_BATCH_FACTOR = 4
+_NF_REFILL_MAX_BATCH = 250000
 
 class NanOrInf(Exception):
     def __init__(self, value):
@@ -396,7 +416,7 @@ class NFlowsNFS_Trainer:
         return losses
 
 
-class MCSampler(MCSamplerGeneric):
+class MCSampler(SamplerOutputMixin, MCSamplerGeneric):
     """
     Class to define a set of parameter names, limits, and probability densities.
     """
@@ -430,6 +450,11 @@ class MCSampler(MCSamplerGeneric):
         # histogram setup
         self.xpy = numpy
         self.identity_convert = lambda x: x  # if needed, convert to numpy format  (e.g, cupy.asnumpy)
+        self._enforce_bounds_last = True   # see draw_simplified / sampling_density
+        # acceptance statistics for the CURRENT flow generation, which normalize the
+        # reported p_s into a true density.  See flow_acceptance().
+        self._n_flow_drawn = 0
+        self._n_flow_kept = 0
 
         # sampling tool
         self.nf_model = None
@@ -438,6 +463,8 @@ class MCSampler(MCSamplerGeneric):
         self.nf_epoch = 0
 
         self.mean_affine_set = False
+        # pre-trained flow to warm-load (see load_flow); applied inside integrate_log
+        self._preloaded_state = None
 
 
     def setup(self, nf_method='default',**kwargs):
@@ -450,7 +477,10 @@ class MCSampler(MCSamplerGeneric):
         bounds = np.array([ [self.llim[p],self.rlim[p]] for p in self.params_ordered])
 
         # https://github.com/bayesiains/nflows/blob/master/examples/moons.ipynb
-        self.num_layers = int(len(bounds)/2)  # autoregressive
+        # max(1, ...): int(1/2) == 0, so a ONE-parameter sampler built a transform with
+        # no autoregressive layer at all, hence no trainable weights, and training died
+        # in torch with "optimizer got an empty parameter list".  Unchanged for d>=2.
+        self.num_layers = max(1, int(len(bounds)/2))  # autoregressive
         n_features = len(bounds)
         transforms = []
         # trivial scale layer first, to get the boundaries in the right place. Use TanhTransform to scale
@@ -482,6 +512,7 @@ class MCSampler(MCSamplerGeneric):
 
         self.nf_trainer = trainer
         self.nf_flow = trainer.flow
+        self._reset_flow_acceptance()   # new architecture, so no acceptance carries over
         
 
 
@@ -546,11 +577,126 @@ class MCSampler(MCSamplerGeneric):
         return p_out
 
 
+    # draw_simplified's joint_p_s IS the normalized density its draws come from:
+    # 1/V on the untrained branch, and the flow density divided by the acceptance
+    # mass on the trained one (see _draw_flow_raw).  mcsamplerPortfolio reads this
+    # declaration to decide whether the legacy stratified denominator is safe.
+    joint_p_s_is_normalized_density = True
+
+    def _draw_flow_raw(self, n_to_get, enforce_bounds, super_verbose=False):
+        """One raw batch from the trained flow, with no state recorded.
+
+        Returns (log_ps_flow, log_p, rv, n_drawn, n_kept).  log_ps_flow is the RAW
+        flow log-density, NOT yet divided by the acceptance mass; draw_simplified
+        does that once it knows the batch totals.
+        """
+        flow = self.nf_flow
+        flow_samples, flow_log_prob = flow.sample_and_log_prob(n_to_get) # alternate function call
+        rv = flow_samples.detach().numpy().T
+        log_ps = flow.log_prob(flow_samples).detach().numpy()  # should replace with above and detach
+        log_p  =  np.log(self.prior_prod(rv.T))
+        n_drawn = rv.shape[1]
+        # remove nan values
+        # enforce boundaries: don't trust flow
+        if enforce_bounds:
+            indx_valid = np.ones(len(log_p), dtype=bool)
+            bounds = np.array([ [self.llim[p],self.rlim[p]] for p in self.params_ordered])
+            for indx, p in enumerate(self.params_ordered):
+              indx_valid = np.logical_and(indx_valid, rv[indx] <= self.rlim[p])
+              indx_valid = np.logical_and(indx_valid, rv[indx] >= self.llim[p])
+            if super_verbose:
+              print(" Valid ", np.sum(indx_valid))
+            rv = rv[:,indx_valid]
+            log_ps = log_ps[indx_valid]
+            log_p = log_p[indx_valid]
+        return log_ps, log_p, rv, n_drawn, rv.shape[1]
+
+    def _reset_flow_acceptance(self):
+        """Forget the acceptance statistics.  MUST be called wherever self.nf_flow is
+        replaced -- setup(), the end of update_sampling_prior(), and the warm-load in
+        integrate_log() -- because A is a property of ONE flow and the cached value
+        would otherwise normalize the new flow by the old one's acceptance.  Measured
+        on that path: a retrain with no draw in between left flow_acceptance()
+        reporting 0.8849 for a flow whose true A was 0.9295, so sampling_density() was
+        1.05x off (0.049 nats on this member's p_s).
+        """
+        self._n_flow_drawn = 0
+        self._n_flow_kept = 0
+
+    def flow_acceptance(self, n_probe=4000):
+        """Acceptance mass A = integral of the flow density over the box, for the flow
+        currently installed.
+
+        The default architecture's first layer is a PointwiseAffineTransform, so the
+        flow's support is all of R^d and A < 1; only nf_method='iterative' uses
+        TanhTransformFrozen and is box-supported, where A == 1 identically.
+
+        A turns the raw flow density into the density the ACCEPTED draws come from,
+        q(x)/A.  This accumulates kept/drawn over every bounds-enforcing batch taken
+        from the CURRENT flow generation, and _reset_flow_acceptance() clears it when
+        a new flow is installed.
+
+        Why per-GENERATION and not per-batch or run-long:
+          * run-long pools an early badly-fitted flow's acceptance with a later good
+            one and normalizes each chunk by the wrong number.  Measured on
+            [AV, NFlow], unit Gaussian in [-5,5]^2, 6 seeds: ln Z biased -0.179 nats.
+          * per-batch is unbiased (E[1/Ahat] costs under 0.003 nats, measured against a
+            closed-form A over 400 repeats) but carries the batch's binomial noise:
+            0.13 nats of multiplicative noise per chunk at ~46 draws, and ~46 is what
+            a floored portfolio member actually gets.  Accumulating within one
+            generation is the same estimator over a larger sample.
+        Sampling from the flow is also the only estimator of A that survives
+        dimension -- a uniform-over-box Monte Carlo sees q ~ 0 at almost every point
+        once the flow has concentrated.  Returns 1.0 when there is no flow, matching
+        the untrained uniform branch.
+
+        NOT SIDE-EFFECT FREE.  With no statistics yet for this generation it takes one
+        bounds-enforcing probe batch from the flow, which advances the torch RNG.
+        Under mcsamplerPortfolio that never happens at a q_mix evaluation, because
+        draw() always precedes the mixture loop and fills the statistics; it happens
+        on the first draw of a generation, where a draw was expected anyway.
+        """
+        if self.nf_flow is None:
+            return 1.0
+        if self._n_flow_drawn > 0:
+            return max(float(self._n_flow_kept) / float(self._n_flow_drawn), 1e-12)
+        _, _, _, n_drawn, n_kept = self._draw_flow_raw(int(n_probe), True)
+        self._n_flow_drawn += n_drawn
+        self._n_flow_kept += n_kept
+        return max(float(n_kept) / float(max(n_drawn, 1)), 1e-12)
+
+    def flow_acceptance_history(self):
+        """(n_drawn, n_kept, ratio) for the CURRENT flow generation.
+
+        Counts bounds-enforcing batches only, including flow_acceptance()'s probe: a
+        batch drawn with enforce_bounds=False discards nothing, so its kept/drawn is 1
+        by construction and carries no information about A.  Reset whenever a new flow
+        is installed; flow_acceptance() returns this ratio.
+        """
+        ratio = (float(self._n_flow_kept) / float(self._n_flow_drawn)) \
+            if self._n_flow_drawn > 0 else None
+        return self._n_flow_drawn, self._n_flow_kept, ratio
+
     def draw_simplified(self,n_to_get, *args, **kwargs):
         verbose = kwargs["verbose"] if "verbose" in kwargs else False  # default
         super_verbose = kwargs["super_verbose"] if "super_verbose" in kwargs else False  # default
         save_no_samples = kwargs.get("save_no_samples", False)
         enforce_bounds = kwargs["enforce_bounds"] if "enforce_bounds" in kwargs else True
+        # sampling_density() has to describe the density these draws ACTUALLY come
+        # from, and that depends on whether they were truncated to the box.
+        self._enforce_bounds_last = bool(enforce_bounds)
+
+        # nflows type-checks its sample count with isinstance(n, int), which a numpy
+        # integer FAILS ("Number of samples must be a positive integer"), and
+        # mcsamplerPortfolio hands its members exactly that (n_samples_per_member is
+        # an int64 array).  Every other integrator accepts it, so normalize here
+        # rather than making NFlow the one member with a stricter signature.
+        # NOT load-bearing on its own any more: the refill loop below sizes each pass
+        # with int(np.ceil(...)), so the flow would get a python int even without
+        # this.  Kept because the uniform branch's array shapes read better for it and
+        # because the two should not have to be removed together to break the
+        # contract.  A mutation that strips BOTH is what the gate catches.
+        n_to_get = int(n_to_get)
 
         args = self.params_ordered # by default draw all
 
@@ -569,24 +715,78 @@ class MCSampler(MCSamplerGeneric):
         else:
           if super_verbose:
             print(" Using actual flow ")
-          flow = self.nf_flow
-          flow_samples, flow_log_prob = flow.sample_and_log_prob(n_to_get) # alternate function call
-          rv = flow_samples.detach().numpy().T
-          log_ps = flow.log_prob(flow_samples).detach().numpy()  # should replace with above and detach
-          log_p  =  np.log(self.prior_prod(rv.T))
-          # remove nan values
-          # enforce boundaries: don't trust flow
-          if enforce_bounds:
-            indx_valid = np.ones(len(log_p), dtype=bool)
-            bounds = np.array([ [self.llim[p],self.rlim[p]] for p in self.params_ordered])
-            for indx, p in enumerate(self.params_ordered):
-              indx_valid = np.logical_and(indx_valid, rv[indx] <= self.rlim[p])
-              indx_valid = np.logical_and(indx_valid, rv[indx] >= self.llim[p])
-            if super_verbose:
-              print(" Valid ", np.sum(indx_valid))
-            rv = rv[:,indx_valid]
-            log_ps = log_ps[indx_valid]
-            log_p = log_p[indx_valid]
+          # REFILL TO EXACTLY n_to_get.  enforce_bounds throws away the flow samples
+          # that land outside the box, so one batch returns FEWER than asked for --
+          # measured acceptance 0.18 to 0.31 on a trained 2-D flow.  Every other
+          # integrator returns the count it was asked for, and mcsamplerPortfolio.draw
+          # copies member output into a fixed-width slice, so a short batch aborted the
+          # run with "could not broadcast input array from shape (45,) into shape
+          # (114,)".  Keep drawing until the box has n_to_get accepted samples.
+          if n_to_get <= 0:
+            # mcsamplerPortfolio.draw CAN allocate a member zero draws ("Can be zero",
+            # and it has an explicit n_samples_per_member[-1] = 0 branch).  The loop
+            # below never runs then, and np.concatenate([]) raises "need at least one
+            # array to concatenate" -- in exactly the configuration this work is for.
+            # mcsamplerAdaptiveVolume returns empty arrays here, so match it.
+            log_ps = np.zeros(0)
+            log_p = np.zeros(0)
+            rv = np.zeros((len(self.params_ordered), 0))
+          elif not enforce_bounds:
+            # Nothing is discarded, so one pass of exactly n_to_get is both necessary
+            # and sufficient.  Do NOT size by 1/A or consult flow_acceptance() here:
+            # that over-drew 8x and, worse, took a BOUNDS-ENFORCING probe batch on
+            # behalf of a caller who asked for bounds not to be enforced.
+            log_ps, log_p, rv, _n_drawn, _n_kept = self._draw_flow_raw(
+                n_to_get, False, super_verbose=super_verbose)
+          else:
+            chunks_ps, chunks_p, chunks_rv = [], [], []
+            n_kept_total = 0
+            n_drawn_total = 0
+            n_passes = 0
+            while n_kept_total < n_to_get and n_passes < _NF_REFILL_MAX_PASSES:
+              n_passes += 1
+              # Size each pass from the acceptance seen so far, with a little headroom.
+              # PERFORMANCE ONLY: the loop keeps going until the chunk is full, so the
+              # 1.15 and the caps change how many passes that takes, never the count
+              # returned or the density reported.  No test pins 1.15 for that reason.
+              accept_now = (float(n_kept_total) / float(n_drawn_total)) if n_drawn_total > 0 \
+                           else self.flow_acceptance()
+              n_ask = int(np.ceil(1.15 * (n_to_get - n_kept_total) / max(accept_now, 1e-3)))
+              n_ask = int(min(max(n_ask, 1),
+                              max(_NF_REFILL_MAX_BATCH_FACTOR * n_to_get, 1000),
+                              _NF_REFILL_MAX_BATCH))
+              ps_i, p_i, rv_i, n_drawn_i, n_kept_i = self._draw_flow_raw(
+                  n_ask, True, super_verbose=super_verbose)
+              chunks_ps.append(ps_i); chunks_p.append(p_i); chunks_rv.append(rv_i)
+              n_drawn_total += n_drawn_i
+              n_kept_total += n_kept_i
+            # ONE concatenate order for all three, so the rows of log_ps, log_p and rv
+            # stay aligned; a mismatched slice here is invisible in every aggregate.
+            log_ps = np.concatenate(chunks_ps)[:n_to_get]
+            log_p = np.concatenate(chunks_p)[:n_to_get]
+            rv = np.concatenate(chunks_rv, axis=1)[:, :n_to_get]
+          if enforce_bounds and n_to_get > 0:
+            # Fold this batch into the CURRENT GENERATION's acceptance, which is what
+            # flow_acceptance() divides by.  Only bounds-enforcing batches count: one
+            # drawn with enforce_bounds=False keeps everything and says nothing about A.
+            self._n_flow_drawn += n_drawn_total
+            self._n_flow_kept += n_kept_total
+            if rv.shape[1] < n_to_get:
+              raise Exception(
+                  "mcsamplerNFlow: the trained flow puts almost no mass inside the "
+                  "parameter box -- {} of {} draws landed inside over {} passes "
+                  "(acceptance {:.3g}), so a chunk of {} samples could not be filled. "
+                  " The flow has diverged from the box; retrain it, or use "
+                  "nf_method='iterative', whose TanhTransformFrozen layer is supported "
+                  "on the box by construction."
+                  .format(n_kept_total, n_drawn_total, n_passes,
+                          float(n_kept_total) / float(max(n_drawn_total, 1)), n_to_get))
+            # q(x)/A is the density the ACCEPTED draws come from: rejection leaves the
+            # shape of q but renormalizes it over the box.  Reporting the undivided
+            # q(x) overstated p_s by 1/A, which biased this sampler's own evidence HIGH
+            # by ln(1/A) (1.2 to 1.7 nats measured) and understated its share of the
+            # portfolio's q_mix by the same factor.
+            log_ps = log_ps - np.log(self.flow_acceptance())
 
         # Cache the samples we chose
         #
@@ -603,7 +803,104 @@ class MCSampler(MCSamplerGeneric):
                    self._rvs[p] = self.xpy.hstack((self._rvs[p], rvs_tmp[p]))
 
 
-        return  rv, np.exp(log_ps), np.exp(log_p)
+        # (p_s, p_prior, rv) -- the MCSamplerGeneric contract every other integrator
+        # honours (mcsamplerGPU, mcsamplerAdaptiveVolume, mcsamplerEnsemble, and the
+        # unreliable_oracle members).  This used to return (rv, p_s, p_prior); a
+        # mcsamplerPortfolio member is unpacked as (p_s, p_prior, rv), so an NFlow
+        # member silently assigned rv to joint_p_s.
+        return  np.exp(log_ps), np.exp(log_p), rv
+
+    def sampling_density(self, X):
+        """Pointwise sampling density q(theta) of THIS member, evaluated at
+        ARBITRARY points X (shape (N, ndim), columns in self.params_ordered
+        order).  Returns a host (numpy) array of length N, or None if the
+        parameter box has not been registered yet.
+
+        Mirrors draw_simplified exactly, so the density returned here is the one
+        the draws actually come from:
+
+          * self.nf_flow is None (the cold state, before any update_sampling_prior
+            has trained a flow): draw_simplified samples each axis uniformly on
+            [llim, rlim], so q = 1/V inside the box and 0 outside it, with
+            V = prod(rlim - llim).
+          * a trained flow, enforce_bounds=True (the default): draw_simplified
+            discards the samples that land outside the box, so its accepted
+            draws follow exp(flow.log_prob(X))/A, with A the integral of the flow
+            density over the box (flow_acceptance()).  That is what this returns,
+            and it is what draw_simplified reports in joint_p_s.  Zero outside
+            the box, where a truncated draw cannot land.
+          * a trained flow, enforce_bounds=False: nothing is discarded, so
+            q = exp(flow.log_prob(X)) everywhere, with no 1/A and no zeroing.
+
+        READ-ONLY: touches no sampler state and does not affect this sampler's own
+        integrate()/integrate_log().  It exists so mcsamplerPortfolio can form the
+        balance-heuristic mixture density q_mix = sum_m frac_m * q_m.
+        """
+        ndim = len(self.params_ordered)
+        if ndim == 0:
+            return None
+        try:
+            bounds = np.array([[self.llim[pname], self.rlim[pname]] for pname in self.params_ordered], dtype=float)
+        except KeyError:
+            return None
+        X = np.atleast_2d(np.asarray(self.identity_convert(X), dtype=float))
+        if X.shape[1] != ndim and X.shape[0] == ndim:
+            X = X.T   # tolerate (ndim, N), the shape draw_simplified returns rv in
+        box_lo, box_hi = bounds[:, 0], bounds[:, 1]
+        # Mirror the truncation mode the last draw actually used (default True, as in
+        # draw_simplified).  With enforce_bounds=False the flow's draws DO land outside
+        # the box, so zeroing there would drive the portfolio's q_mix to underflow on
+        # this member's own samples and hand them a spurious ~1/1e-300 weight.
+        if getattr(self, '_enforce_bounds_last', True):
+            inside = np.all((X >= box_lo) & (X <= box_hi), axis=1)
+        else:
+            inside = np.ones(X.shape[0], dtype=bool)
+
+        if self.nf_flow is None:
+            V = float(np.prod(box_hi - box_lo))
+            q = np.zeros(X.shape[0], dtype=float)
+            q[inside] = 1.0 / V
+            return q
+
+        flow = self.nf_flow
+        # Match the flow's own parameter dtype: nflows builds float32 nets by
+        # default, and handing log_prob a float64 tensor raises rather than
+        # casting.
+        try:
+            dtype = next(flow.parameters()).dtype
+        except StopIteration:
+            dtype = torch.get_default_dtype()
+        with torch.no_grad():
+            log_q = flow.log_prob(torch.as_tensor(X, dtype=dtype)).detach().numpy()
+        log_q = np.asarray(log_q, dtype=float)
+        if getattr(self, '_enforce_bounds_last', True):
+            # same q(x)/A the draws are actually distributed as, and the same factor
+            # draw_simplified reports in joint_p_s, so this stays the member's p_s
+            log_q = log_q - np.log(self.flow_acceptance())
+            # NOTE: flow_acceptance() may take one probe batch if this generation has
+            # no statistics yet, so this method is not side-effect free.  See its
+            # docstring; under mcsamplerPortfolio the draw always comes first.
+        q = np.zeros(X.shape[0], dtype=float)
+        # a flow can emit nan/-inf log_prob on out-of-distribution points; those
+        # are zero density, not a crash and not a nan poisoning q_mix.
+        ok = inside & np.isfinite(log_q)
+        q[ok] = np.exp(log_q[ok])
+        return q
+
+    @staticmethod
+    def _affine_mean_scale(samples_train):
+        """Per-axis mean and variance of the (ndim, n) training samples, for the
+        PointwiseAffine pre-conditioning layer that update_sampling_prior installs.
+
+        np.atleast_2d, and pure numpy so it can be tested without torch: np.cov of a
+        (1, n) array is 0-d, and np.diag then raises "Input must be 1- or 2-d", so a
+        ONE-parameter sampler died here as soon as it had enough history to train.
+        Bit-identical to np.diag(np.cov(...)) for ndim >= 2, which is why this is not
+        np.var -- np.var(ddof=1) agrees only to 3e-16.
+        """
+        mean = np.mean(samples_train.T, axis=0)
+        scale = np.diag(np.atleast_2d(np.cov(samples_train)))
+        return mean, scale
 
     def update_sampling_prior(self, lnw, *args, xpy=xpy_default,no_protect_names=True,external_rvs=None,tempering_exp=1,max_epochs_requested=300,n_history=1000,**kwargs):
       """
@@ -642,7 +939,7 @@ class MCSampler(MCSamplerGeneric):
 #      weights_alt = self.xpy.maximum(weights_alt, 1e-5)    # prevent negative weights, in case integrating function with lnL < 0
       # now treat as sum
       weights_alt = weights_alt/(weights_alt.sum())
-      if weights_alt.dtype == numpy.float128:
+      if weights_alt.dtype == RiftFloat:
         weights_alt = weights_alt.astype(numpy.float64,copy=False)
 
 
@@ -670,9 +967,9 @@ class MCSampler(MCSamplerGeneric):
 
       if not(self.mean_affine_set) and self.nf_method != 'iterative':
           # pvals = weights_alt / np.sum(weights_alt)   # not going to use proper weighted sample mean, just fix to original hotspot to get close.
-          my_mean = torch.as_tensor(np.mean(samples_train.T , axis=0),dtype=torch.float32)
-          my_scale = torch.Tensor(np.diag(np.cov(samples_train)) )  # cov is trickier, do NOT use weights since catastrophe possible
-          #print(my_mean,np.diag(np.cov(samples_train)).shape)
+          _mean_np, _scale_np = self._affine_mean_scale(samples_train)
+          my_mean = torch.as_tensor(_mean_np,dtype=torch.float32)
+          my_scale = torch.Tensor(_scale_np)  # cov is trickier, do NOT use weights since catastrophe possible
           tf = PointwiseAffineTransform(scale=1./my_scale,shift=-my_mean/my_scale)
           self.nf_trainer.transform._transforms[0]=tf # affine transform. MUST BE POSITION OF PointwiseAffine ! 
           #print(samples_train.T)
@@ -693,8 +990,51 @@ class MCSampler(MCSamplerGeneric):
                                       bound_offset  = 0.5, n_transforms=n_transforms, n_transforms_delta=n_transforms_delta)
 
       self.nf_flow = trainer.flow
+      self._reset_flow_acceptance()   # NEW flow generation: A is a property of one flow
       self.nf_epoch +=1
 
+
+    ###
+    ### FLOW STORAGE / REUSE
+    ###
+    # Training a normalizing flow is slow and expensive, and only pays off if the
+    # trained flow can be RE-USED across the many ILE instances that share similar
+    # posterior structure.  These helpers persist a trained flow to a small file
+    # and warm-load it into a fresh sampler, which can then either sample from it
+    # directly (n_adapt=0) or do a few cheap 'polish' epochs (small n_adapt) to
+    # adapt it to the new instance -- amortizing the training cost.
+
+    def save_flow(self, path):
+        """Serialize the trained flow (torch state_dict + the architecture
+        metadata needed to rebuild it) to `path`."""
+        if self.nf_flow is None:
+            raise Exception("mcsamplerNFlow.save_flow: no trained flow to save (run integrate first)")
+        payload = dict(
+            state_dict=self.nf_flow.state_dict(),
+            params_ordered=[str(p) for p in self.params_ordered],
+            bounds=[[float(self.llim[p]), float(self.rlim[p])] for p in self.params_ordered],
+            nf_method=getattr(self, 'nf_method', 'default'),
+            num_layers=int(getattr(self, 'num_layers', max(1, len(self.params_ordered) // 2))),
+            nf_epoch=int(self.nf_epoch),
+        )
+        torch.save(payload, path)
+        return path
+
+    def load_flow(self, path):
+        """Stage a pre-trained flow saved by save_flow().  The weights are applied
+        inside integrate_log() (after the architecture is rebuilt), so this must be
+        called before integrate/integrate_log.  Verifies the parameters and box
+        match this sampler."""
+        payload = torch.load(path, map_location='cpu')
+        if [str(p) for p in payload['params_ordered']] != [str(p) for p in self.params_ordered]:
+            raise ValueError("saved flow params {} != sampler params {}".format(
+                payload['params_ordered'], [str(p) for p in self.params_ordered]))
+        saved_bounds = np.array(payload['bounds'], dtype=float)
+        my_bounds = np.array([[self.llim[p], self.rlim[p]] for p in self.params_ordered], dtype=float)
+        if not np.allclose(saved_bounds, my_bounds):
+            raise ValueError("saved flow box does not match sampler box")
+        self._preloaded_state = payload
+        return payload
 
     @profile
     def integrate_log(self, lnF, *args, xpy=xpy_default,**kwargs):
@@ -721,12 +1061,18 @@ class MCSampler(MCSamplerGeneric):
 
 
         xpy_here = self.xpy
-        
+        # The normalizing flow (nflows/torch) samples and scores on the host, and
+        # the integrand is a host function, so the NF integrator AGGREGATES on the
+        # host.  Force the running estimate onto numpy/scipy regardless of the
+        # xpy=cupy default -- mixing a cupy xpy with the flow's host arrays is what
+        # crashed the GPU path (cupy rv handed to a numpy integrand).
+        xpy = self.xpy            # = numpy
+        special_here = special    # scipy.special (host)
         #
         # Determine stopping conditions
         #
         nmax = kwargs["nmax"] if "nmax" in kwargs else float("inf")
-        neff = kwargs["neff"] if "neff" in kwargs else numpy.float128("inf")
+        neff = kwargs["neff"] if "neff" in kwargs else RiftFloat("inf")
         n = int(kwargs["n"] if "n" in kwargs else min(100000, nmax))
         convergence_tests = kwargs["convergence_tests"] if "convergence_tests" in kwargs else None
         save_no_samples = kwargs["save_no_samples"] if "save_no_samples" in kwargs else None
@@ -747,14 +1093,24 @@ class MCSampler(MCSamplerGeneric):
             
 
         save_intg = kwargs["save_intg"] if "save_intg" in kwargs else False
-        # FIXME: The adaptive step relies on the _rvs cache, so this has to be
-        # on in order to work
-        if n_adapt > 0 and tempering_exp > 0.0:
-            save_intg = True
+        # The NF's final integral estimate reads log_integrand/log_joint_prior/
+        # log_joint_s_prior back out of self._rvs, so those MUST be accumulated
+        # regardless of adaptation.  (Previously save_intg was only turned on when
+        # n_adapt>0 and tempering_exp>0, so pure flow REUSE with n_adapt=0 hit a
+        # KeyError('log_integrand') at the end.)
+        save_intg = True
 
         deltalnL = kwargs['igrand_threshold_deltalnL'] if 'igrand_threshold_deltalnL' in kwargs else float("Inf") # default is to return all
         deltaP    = kwargs["igrand_threshold_p"] if 'igrand_threshold_p' in kwargs else 0 # default is to omit 1e-7 of probability
         bFairdraw  = kwargs["igrand_fairdraw_samples"] if "igrand_fairdraw_samples" in kwargs else False
+        # The fair draw below REPLACES _rvs with an export resample; a consumer that then
+        # weights those rows applies w twice.  Record whether it actually FIRED -- the CLI
+        # flag is not the same predicate, since the draw is skipped when it would not
+        # shrink the record.  Reset per pass: samplers are reused across events.
+        self._rvs_is_fairdraw = False
+        # The record describes THIS pass only.  Cleared with the flag above and set
+        # below, so it can never survive into a pass it does not describe.
+        self._rvs_record = None
         n_extr = kwargs["igrand_fairdraw_samples_max"] if "igrand_fairdraw_samples_max" in kwargs else None
 
         bShowEvaluationLog = kwargs['verbose'] if 'verbose' in kwargs else True
@@ -775,20 +1131,38 @@ class MCSampler(MCSamplerGeneric):
         current_log_aggregate = None
         eff_samp = 0  # ratio of max weight to sum of weights
         maxlnL = -np.inf  # max lnL
-        maxval=0   # max weight
+        maxval = -np.inf   # running max of the LOG weight; 0 would floor it at w=1
         outvals=None  # define in top level scope
         self.ntotal = 0
         if bShowEvaluationLog:
             print("iteration Neff  sqrt(2*lnLmax) sqrt(2*lnLmarg) ln(Z/Lmax) int_var")
 
         self.n_chunk = n
-        self.setup(nf_method=nf_method)  
-        
+        # a warm-loaded flow dictates the architecture; use its method so the
+        # rebuilt transform matches the saved weights
+        if self._preloaded_state is not None:
+            nf_method = self._preloaded_state.get('nf_method', nf_method)
+        self.setup(nf_method=nf_method)
+
+        # WARM-LOAD: rebuild the flow object on the freshly-created architecture
+        # and load the pre-trained weights, so this run starts from a trained flow
+        # (n_adapt=0 -> pure reuse; small n_adapt -> a few polish epochs).
+        if self._preloaded_state is not None:
+            flow = Flow(self.nf_model, StandardNormal(shape=[len(self.params_ordered)]))
+            flow.load_state_dict(self._preloaded_state['state_dict'])
+            self.nf_flow = flow
+            self.nf_trainer.flow = flow
+            self._reset_flow_acceptance()   # warm-loaded weights are a new generation
+            self.mean_affine_set = True   # affine layer is part of the loaded weights
+            self.nf_epoch = int(self._preloaded_state.get('nf_epoch', 0))
+            if bShowEvaluationLog:
+                print("  [NF warm-load] restored pre-trained flow ({} layers)".format(self.num_layers))
+
         ntotal_true = 0
         max_epochs_requested =300
         while (eff_samp < neff and ntotal_true < nmax ): #  and (not bConvergenceTests):
             # Draw samples. Note state variables binunique, ninbin -- so we can re-use the sampler later outside the loop
-            rv, joint_p_s, joint_p_prior = self.draw_simplified(self.n_chunk, save_no_samples=False)  # Beware reversed order of rv
+            joint_p_s, joint_p_prior, rv = self.draw_simplified(self.n_chunk, save_no_samples=False)
             if super_verbose:
               print(" Drawn ", np.mean(rv, axis=-1))
 #              print(" Drawn ", np.cov(rv))
@@ -797,28 +1171,33 @@ class MCSampler(MCSamplerGeneric):
             log_joint_p_s = np.log(joint_p_s)
             log_joint_p_prior = np.log(joint_p_prior)
             ntotal_true += len(joint_p_s)
-            if cupy_ok:
-              rv = identity_convert_togpu(rv) # send random numbers to GPU : ugh
-              log_joint_p_prior = identity_convert_togpu(log_joint_p_prior)    # send to GPU if required. Don't waste memory reassignment otherwise
-
-            # Evaluate function, protecting argument order
+            # rv is a host array from the flow (nflows/torch samples on the host).
+            rv = identity_convert(rv)
             params = []
             for item in self.params_ordered:  # USE IN ORDER
                 if isinstance(item, tuple):
                     params.extend(item)
                 else:
                     params.append(item)
-            unpacked = unpacked0 = rv #numpy.hstack([r.flatten() for r in rv]).reshape(len(args), -1)
-            unpacked = dict(list(zip(params, unpacked)))
-            if 'no_protect_names' in kwargs:
-                lnL = lnF(*unpacked0)  # do not protect order
+            # Evaluate the integrand.  The real GPU ILE likelihood is DEVICE-native
+            # (wants cupy); synthetic/CI integrands are host-native.  Feed
+            # device-first, fall back to host on a type error, and remember the
+            # choice (same contract as AV / the portfolio).  The flow's own math
+            # stays on the host, so lnL is brought back to host afterwards.
+            def _eval_integrand(cols):
+                if 'no_protect_names' in kwargs:
+                    return lnF(*cols)
+                return lnF(**dict(list(zip(params, cols))))
+            if getattr(self, '_integrand_wants_host', False) or not cupy_ok:
+                lnL = _eval_integrand(rv)
             else:
-                unpacked = dict(list(zip(self.params_ordered,rv.T)))
-                lnL= lnF(**unpacked)  # protect order using dictionary
-            # take log if we are NOT using lnL
-            if cupy_ok:
-              if not(isinstance(lnL,cupy.ndarray)):
-                lnL = identity_convert_togpu(lnL)  # send to GPU, if not already there
+                try:
+                    lnL = _eval_integrand(identity_convert_togpu(rv))
+                except (TypeError, ValueError):
+                    self._integrand_wants_host = True
+                    lnL = _eval_integrand(rv)
+            # bring lnL back to the host for the flow-side / aggregation math
+            lnL = identity_convert(lnL)
 
 
             # For now: no prior, just duplicate VT algorithm
@@ -827,9 +1206,9 @@ class MCSampler(MCSamplerGeneric):
 #            log_weights = tempering_exp*lnL + log_joint_p_prior
             # log aggregate: NOT USED at present, remember the threshold is floating
             if current_log_aggregate is None:
-              current_log_aggregate = init_log(log_integrand,xpy=xpy,special=xpy_special_default)
+              current_log_aggregate = init_log(log_integrand,xpy=xpy,special=special_here)
             else:
-              current_log_aggregate = update_log(current_log_aggregate, log_integrand,xpy=xpy,special=xpy_special_default)
+              current_log_aggregate = update_log(current_log_aggregate, log_integrand,xpy=xpy,special=special_here)
 
             # Monitoring for i/o
             outvals = finalize_log(current_log_aggregate,xpy=xpy)
@@ -885,6 +1264,13 @@ class MCSampler(MCSamplerGeneric):
 #        rel_var = np.exp(outvals[1]/2  - outvals[0]  - np.log(self.ntotal)/2 )
 
         # Do a fair draw of points, if option is set. CAST POINTS BACK TO NUMPY, IDEALLY
+        # (DESIGN_rvs_naming.md) _rvs is the RETAINED set at this point -- pruned,
+        # perhaps, but never resampled.  Record that before the draw below can change what it
+        # means, so "not resampled" is a statement the record makes rather than the absence of
+        # one.  The reserve rides along BY REFERENCE where the sampler keeps one (AV and the
+        # portfolio); None elsewhere is the honest answer, not a gap.
+        self._rvs_record = RvsRecord.retained(
+            self._rvs, reserve=getattr(self, '_warm_seed_reserve', None))
         if bFairdraw and not(n_extr is None):
            n_extr = int(numpy.min([n_extr,1.5*identity_convert(eff_samp),1.5*neff]))
            print(" Fairdraw size : ", n_extr)
@@ -893,6 +1279,18 @@ class MCSampler(MCSamplerGeneric):
            ln_wt += - special.logsumexp(ln_wt)
            wt = xpy.exp(identity_convert_togpu(ln_wt))
            if n_extr < len(self._rvs["log_integrand"]):
+               # RETAINED-SET RESERVE, taken HERE.  The gather just below rebinds every _rvs
+               # key to n_extr rows drawn WITH REPLACEMENT, so this is the last moment at
+               # which the rows this pass actually kept still exist.  Exporters that read
+               # _rvs afterwards -- the .dgrid distance grid above all -- were binning that
+               # export resample as if it were the sample set.  Local import to keep the
+               # module graph flat: AV owns the one builder and pulls in mcsamplerGPU, and
+               # only mcsamplerGPU would actually be circular -- but a deferred import
+               # costs nothing and none of these five sites has to know which.  Built only
+               # when the draw is really about to happen, so a pass that never fair-draws
+               # pays nothing for it.
+               from RIFT.integrators.mcsamplerAdaptiveVolume import keep_reserve_from_rvs
+               keep_reserve_from_rvs(self, 'mcsamplerNFlow', integrand_is_log=True)
                indx_list = self.xpy.random.choice(self.xpy.arange(len(wt)), size=n_extr,replace=True,p=wt) # fair draw
                # FIXME: See previous FIXME
                for key in list(self._rvs.keys()):
@@ -902,6 +1300,15 @@ class MCSampler(MCSamplerGeneric):
                        self._rvs[key] = identity_convert(self._rvs[key][indx_list])
 
 
+               self._rvs_is_fairdraw = True   # _rvs is now an EXPORT resample, rows already ~ w
+               # ...and now it is an export resample.  n_retained comes from that record's
+                # PROVENANCE, which captured the count eagerly -- NOT from len(), which reads
+                # self._rvs and would return the POST-draw length: the retained record holds a
+                # REFERENCE to the live dict this block has just replaced in place.  That is
+                # this project's own bug class, so it is spelled out rather than assumed.
+               self._rvs_record = RvsRecord.fair_draw(
+                   self._rvs, n_retained=self._rvs_record.n_retained(),
+                   reserve=getattr(self, '_warm_seed_reserve', None))
         # perform type conversion of all stored variables.  VERY LARGE -- should only do this if we need it!
         if cupy_ok:
           for name in self._rvs:

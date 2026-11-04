@@ -1,0 +1,1 @@
+--using-eos --parameter LambdaTilde --parameter DeltaLambdaTilde --no-plots --n-output-samples 1000 --n-eff 1000 --n-max 1000000

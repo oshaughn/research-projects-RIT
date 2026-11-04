@@ -1,0 +1,40 @@
+########## SNR 40 ##########
+   Adapting  x3
+ PORTFOLIO setup  <RIFT.integrators.mcsamplerAdaptiveVolume.MCSampler object at 0x7f6a2a9acb10> {}
+ PORTFOLIO setup  <RIFT.integrators.mcsamplerAdaptiveVolume.MCSampler object at 0x7f6a2a9aced0> {}
+  trial 19 P_mix_wrong  bias=-2.906 n_eff=12  (10s)
+
+# case         bias_med  bias_sd   neff_med  collapse%     n_ok
+  A_full         +0.026    0.121       2029         0%       20
+  A_sub          -0.029    0.047       2495         0%       20
+  A_sub_wrong   -35.881  741.736        840         0%       20
+  P_full         -0.456    0.964         21        30%       20
+  P_mix          -0.427    0.653        196        10%       20
+  P_mix_wrong    -0.699    1.237          9        55%       20
+########## SNR 80 ##########
+   Adapting  x3
+ PORTFOLIO setup  <RIFT.integrators.mcsamplerAdaptiveVolume.MCSampler object at 0x7f694c205910> {}
+ PORTFOLIO setup  <RIFT.integrators.mcsamplerAdaptiveVolume.MCSampler object at 0x7f694c2062d0> {}
+  trial 19 P_mix_wrong  bias=-3.499 n_eff=13  (5s)
+
+# case         bias_med  bias_sd   neff_med  collapse%     n_ok
+  A_full         +0.097    0.140       1802         0%       20
+  A_sub          -0.029    0.047       2495         0%       20
+  A_sub_wrong  -266.759 6039.169        356         0%       20
+  P_full         -0.545    1.767         16        30%       20
+  P_mix          -0.428    0.676        182        10%       20
+  P_mix_wrong    -1.076    1.194         12        45%       20
+########## SNR 160 ##########
+   Adapting  x3
+ PORTFOLIO setup  <RIFT.integrators.mcsamplerAdaptiveVolume.MCSampler object at 0x7f535ff6f990> {}
+ PORTFOLIO setup  <RIFT.integrators.mcsamplerAdaptiveVolume.MCSampler object at 0x7f535ff6eb90> {}
+  trial 19 P_mix_wrong  bias=-2.951 n_eff=4  (5s)
+
+# case         bias_med  bias_sd   neff_med  collapse%     n_ok
+  A_full         +0.102    0.177       1629         0%       20
+  A_sub          -0.029    0.047       2495         0%       20
+  A_sub_wrong  -1949.282 80690.958        220         0%       20
+  P_full         -0.678    3.338         30        30%       20
+  P_mix          -0.455    0.679        186        10%       20
+  P_mix_wrong    -1.183    1.205         35        25%       20
+LADDER DONE

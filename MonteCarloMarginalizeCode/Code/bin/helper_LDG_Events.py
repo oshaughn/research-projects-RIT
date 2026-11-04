@@ -18,6 +18,7 @@ import argparse
 
 import lal
 import RIFT.lalsimutils as lalsimutils
+from RIFT.physics import teobresums_compat
 import lalsimulation as lalsim
 
 from igwn_ligolw import lsctables, table, utils
@@ -27,7 +28,21 @@ import configparser as ConfigParser
 import gzip
 
 # Backward compatibility
-from RIFT.misc.dag_utils import which
+from RIFT.misc.dag_utils_generic import which
+# leaf module: numpy only, so this does not drag numba/cupy into the helper
+from RIFT.likelihood.time_interp_choice import (
+    BARE_FLAG_SENTINEL, CROSSOVER_GUIDANCE, is_off_request,
+    resolve_interpolate_time_request)
+# Same leaf-module reasoning, and IMPORTED rather than re-typed: a second hand-written
+# copy of the choice tuple is how a typo becomes a silently different likelihood.
+from RIFT.likelihood.time_marginalization_quadrature import (
+    TIME_QUADRATURE_CHOICES, validate_time_quadrature,
+    refuse_unless_time_quadrature_emitted)
+# Same leaf-module reasoning: the choice tuple and the stencil-conflict wording are IMPORTED,
+# not re-typed, so this helper and the ILE driver's own guard cannot silently disagree.
+from RIFT.likelihood.q_time_pregrid import (
+    Q_TIME_PREGRID_CHOICES, validate_q_time_pregrid_factor,
+    refuse_unless_q_time_pregrid_emitted)
 lalapps_path2cache = which('lal_path2cache')
 ligolw_add = 'igwn_ligolw_add'
 if not(which(ligolw_add)):
@@ -162,6 +177,7 @@ parser.add_argument("--force-mc-range",default=None,type=str,help="For PP plots,
 parser.add_argument("--limit-mc-range",default=None,type=str,help="For PP plots, or other analyses requiring a specific mc range (eg ini file), bounding the limit *above*.  Allows the code to auto-select its mc range as usual, then takes the intersection with this limit")
 parser.add_argument("--scale-mc-range",type=float,default=None,help="If using the auto-selected mc, scale the ms range proposed by a constant factor. Recommend > 1. . ini file assignment will override this.")
 parser.add_argument("--force-eta-range",default=None,type=str,help="For PP plots. Enforces initial grid placement inside this region")
+parser.add_argument("--force-mtot-range",default=None,type=str,help="For PP plots, hyperbolic analysis, or other analyses requiring a specific mtot range (eg ini file). Enforces initial grid placement inside this region. Passed directly to MOG and CIP.")
 parser.add_argument("--allow-subsolar", action='store_true', help="Override limits which otherwise prevent subsolar mass PE")
 parser.add_argument("--use-legacy-gracedb",action='store_true')
 parser.add_argument("--event-time",type=float,default=None)
@@ -204,23 +220,39 @@ parser.add_argument("--assume-matter-eos",type=str,default=None,help="If present
 parser.add_argument("--assume-matter-but-primary-bh",action='store_true',help="If present, the code will add options necessary to manage tidal arguments for the smaller body ONLY. (Usually pointless)")
 parser.add_argument("--internal-tabular-eos-file",type=str,default=None,help="Tabular file of EOS to use.  The default prior will be UNIFORM in this table!. NOT YET IMPLEMENTED (initial grids, etc)")
 parser.add_argument("--assume-eccentric",action='store_true',help="If present, the code will add options necessary to manage eccentric arguments. The proposed fit strategy and initial grid will allow for eccentricity")
+parser.add_argument("--assume-hyperbolic",action='store_true',help="If present, the code will add options necessary to manage eccentric arguments. The proposed fit strategy and initial grid will allow for hyperbolic")
+parser.add_argument("--E0-max", default=1.2,type=float,help="Maximum range of 'E0' allowed.")
+parser.add_argument("--E0-min", default=1.0,type=float,help="Minimum range of 'E0' allowed.")
+parser.add_argument("--pphi0-max", default=10.0,type=float,help="Maximum range of 'p_phi0' allowed.")
+parser.add_argument("--pphi0-min", default=0.0,type=float,help="Minimum range of 'p_phi0' allowed.")
+parser.add_argument("--use-mtot-coords",action='store_true',help="Configures CIP and PUFF for mtot instead of mc. REQUIRES --force-mtot-range.")
 parser.add_argument("--use-meanPerAno",action='store_true',help="The proposed fit strategy and initial grid will allow for meanPerAno")
+parser.add_argument("--use-EOB-parameters",action='store_true',help="The proposed fit strategy and initial grid will allow for EOB parameters: currently only a6c")
 parser.add_argument("--assume-nospin",action='store_true',help="If present, the code will not add options to manage precessing spins (the default is aligned spin)")
 parser.add_argument("--assume-precessing-spin",action='store_true',help="If present, the code will add options to manage precessing spins (the default is aligned spin)")
 parser.add_argument("--assume-volumetric-spin",action='store_true',help="If present, the code will assume a volumetric spin prior in its last iterations. If *not* present, the code will adopt a uniform magnitude spin prior in its last iterations. If not present, generally more iterations are taken.")
 parser.add_argument("--assume-highq",action='store_true',help="If present, the code will adopt a strategy that drops spin2. Also the precessing strategy will allow perpendicular spin to play a role early on (rather than as a subdominant parameter later)")
 parser.add_argument("--assume-well-placed",action='store_true',help="If present, the code will adopt a strategy that assumes the initial grid is very well placed, and will minimize the number of early iterations performed. Not as extrme as --propose-flat-strategy")
+parser.add_argument("--calmarg-first-cip-sigma-cut",default=None,type=float,help="In-loop calibration marginalization: relax the CIP --sigma-cut on the FIRST cip stage to this value.  The cold-start iterations draw cal realizations from the broad PRIOR (no pilot proposal learned yet), so their per-point Monte-Carlo error is large and the default --sigma-cut 0.6 would strip every point.  util_RIFT_pseudo_pipe.py passes this automatically when --calmarg-pilot is enabled.")
 parser.add_argument("--propose-ile-convergence-options",action='store_true',help="If present, the code will try to adjust the adaptation options, Nmax, etc based on experience")
 parser.add_argument("--internal-propose-ile-convergence-freezeadapt",action='store_true',help="If present, uses the --no-adapt-after-first --no-adapt-distance options (at one point default)")
 parser.add_argument("--internal-propose-ile-adapt-log",action='store_true',help="If present, uses the --adapt-log argument. Useful for very loud signals. Note only lnL information is used for adapting, not prior, so samples will be *uniform* in prior range if lnL is low")
 parser.add_argument("--internal-ile-rotate-phase", action='store_true')
 parser.add_argument("--internal-ile-auto-logarithm-offset",action='store_true',help="Passthrough to ILE")
 parser.add_argument("--internal-ile-use-lnL",action='store_true',help="Passthrough to ILE.  Will DISABLE auto-logarithm-offset and manual-logarithm-offset")
+parser.add_argument("--internal-ile-n-chunk",default=None,type=int,help="Override the extrinsic chunk size (--n-chunk) passed to ILE. Default: 40000, scaled linearly with SNR above 40 and capped at 160000. Rationale: at high SNR the posterior is a vanishing fraction of the prior volume, so a small chunk gives few informative samples per adaptation step; measured collapse on a truth-known SNR ladder falls 88%%->50%% (SNR160) and 69%%->25%% (SNR80) going 1e4->1.6e5, and the gain survives at fixed budget. Larger chunks cost GPU memory, so raise the ILE memory request if you raise this a lot.")
+parser.add_argument("--internal-ile-interpolate-time",nargs='?',const=BARE_FLAG_SENTINEL,default=None,type=str,help="Evaluate Q_lm at FRACTIONAL detector times instead of snapping to the nearest sample bin, in the maintained NoLoop likelihood (needs --time-marginalization --vectorized and one of --gpu/--rotation-slow/--freqresponse; the driver REFUSES rather than ignores otherwise). REQUIRES AN EXPLICIT STENCIL: nearest|cubic|sinc -- automatic selection was removed as measurably unreliable, and a bare flag is rejected rather than silently doing nothing. MEASURED GUIDANCE (SEOBNRv4, an IMR model): %s. 'nearest' is never competitive and is already unusable at O4 SNRs. Error grows as SNR^2, so this matters more at 3G. Cost: sinc is ~4.2-4.5x cubic on CPU, ~1.6-3.0x on GPU. Full tables, limitations and provenance: RIFT/likelihood/DESIGN_q_window_stencil.md. Default: emit nothing, so ILE uses its own default, which CHANGED 2026-09-02 from 'nearest' to time_interp_choice.TIME_INTERP_DEFAULT. To pin the historical behaviour pass 'nearest' (or an off-request such as 'False', which this helper now re-expresses as an explicit '--interpolate-time nearest' so that 'off' still means off)." % CROSSOVER_GUIDANCE)
+parser.add_argument("--internal-ile-time-marginalization-quadrature",default=None,type=str,choices=list(TIME_QUADRATURE_CHOICES),help="Rule for the TIME integral of the marginalized likelihood: %s. Default None = emit nothing, so ILE keeps its own default ('simpson', the historical fixed-deltaT Simpson rule) and args_ile.txt is byte-identical to today. 'bandlimited' resolves the INTEGRAND rather than the data: exp(lnL(t)) is a peak of width sigma_t = 1/(2 pi rho sigma_f), which shrinks as 1/rho, while deltaT=1/srate is fixed -- so production under-resolves its own integrand, worse at higher SNR (measured: scanning the grid phase moves the reported lnL by 1.649 nats at srate 4096, rho=40). Emitted as --time-marginalization-quadrature on the ILE command line, so a completed run's quadrature is readable off the .sub file. Requires --time-marginalization --vectorized --gpu and excludes --rotation-slow / --freqresponse / calibration marginalization; this helper REFUSES rather than emitting an inert flag. INI OVERRIDE: the RIFT ini parser overrides the command line for non-boolean options, so never set this string option in an ini that a Makefile also sets. Rationale and measured tables: RIFT/likelihood/DESIGN_time_marginalization_quadrature.md." % ("|".join(TIME_QUADRATURE_CHOICES),))
+parser.add_argument("--internal-ile-q-time-pregrid-factor",default=None,type=int,choices=list(Q_TIME_PREGRID_CHOICES),help="OPT-IN certified Q_lm pregrid (PR #261): %s. Default None = emit nothing, so ILE keeps its own default (factor 1, the historical unchanged path) and args_ile.txt is byte-identical to today. Factor 8 reflects each finite Q window, FFT-interpolates it onto an 8x finer grid once after packing, and evaluates detector arrival times off that grid with four-tap CUBIC interpolation -- the geocentric time-integration grid is left at the data deltaT. Emitted as --q-time-pregrid-factor on the ILE command line, so a completed run's pregrid setting is readable off the .sub file. Requires --vectorized and excludes --rotation-slow / --freqresponse / calibration marginalization; also FORCES the cubic stencil and REFUSES a conflicting explicit --internal-ile-interpolate-time (i.e. one naming a stencil other than cubic) rather than silently overriding it. This helper REFUSES rather than emitting an inert flag. INI OVERRIDE: the RIFT ini parser overrides the command line for non-boolean options, so never set this in an ini that a Makefile also sets." % ("|".join(str(c) for c in Q_TIME_PREGRID_CHOICES),))
 parser.add_argument("--internal-cip-use-lnL",action='store_true')
 parser.add_argument("--ile-n-eff",default=50,type=int,help="Target n_eff passed to ILE.  Try to keep above 2")
 parser.add_argument("--test-convergence",action='store_true',help="If present, the code will terminate if the convergence test  passes. WARNING: if you are using a low-dimensional model the code may terminate during the low-dimensional model!")
 parser.add_argument("--internal-test-convergence-threshold",type=float,default=0.02,help="The value of the threshold. 0.02 has been default ")
+parser.add_argument("--internal-test-convergence-method",type=str,default="lame",help="Convergence-test method passed to convergence_test_samples.py (lame|ks1d|KL_1d|js_additive|js_lame). Default 'lame' (multivariate-Gaussian mean+variance KL) is BLIND to skewed transverse tails: it can declare convergence while chi1_perp is still contracting (observed: passed at 0.016<0.02 while the chi1_perp 90%% CI was still moving ~4.5 percent/iteration). Use 'js_lame' (lame on mc/eta/xi AND bounded-domain JS + lagged upper-quantile drift on chi1_perp) to resolve transverse tails, esp. at low mass. See transverse-spin convergence protocol (results_triage/CONVERGENCE_PROTOCOL_*).")
+parser.add_argument("--internal-test-convergence-js-lame-fixed-thresholds",action='store_true',help="With --internal-test-convergence-method js_lame: do NOT pass --js-lame-auto-threshold, so the fixed --threshold/--js-threshold/--quantile-tolerance values are used as given.  Only correct if you know the distinct-sample supply matches the sample size those fixed values were tuned at; otherwise the components fire on pure sampling noise and the gate never converges.")
+parser.add_argument("--internal-test-convergence-js-lame-allow-missing-lags",action='store_true',help="With --internal-test-convergence-method js_lame: do NOT pass --js-lame-require-lags, so the test may report convergence before its lag window is populated.  This restores the one-step behaviour js_lame exists to replace (an unusually clean early comparison can stop the loop at sub-iteration 2-3); for diagnostics only.")
 parser.add_argument("--lowlatency-propose-approximant",action='store_true', help="If present, based on the object masses, propose an approximant. Typically TaylorF2 for mc < 6, and SEOBNRv4_ROM for mc > 6.")
+parser.add_argument("--internal-initial-grid-approximant",default=None,type=str,help="Approximant used to choose model-specific initial-grid safety seeds. Normally supplied by util_RIFT_pseudo_pipe.py; an [engine] approx in --use-ini is the fallback.")
 parser.add_argument("--online", action='store_true', help="Use online settings")
 parser.add_argument("--propose-initial-grid",action='store_true',help="If present, the code will either write an initial grid file or (optionally) add arguments to the workflow so the grid is created by the workflow.  The proposed grid is designed for ground-based LIGO/Virgo/Kagra-scale instruments")
 parser.add_argument("--propose-initial-grid-fisher",action='store_true',help="If present, overrides propose-initial-grid.  Uses the SEMIANALYTIC fisher matrix to propose an initial grid: very fast, well targeted.")
@@ -229,8 +261,12 @@ parser.add_argument("--force-grid-stretch-mc-factor",default=None,type=float,hel
 parser.add_argument("--force-notune-initial-grid",action='store_true',help="Prevent tuning of grid")
 parser.add_argument("--force-initial-grid-size",default=None,type=int,help="Force grid size for initial grid (hopefully)")
 parser.add_argument("--propose-fit-strategy",action='store_true',help="If present, the code will propose a fit strategy (i.e., cip-args or cip-args-list).  The strategy will take into account the mass scale, presence/absence of matter, and the spin of the component objects.  If --lowlatency-propose-approximant is active, the code will use a strategy suited to low latency (i.e., low cost, compatible with search PSDs, etc)")
+from RIFT.misc import eccentric_phase_pipeline, eccentric_phase_models
+eccentric_phase_pipeline.add_arguments(parser)
+eccentric_phase_pipeline.add_helper_arguments(parser)
 parser.add_argument("--propose-flat-strategy",action="store_true",help="If present AND propose-fit-strategy is present, the strategy proposed will have puffball and convergence tests for every iteration, and the same CIP")
 parser.add_argument("--propose-converge-last-stage",action="store_true",help="If present, the last pre-extrinsic stage is 'iterate to convergence' form")
+parser.add_argument("--rf-transverse-spin-coordinates", choices=["off","auto","physics3","geometric4","geometric4-phase-excess"], default=None, help="Opt-in: on rf CIP stages that imply s1x,s1y,s2x,s2y, imply the geometric4 chart (rf_total_perp, ...) instead, at --fref. auto selects geometric4 at detector chirp mass <20 Msun. physics3 is retired and refused")
 parser.add_argument("--force-fit-method",type=str,default=None,help="Force specific fit method")
 #parser.add_argument("--internal-fit-strategy-enforces-cut",action='store_true',help="Fit strategy enforces lnL-offset (default 15) after the first batch of iterations. ACTUALLY DEFAULT - SHOULD BE REDUNDANT")
 parser.add_argument("--last-iteration-extrinsic",action='store_true',help="Does nothing!  extrinsic implemented with CEP call, user must do this elsewhere")
@@ -252,8 +288,64 @@ parser.add_argument("--use-osg",action='store_true',help="If true, use pathnames
 parser.add_argument("--use-cvmfs-frames",action='store_true',help="If true, require LIGO frames are present (usually via CVMFS). User is responsible for generating cache file compatible with it.  This option insures that the cache file is properly transferred (because you have generated it)")
 parser.add_argument("--use-ini",default=None,type=str,help="Attempt to parse LI ini file to set corresponding options. WARNING: MAY OVERRIDE SOME OTHER COMMAND-LINE OPTIONS")
 parser.add_argument("--verbose",action='store_true')
+parser.add_argument("--force-scatter-grids",action='store_true',help="Eliminates all non-scatter intrinsic points from hyperbolic grids throughout the workflow.")
+parser.add_argument("--force-plunge-grids",action='store_true',help="Eliminates all non-plunge intrinsic points from hyperbolic grids throughout the workflow.")
+parser.add_argument("--force-zoomwhirl-grids",action='store_true',help="Eliminates all non-zoomwhirl intrinsic points from hyperbolic grids throughout the workflow.")
+parser.add_argument('--force-hyperbolic-22', action='store_true', help='Forces just the 22 modes for hyperbolic waveforms')
 opts=  parser.parse_args()
+if opts.eccentric_phase_sampling:
+    opts.eccentric_phase_coordinates = True
+if opts.eccentric_phase_coordinates:
+    if not opts.assume_eccentric or not opts.use_meanPerAno:
+        parser.error('--eccentric-phase-coordinates requires --assume-eccentric and --use-meanPerAno')
+    eccentric_phase_pipeline.validate_request(opts)
+if opts.rf_transverse_spin_coordinates == 'physics3':
+    from RIFT.misc.rf_transverse_spin import RETIRED_MESSAGE
+    parser.error(RETIRED_MESSAGE)
 
+# Resolve the sub-sample stencil request IMMEDIATELY, so a bare flag / retired 'True' / typo
+# fails here rather than after a whole workflow has been built and submitted.  Returns None when
+# the feature is off; a canonical stencil name otherwise.
+time_interp_choice = resolve_interpolate_time_request(opts.internal_ile_interpolate_time)
+# "OFF" MUST STILL MEAN OFF once the ILE default is no longer 'nearest'.
+# resolve_interpolate_time_request collapses two different things to None: "flag absent" and an
+# explicit off-request ('False'/'off'/'none', OFF_REQUEST_TOKENS).  Both used to emit nothing,
+# and emitting nothing used to mean 'nearest' -- so they were the same answer.  Since the ILE
+# default became TIME_INTERP_DEFAULT (2026-09-02) they are opposites: emitting nothing now means
+# the new default, so "--internal-ile-interpolate-time False" would have turned interpolation ON.
+# An explicit off-request is therefore re-expressed as the explicit stencil that means off.
+if (time_interp_choice is None and opts.internal_ile_interpolate_time is not None
+        and is_off_request(opts.internal_ile_interpolate_time)):
+    time_interp_choice = 'nearest'
+
+# Same, for the time quadrature: argparse `choices` already rejects a typo, but validate through
+# the LIBRARY function too so this helper and the ILE driver can never disagree about the legal
+# set.  None means "emit nothing", which is the byte-identical default path.
+time_quadrature_choice = opts.internal_ile_time_marginalization_quadrature
+if time_quadrature_choice is not None:
+    validate_time_quadrature(time_quadrature_choice)
+
+# Same, for the Q_lm pregrid factor: argparse `choices` already rejects a typo, but validate
+# through the LIBRARY function too so this helper and the ILE driver can never disagree about
+# the legal set.  None means "emit nothing", which is the byte-identical default path.
+q_time_pregrid_factor = opts.internal_ile_q_time_pregrid_factor
+if q_time_pregrid_factor is not None:
+    validate_q_time_pregrid_factor(q_time_pregrid_factor)
+
+# Ensure --assume-hyperbolic is set when using any --force-X-grids option
+# Ensure only ONE of the --force-X-grids options is set
+force_grids = [opts.force_scatter_grids, opts.force_plunge_grids, opts.force_zoomwhirl_grids]
+if any(force_grids) and not opts.assume_hyperbolic:
+    parser.error("Using --force-scatter-grids, --force-plunge-grids, or --force-zoomwhirl-grids requires --assume-hyperbolic!")
+
+if sum(bool(x) for x in force_grids) > 1:
+    parser.error("CANNOT use multiple --force-X-grids options at the same time!")
+
+if opts.use_mtot_coords:
+    if opts.force_mtot_range is None:
+        print('Using the mtot coords requires a specified range!')
+        print('Specify the mtot range with --force-mtot-range!')
+        sys.exit(1)
 if opts.assume_matter_but_primary_bh:
     opts.assume_matter=True
 
@@ -263,6 +355,10 @@ internal_dmax = opts.internal_distance_max # default is None
 fit_method='gp'
 if not(opts.force_fit_method is None):
     fit_method=opts.force_fit_method
+if fit_method == 'gp-matern' and (opts.use_quadratic_early or opts.use_cov_early or opts.use_gp_early or opts.use_gauss_early):
+    parser.error("--force-fit-method gp-matern rewrites every CIP stage; it cannot be combined with --use-quadratic-early, --use-cov-early, --use-gp-early or --use-gauss-early")
+if fit_method == 'gp-matern' and opts.rf_transverse_spin_coordinates in ('auto','geometric4','geometric4-phase-excess'):
+    parser.error("--rf-transverse-spin-coordinates needs rf CIP stages; --force-fit-method gp-matern has none")
 
 
 fmax = 1700 # default
@@ -464,6 +560,9 @@ elif opts.sim_xml:  # right now, configured to do synthetic data only...should b
     event_dict["s2z"] = P.s2z
     event_dict["P"] = P
     event_dict["epoch"]  = 0 # no estimate for now
+    if opts.assume_hyperbolic:
+        event_dict["E0"] = P.E0
+        event_dict["p_phi0"] = P.p_phi0
 elif opts.use_coinc: # If using a coinc through injections and not a GraceDB event.
     # Same code as used before for gracedb
     coinc_file = opts.use_coinc
@@ -641,6 +740,7 @@ if use_gracedb_event:
       # For CWB triggers, should use event.log file to pull out a central frequency
       P.m1=P.m2= 50*lal.MSUN_SI  # make this up completely, just so code will run, goal is higher mass than this, watch out for mc range
       event_dict["P"]=P
+      event_dict["rf_mass_is_placeholder"] = True
       event_dict["MChirp"] = P.extract_param('mc')/lal.MSUN_SI
       event_dict["epoch"]  = 0 # no estimate for now
       if not "SNR" in event_dict:
@@ -673,6 +773,7 @@ elif not(opts.event_time is None):
     event_dict["P"] = lalsimutils.ChooseWaveformParams() # default!
 
     if "MChirp" not in event_dict.keys():
+        event_dict["rf_mass_is_placeholder"] = True
         event_dict["MChirp"] = event_dict["P"].extract_param('mc')/lal.MSUN_SI  # note this is RANDOM
     else:
         event_dict["P"].assign_param('mc', event_dict["MChirp"]*lal.MSUN_SI)
@@ -993,6 +1094,13 @@ if opts.scale_mc_range:
     mc_min = mc_center -0.5*opts.scale_mc_range*mc_width
     mc_max = mc_center +0.5*opts.scale_mc_range*mc_width
 
+# EOB parameter range.  Must exist before any initial-grid path uses it: an
+# [engine] a6c_min entry is optional, and --use-EOB-parameters is normally
+# passed without one.  Default matches the CIP/puffball a6c limits.
+a6c_min = -80
+a6c_max = -20
+a6c_range_str = "  [{},{}]".format(a6c_min,a6c_max)
+
 if use_ini:
     engine_dict = dict(config['engine'])
     if 'chirpmass-min' in engine_dict:
@@ -1007,8 +1115,17 @@ if use_ini:
         eta_max = q_max/(1.+q_max)**2
         if eta_max >=0.25:
             eta_max = 0.24999999  # rounding/finite-precision issues may cause nan problems 
+    if 'a6c_min' in engine_dict:
+        a6c_range_str = "  ["+str(engine_dict['a6c_min'])+","+str(engine_dict['a6c_max'])+"]"
     if 'ecc_min' in engine_dict:
-        ecc_range_str = "  ["+str(engine_dict['ecc_min'])+","+str(engine_dict['ecc_max'])+"]"
+        # ConfigParser returns strings, so these bounds must be parsed before any
+        # arithmetic.  The two initial-grid paths sample DIFFERENT coordinates:
+        # eccentricity_squared needs [ecc_min^2,ecc_max^2], plain eccentricity
+        # needs [ecc_min,ecc_max].  Keep both ranges, and do not mix them.
+        ecc_min = float(engine_dict['ecc_min'])
+        ecc_max = float(engine_dict['ecc_max'])
+        ecc_range_str = "  [{},{}]".format(ecc_min,ecc_max)
+        ecc_squared_range_str = "  [{},{}]".format(ecc_min**2,ecc_max**2)
     if 'meanPerAno_min' in engine_dict:
         meanPerAno_range_str = "  ["+str(engine_dict['meanPerAno_min'])+","+str(engine_dict['meanPerAno_max'])+"]"
         
@@ -1039,7 +1156,9 @@ eta_range_str = "  ["+str(eta_min_tight) +","+str(eta_max_tight)+"]"  # default 
 eta_range_str_cip = " --eta-range ["+str(eta_min) +","+str(eta_max)+"]"  # default will include  1, as we work with BBHs
 if not (opts.force_eta_range is None):
     eta_range_str_cip = " --eta-range " + opts.force_eta_range
-
+if not (opts.force_mtot_range is None):
+    mtot_range_str = opts.force_mtot_range
+    mtot_range_str_cip = " --mtot-range " + opts.force_mtot_range
 
 ###
 ### Write arguments
@@ -1051,9 +1170,33 @@ helper_cip_arg_list = []
 
 chieff_str = '' # Scoping issue fix
 
-helper_test_args += "  --method lame  --parameter mc --parameter eta  --iteration $(macroiteration) "
+helper_test_args += "  --method {}  --parameter mc --parameter eta  --iteration $(macroiteration) ".format(opts.internal_test_convergence_method)
+if opts.internal_test_convergence_method == 'js_lame':
+    # js_lame's thresholds are only meaningful relative to the noise floor at the DISTINCT sample
+    # count it is actually handed, and that floor moves with n (JS/lame as 1/n, quantile drift as
+    # 1/sqrt(n)).  At the interim supply this pipeline produces -- and lower still once CIP's export
+    # pads a request with duplicates -- the p95 null quantile-drift floor sits ABOVE the fixed
+    # --quantile-tolerance, so that component fires on pure sampling noise and the gate can never
+    # report convergence.  Key the thresholds to the measured floor instead.
+    if not opts.internal_test_convergence_js_lame_fixed_thresholds:
+        helper_test_args += " --js-lame-auto-threshold "
+    # The drift component is what makes this test tail-sensitive, and it does not exist until the
+    # lag window is populated: before then the test silently degrades to the one-step statistic that
+    # cannot see slow monotone tail motion, so a clean early comparison can certify convergence at
+    # sub-iteration 2-3 -- exactly the premature stop js_lame was added to prevent.
+    if not opts.internal_test_convergence_js_lame_allow_missing_lags:
+        helper_test_args += " --js-lame-require-lags "
 if not opts.assume_nospin:
     helper_test_args += " --parameter xi "  # require chi_eff distribution to be stable
+    if opts.assume_precessing_spin:  # test on spin 1 perpendicular variables. Note this WILL PROBABLY FAIL IF PRIMARY HAS EXACTLY ZERO TRANSVERSE SPIN (or zero overall)
+        helper_test_args += " --parameter chi1_perp --parameter phi1 "
+# js_lame's tail sensitivity comes entirely from its bounded-JS and quantile-drift components, and
+# those only exist if the test is handed a bounded transverse parameter.  chi1_perp is added just
+# above ONLY for a precessing analysis, so without one this method silently degenerates to the
+# Gaussian 'lame' test on (mc,eta,xi) -- the premature stop it was added to prevent.  Refuse the
+# combination rather than shipping a convergence gate that cannot see the tail it advertises.
+if opts.internal_test_convergence_method == 'js_lame' and not(' --parameter chi1_perp ' in helper_test_args):
+    raise Exception(" --internal-test-convergence-method js_lame scores the tail of a bounded transverse parameter (chi1_perp), which exists only for a precessing analysis; the current settings ({}{}) supply no transverse parameter, so the test would degenerate to the 'lame' test it replaces.  Pass --assume-precessing-spin (without --assume-nospin), or use --internal-test-convergence-method lame.".format('--assume-nospin ' if opts.assume_nospin else '', 'without --assume-precessing-spin' if not opts.assume_precessing_spin else 'with --assume-precessing-spin'))
 if not opts.test_convergence:
     helper_test_args+= " --always-succeed "
 
@@ -1078,6 +1221,89 @@ if "SNR" in event_dict.keys():
         else:
             helper_cip_args_extra = " --internal-use-lnL "   # always use lnL scaling for loud signals at late times, overflow issue for most integrators
         rescaled_base_ile = True
+
+# EXTRINSIC CHUNK SIZE, SCALED WITH SNR.
+# At high SNR the extrinsic posterior is a vanishing fraction of the prior volume, so a small chunk
+# carries very few informative samples per adaptation step and the sampler adapts on noise.  Measured
+# on a truth-known synthetic SNR ladder (demos/integrator_snr_lottery; AV, d=4, collapse = failure to
+# recover the known lnZ), at EQUAL adaptation steps:
+#     SNR  40:  31% collapse @1e4 ->  19% @4e4 ->   0% @1.6e5
+#     SNR  80:  69% collapse @1e4 ->  38% @4e4 ->  25% @1.6e5
+#     SNR 160:  88% collapse @1e4 ->  62% @4e4 ->  50% @1.6e5
+# and the gain SURVIVES at fixed total budget (pooled Fisher p=0.014 for SNR>=80, 10k vs 160k),
+# despite the larger chunk taking 16x fewer adaptation steps.  The driver default (1e4) is therefore
+# too small for loud events.  40k is the new baseline; scale up with SNR, capped, because GPU memory
+# grows with the chunk and an over-large request matches fewer slots (held jobs / idle capacity).
+# Override with --internal-ile-n-chunk.  NOTE the skymap branch later sets --n-chunk 500 deliberately
+# and must keep winning: optparse takes the LAST occurrence, and that append happens after this one.
+if opts.internal_ile_n_chunk:
+    n_chunk_ile = int(opts.internal_ile_n_chunk)
+else:
+    n_chunk_ile = 40000
+    if "SNR" in event_dict.keys():
+        # 40k up to SNR 40, then linear in SNR, capped at 160k (the largest size measured)
+        n_chunk_ile = int(40000 * np.max([1.0, event_dict["SNR"] / 40.0]))
+        n_chunk_ile = int(np.min([n_chunk_ile, 160000]))
+helper_ile_args += " --n-chunk " + str(n_chunk_ile) + " "
+if time_interp_choice is not None:
+    # Sub-sample Q_lm time interpolation; needs the maintained NoLoop path.  The stencil was
+    # already validated at parse time (see resolve_interpolate_time_request above), so by here it
+    # is one of nearest|cubic|sinc.  The name goes on the ILE command line verbatim, so a
+    # completed run's stencil is readable off the .sub file.
+    print("  ==> Q_lm time interpolation: stencil '{}' (explicit; automatic selection was "
+          "removed as unreliable -- see RIFT.likelihood.time_interp_choice for the measured "
+          "guidance)".format(time_interp_choice))
+    #
+    # VERSION SKEW, one-directional: an ILE predating stencil names maps any unrecognised
+    # --interpolate-time value to 'nearest' through a truthiness test, with no error and no log
+    # line -- so an OLD ILE driven by THIS helper silently runs 'nearest'.  A new ILE raises, so
+    # the reverse pairing is safe.  Pair this pipeline with an ILE from the same checkout.
+    helper_ile_args += " --interpolate-time " + time_interp_choice + " "
+
+if time_quadrature_choice is not None:
+    # Validated at parse time, so by here it is one of TIME_QUADRATURE_CHOICES.  The name goes on
+    # the ILE command line verbatim, so a completed run's quadrature is readable off the .sub file.
+    #
+    # VERSION SKEW: an ILE predating this option rejects the unknown flag outright (optparse errors
+    # on an unrecognised option), so an old ILE driven by this helper FAILS LOUDLY rather than
+    # silently running Simpson.  That is the safe direction; still, pair this pipeline with an ILE
+    # from the same checkout.
+    print("  ==> Time-marginalization quadrature: '{}' (emitted as --time-marginalization-quadrature; "
+          "the ILE driver refuses rather than ignores if its configuration cannot honour it)".format(
+              time_quadrature_choice))
+    if time_quadrature_choice in ('bandlimited', 'peak-local'):
+        # Sub-sample integration is also an export contract.  The extrinsic stage
+        # uses the same reflected, derived-resolution reconstruction to draw a
+        # continuous conditional time, rather than calling coarse-grid
+        # return_lnLt=True and throwing the new resolution away.
+        print("      NOTE: on the extrinsic/fairdraw stage band-limited quadrature "
+              "also mandates a continuous draw from p(t | extrinsic, data), using "
+              "the same validated dense reconstruction as the integral.  Export "
+              "is not quantised at 1/srate or at a configurable finer lattice.")
+    # rstrip() so the separator does not depend on whatever the PREVIOUS append left
+    # behind: the flag gluing onto its neighbour would produce an args_ile.txt in which
+    # the quadrature is not a token at all, and the emission guard below is what would
+    # then have to catch it.  Make it structurally impossible instead.
+    helper_ile_args = helper_ile_args.rstrip() + " --time-marginalization-quadrature " + time_quadrature_choice + " "
+
+if q_time_pregrid_factor is not None:
+    # Validated at parse time, so by here it is one of Q_TIME_PREGRID_CHOICES.  The value goes
+    # on the ILE command line verbatim, so a completed run's pregrid setting is readable off
+    # the .sub file.  Prerequisites (--vectorized, the exclusions, and the forced-cubic-stencil
+    # conflict) are checked on the FULLY ASSEMBLED command line below, by
+    # refuse_unless_q_time_pregrid_emitted -- not here, because --vectorized/--gpu are added by
+    # the strategy branches further down this file.
+    #
+    # VERSION SKEW: an ILE predating this option rejects the unknown flag outright (optparse
+    # errors on an unrecognised option), so an old ILE driven by this helper FAILS LOUDLY rather
+    # than silently running the historical factor=1 grid.
+    print("  ==> Q_lm pregrid factor: {} (emitted as --q-time-pregrid-factor; the ILE driver "
+          "refuses rather than ignores if its configuration cannot honour it)".format(
+              q_time_pregrid_factor))
+    # rstrip(), for the same reason as the quadrature emission just above: the flag gluing onto
+    # its neighbour would make it invisible to the emission guard.
+    helper_ile_args = helper_ile_args.rstrip() + " --q-time-pregrid-factor " + str(q_time_pregrid_factor) + " "
+
 if opts.internal_ile_auto_logarithm_offset and not opts.internal_ile_use_lnL:
     helper_ile_args += " --auto-logarithm-offset "
     rescaled_base_ile = True
@@ -1162,6 +1388,12 @@ if opts.lowlatency_propose_approximant:
         if opts.psd_assume_common_window:
             helper_ile_args += " --psd-window-shape {} ".format(window_shape)
 
+initial_grid_approximant = opts.internal_initial_grid_approximant
+if initial_grid_approximant is None and use_ini and config.has_option('engine', 'approx'):
+    initial_grid_approximant = config.get('engine', 'approx').strip().strip('"\'')
+if initial_grid_approximant is None:
+    initial_grid_approximant = approx_str
+
 if not(internal_dmax is None):
     helper_ile_args +=  " --d-max " + str(int(internal_dmax))
     if dmin != 1: # if not default value, add argument
@@ -1203,19 +1435,45 @@ if not ( (opts.data_start_time is None) and (opts.data_end_time is None)):
 
 elif opts.data_LI_seglen:
     seglen = opts.data_LI_seglen
-    # Use LI-style positioning of trigger relative to 2s before end of buffer
-    # Use LI-style tukey windowing
-    window_shape = opts.data_tukey_window_time*2/seglen
-    data_end_time = event_dict["tref"]+2
-    data_start_time = event_dict["tref"] +2 - seglen
+    if opts.assume_hyperbolic:
+        window_shape = 0.0 # DO NOT window at all
+        # split seglen across the event time
+        data_start_time = event_dict["tref"] - seglen/2
+        data_end_time = event_dict["tref"] + seglen/2
+    else:
+        # Use LI-style positioning of trigger relative to 2s before end of buffer
+        # Use LI-style tukey windowing
+        window_shape = opts.data_tukey_window_time*2/seglen
+        data_end_time = event_dict["tref"]+2
+        data_start_time = event_dict["tref"] +2 - seglen
     helper_ile_args += " --data-start-time " + str(data_start_time) + " --data-end-time " + str(data_end_time)  + " --inv-spec-trunc-time 0  --window-shape " + str(window_shape)
     if opts.psd_assume_common_window:
             helper_ile_args += " --psd-window-shape {} ".format(window_shape)
 
+if opts.use_EOB_parameters:
+    helper_ile_args += " --save-EOB-parameters "
+if opts.assume_hyperbolic:
+    helper_ile_args += " --save-hyperbolic "
+    if opts.force_hyperbolic_22:
+        helper_ile_args += " --force-hyperbolic-22 "
 if opts.assume_eccentric:
     helper_ile_args += " --save-eccentricity "
     if opts.use_meanPerAno:
         helper_ile_args += " --save-meanPerAno "
+# RF transverse opt-in: an unforced switch to rf happens before the initial grid, so the grid
+# matches an explicit --force-fit-method rf build.
+rf_transverse_active = False
+if opts.rf_transverse_spin_coordinates:
+    from RIFT.misc.rf_transverse_spin import enabled
+    rf_applicable = (opts.assume_precessing_spin and not opts.assume_nospin
+        and not opts.assume_matter and not opts.assume_matter_eos and not opts.assume_eccentric
+        and not opts.assume_highq and not opts.use_mtot_coords
+        and not opts.use_EOB_parameters and not opts.assume_hyperbolic)
+    rf_detector_mc = None if event_dict.get('rf_mass_is_placeholder', False) else event_dict.get('MChirp')
+    rf_transverse_active = enabled(opts.rf_transverse_spin_coordinates, rf_detector_mc, rf_applicable)
+    if rf_transverse_active and opts.force_fit_method is None:
+        fit_method = 'rf'
+
 if opts.propose_initial_grid_fisher: # and (P.extract_param('mc')/lal.MSUN_SI < 10.):
     cmd  = "util_AnalyticFisherGrid.py  --inj-file-out  proposed-grid  "
     # Add standard downselects : do not have m1, m2 be less than 1
@@ -1244,8 +1502,12 @@ if opts.propose_initial_grid_fisher: # and (P.extract_param('mc')/lal.MSUN_SI < 
 
         cmd += " --random-parameter chieff_aligned  --random-parameter-range " + chieff_range
         grid_size =2500
+    if opts.use_EOB_parameters:
+        cmd += " --random-parameter a6c --random-parameter-range " + a6c_range_str
+    if opts.assume_hyperbolic:
+        cmd += " --random-parameter E0 --random-parameter-range [{},{}] --random-parameter p_phi0 --random-parameter-range [{},{}] ".format(opts.E0_min,opts.E0_max,opts.pphi0_min,opts.pphi0_max)
     if opts.assume_eccentric:
-        cmd += " --random-parameter eccentricity --random-parameter-range " + ecc_range_str
+        cmd += " --random-parameter eccentricity_squared --random-parameter-range " + ecc_squared_range_str
         grid_size = int(grid_size*1.5)
         if opts.use_meanPerAno:
             cmd += " --random-parameter meanPerAno --random-parameter-range [0,6.2831]"
@@ -1266,13 +1528,18 @@ elif opts.propose_initial_grid:
     # add basic mass parameters
     cmd  = "util_ManualOverlapGrid.py  --fname proposed-grid --skip-overlap "
     mass_string_init = " --random-parameter mc --random-parameter-range   " + mc_range_str + "  --random-parameter delta_mc --random-parameter-range '[" + str(delta_grid_min) +"," + str(delta_grid_max) + "]'  "
+    if not(opts.force_mtot_range is None):
+        mass_string_init = " --random-parameter mtot --random-parameter-range   " + mtot_range_str + "  --random-parameter delta_mc --random-parameter-range '[" + str(delta_grid_min) +"," + str(delta_grid_max) + "]'  "
     cmd+= mass_string_init
     # Add standard downselects : do not have m1, m2 be less than 1
     if not(opts.force_mc_range is None):
         # force downselect based on this range
         cmd += " --downselect-parameter mc --downselect-parameter-range " + opts.force_mc_range 
     if not(opts.force_eta_range is None):
-        cmd += " --downselect-parameter eta --downselect-parameter-range " + opts.force_eta_range 
+        cmd += " --downselect-parameter eta --downselect-parameter-range " + opts.force_eta_range
+    if not(opts.force_mtot_range is None):
+        # force downselect based on this range
+        cmd += " --downselect-parameter mtot --downselect-parameter-range " + opts.force_mtot_range
     cmd += " --fmin " + str(opts.fmin_template)
     if opts.data_LI_seglen and not (opts.no_enforce_duration_bound):  
         cmd += " --enforce-duration-bound " + str(opts.data_LI_seglen)
@@ -1301,8 +1568,26 @@ elif opts.propose_initial_grid:
         grid_size =2500
 
         if opts.assume_precessing_spin:
-            # Handle problems with SEOBNRv3 failing for aligned binaries -- add small amount of misalignment in the initial grid
-            cmd += " --parameter s1x --parameter-range [0.00001,0.00003] "
+            # Keep a nonzero seed for exactly-aligned precessing models, which
+            # can otherwise fall back to a different aligned implementation.
+            # TEOBResumS-DALI is special: its C backend calls sum(chi_perp)
+            # <= 1e-4 aligned, and its GWSignal layer's disagreement with that
+            # decision can segfault.  Seed ResumS a decade above the boundary.
+            seed_min, seed_max = teobresums_compat.initial_transverse_spin_range(
+                initial_grid_approximant
+            )
+            cmd += " --parameter s1x --parameter-range [{},{}] ".format(seed_min, seed_max)
+    if opts.use_EOB_parameters:
+        cmd += " --random-parameter a6c --random-parameter-range " + a6c_range_str
+        grid_size = int(grid_size*1.5)
+    if opts.assume_hyperbolic:
+        cmd += " --random-parameter E0 --random-parameter-range [{},{}] --random-parameter p_phi0 --random-parameter-range [{},{}] ".format(opts.E0_min,opts.E0_max,opts.pphi0_min,opts.pphi0_max)
+        if opts.force_scatter_grids:
+            cmd += " --force-scatter "
+        if opts.force_plunge_grids:
+            cmd += " --force-plunge "
+        if opts.force_zoomwhirl_grids:
+            cmd += " --force-zoomwhirl "
     if opts.assume_eccentric:
         cmd += " --random-parameter eccentricity --random-parameter-range " + ecc_range_str
         grid_size = int(grid_size*1.5)
@@ -1421,6 +1706,12 @@ if opts.propose_ile_convergence_options:
     if not(opts.internal_use_gracedb_bayestar):
         helper_ile_args += " --declination-cosine-sampler  "  # skymap coordinates all fixed
     else:
+        # DEPRECATED PATH (bayestar skymap input): unused in production for ~a decade.
+        # It is also the only place n-chunk drops to 500, which makes it the least-tested
+        # regime for anything whose scale depends on the chunk size -- notably the opt-in
+        # --portfolio-weight-clip, whose threshold is tau = C*sqrt(n_chunk)*mean(w), i.e.
+        # ~4.5x more aggressive here than at the n_chunk=1e4 used for every clip test.
+        # Do not treat clip validation as covering this branch; prefer retiring the branch.
         helper_ile_args += " --n-chunk 500 " # much smaller chunk size for integration for ILE if we are using an input skymap! Slow, but does the hard dimension
     # Modify someday to use the SNR to adjust some settings
     # Proposed option will use GPUs
@@ -1452,18 +1743,35 @@ if opts.internal_ile_rotate_phase:
 
 puff_max_it=0
 if event_dict["MChirp"] >25:
-    # at high mass, mc/eta correlation weak, don't want to have eta coordinate degeneracy at q=1 to reduce puff proposals  near there
-    helper_puff_args = " --parameter mc --parameter delta_mc --fmin {} --fref {}  ".format(opts.fmin_template,opts.fmin_template)  
+    if opts.use_mtot_coords:
+        helper_puff_args = " --parameter mtot --parameter delta_mc --fmin {} --fref {}  ".format(opts.fmin_template,opts.fmin_template)
+    else:
+        # at high mass, mc/eta correlation weak, don't want to have eta coordinate degeneracy at q=1 to reduce puff proposals  near there
+        helper_puff_args = " --parameter mc --parameter delta_mc --fmin {} --fref {}  ".format(opts.fmin_template,opts.fmin_template)
 else:
-    helper_puff_args = " --parameter mc --parameter eta --fmin {} --fref {} ".format(opts.fmin_template,opts.fmin_template)
+    if opts.use_mtot_coords:
+        helper_puff_args = " --parameter mtot --parameter q --fmin {} --fref {}  ".format(opts.fmin_template,opts.fmin_template)
+    else:
+        helper_puff_args = " --parameter mc --parameter eta --fmin {} --fref {} ".format(opts.fmin_template,opts.fmin_template)
+if opts.use_EOB_parameters:
+    helper_puff_args += " --parameter a6c "
+if opts.assume_hyperbolic:
+    helper_puff_args += " --parameter E0 --parameter p_phi0 "
+    if opts.force_scatter_grids:
+        helper_puff_args += " --force-scatter "
+    if opts.force_plunge_grids:
+        helper_puff_args += " --force-plunge "
+    if opts.force_zoomwhirl_grids:
+        helper_puff_args += " --force-zoomwhirl "
 if opts.assume_eccentric:
-    # Match the configured native eccentricity box and retain boundary proposals.
-    eccentric_puff_range = ecc_range_str if 'ecc_range_str' in globals() else '[0,1]'
-    helper_puff_args += (" --parameter eccentricity --reflect-parameter eccentricity"
-                         " --downselect-parameter eccentricity --downselect-parameter-range "
-                         + eccentric_puff_range + " ")
+    helper_puff_args += " --parameter eccentricity "
     if opts.use_meanPerAno:
         helper_puff_args += " --parameter meanPerAno "
+
+# The single top-level option selects the tested native mu1/mu2 fit basis (after the grid,
+# as for explicit rf). A custom total-mass schedule is outside this bounded prototype.
+if rf_transverse_active and fit_method == 'rf':
+    opts.internal_use_aligned_phase_coordinates = True
 
 if opts.propose_fit_strategy:
     puff_max_it= 0
@@ -1475,10 +1783,15 @@ if opts.propose_fit_strategy:
         helper_cip_args += '   --parameter mc --parameter delta_mc '
     else:
         helper_cip_args += " --parameter-implied mu1 --parameter-implied mu2 --parameter-nofit mc --parameter delta_mc "  
-    if 'gp' in fit_method:
+    if fit_method == 'gp-torch':
+        helper_cip_args += " --cap-points 8000 "  # CIP --gp-torch-max-train-points default
+    elif 'gp' in fit_method and fit_method != 'gp-matern':
         helper_cip_args += " --cap-points 12000 "
     if not opts.no_propose_limits:
-        helper_cip_args += mc_range_str_cip + eta_range_str_cip
+        if not(opts.use_mtot_coords):
+            helper_cip_args += mc_range_str_cip + eta_range_str_cip
+        else:
+            helper_cip_args += mtot_range_str_cip + eta_range_str_cip
     if opts.force_chi_max:
         helper_cip_args += " --chi-max {} ".format(opts.force_chi_max)
     if opts.force_chi_small_max:
@@ -1709,6 +2022,32 @@ if opts.propose_fit_strategy:
 #            helper_cip_arg_list[indx] += " --lnL-offset 20 "  # enforce lnL cutoff past the first iteration. Focuses fit on high-likelihood points as in O1/O2
 
 
+# REFUSE AT WORKFLOW-BUILD TIME, not at first-job time.  The ILE driver already refuses this
+# combination, but that costs a whole queue-slot cycle to discover; the arguments are all in hand
+# here.  The check reads the ASSEMBLED string rather than the opts, because whether
+# --time-marginalization/--vectorized/--gpu are present depends on the strategy branches above
+# (--propose-ile-convergence-options), not on any single flag.  util_RIFT_pseudo_pipe.py repeats
+# it over the FINAL args_ile.txt, which is the only place calibration marginalization and
+# --manual-extra-ile-args are visible.
+# Checks the BYTES about to be written, not the parsed option, so it also catches the
+# emission being dropped or duplicated -- not only an unhonourable configuration.  The
+# raise lives in the library function so that it is executable in a unit test.
+refuse_unless_time_quadrature_emitted(
+    time_quadrature_choice, helper_ile_args, "helper_ile_args.txt")
+# Same discipline, same reason, for the Q_lm pregrid factor.
+refuse_unless_q_time_pregrid_emitted(
+    q_time_pregrid_factor, helper_ile_args, "helper_ile_args.txt")
+
+if opts.eccentric_phase_coordinates:
+    from RIFT.misc import eccentric_phase_policy, eccentric_phase_models
+    phase_approximant = config.get('engine','approx') if use_ini else (approx_str if opts.lowlatency_propose_approximant else None)
+    phase_decision = eccentric_phase_policy.resolve(opts,event_dict,helper_ile_args,phase_approximant)
+    eccentric_phase_policy.write(phase_decision)
+    helper_cip_args = eccentric_phase_pipeline.helper_cip_stage(helper_cip_args,opts)
+    helper_puff_args = eccentric_phase_pipeline.puff_arguments(helper_puff_args,
+        opts.eccentric_phase_reference_frequency,opts.eccentric_phase_target_frequency,
+        **eccentric_phase_models.worker_options(opts))
+
 # editing ILE args based on strategy above, so only writing now
 with open("helper_ile_args.txt",'w') as f:
     f.write(helper_ile_args)
@@ -1720,15 +2059,12 @@ with open("helper_cip_args.txt",'w') as f:
 
 
 if opts.propose_flat_strategy:
-    # All iterations of CIP use the same as the last
-    instructions_cip = map(lambda x: x.rstrip().split(' '), helper_cip_arg_list)#np.loadtxt("helper_cip_arg_list.txt", dtype=str)
-    n_iterations =0
-    lines  = []
-    for indx in np.arange(len(instructions_cip)):
-        n_iterations += int(instructions_cip[indx][0])
-        lines.append(' '.join(instructions_cip[indx][1:]))   # merge back together
-    helper_cip_arg_list  = [str(n_iterations) + " " + lines[-1]]  # overwrite with new setup
+    instructions_cip = [line.rstrip().split() for line in helper_cip_arg_list]
 
+    n_iterations = sum(int(instr[0]) for instr in instructions_cip)
+    last_line = " ".join(instructions_cip[-1][1:])
+
+    helper_cip_arg_list = [f"{n_iterations} {last_line}"]
 
 if opts.propose_converge_last_stage:
     helper_cip_last_it = '1 ' +  ' '.join(helper_cip_arg_list[-1].split()[1:])
@@ -1742,6 +2078,44 @@ if opts.propose_converge_last_stage:
         # NOTE: assume util_RIFT_pseudo_pipe will handle setting n-eff and workers correctly for that iteration, since we can't control it here.
         helper_cip_arg_list += [helper_cip_last_it]
 
+
+# In-loop calmarg cold start: the first CIP stage runs on iterations whose cal draws come
+# from the broad PRIOR (the pilot has not yet learned/seeded a proposal), so their MC error
+# is large.  Relax that stage's --sigma-cut so the cold-start points are not all stripped
+# (CIP default 0.6).  Only the FIRST stage is relaxed; later stages run on pilot-seeded
+# iterations with normal errors and keep the default cut.
+if opts.calmarg_first_cip_sigma_cut is not None and len(helper_cip_arg_list) > 0:
+    helper_cip_arg_list[0] += " --sigma-cut {} ".format(opts.calmarg_first_cip_sigma_cut)
+
+# The explicit fresh GP experiment applies to every fit stage (early overrides
+# are rejected above); coordinate/prior/schedule options are retained.
+if fit_method == 'gp-matern':
+    import re
+    helper_cip_arg_list = [re.sub(r'--fit-method\s+\S+', '--fit-method gp-matern', line)
+                           for line in helper_cip_arg_list]
+if opts.rf_transverse_spin_coordinates:
+    from RIFT.misc.rf_transverse_spin import stage_arguments
+    # engine.fref is the reference assigned to ILE spins; fmin is not a substitute.
+    rf_fref = unsafe_config_get(config, ['engine','fref']) if opts.use_ini else opts.fmin_template
+    if rf_fref is None:
+        rf_fref = opts.fmin_template
+    rf_applicable = (opts.assume_precessing_spin and not opts.assume_nospin
+        and not opts.assume_matter and not opts.assume_matter_eos and not opts.assume_eccentric
+        and not opts.assume_highq and not opts.use_mtot_coords
+        and not opts.use_EOB_parameters and not opts.assume_hyperbolic)
+    helper_cip_arg_list = [stage_arguments(line, opts.rf_transverse_spin_coordinates,
+        None if event_dict.get('rf_mass_is_placeholder', False) else event_dict.get('MChirp'), rf_applicable, float(rf_fref)) for line in helper_cip_arg_list]
+    rf_activated = sum('--parameter-implied rf_total_azimuth' in line for line in helper_cip_arg_list)
+    if opts.rf_transverse_spin_coordinates in ('geometric4','geometric4-phase-excess') and not rf_activated:
+        raise ValueError('No complete two-spin RF stage can honor the requested RF transverse-spin option')
+    print('RF transverse-spin mode {}, detector chirp mass {}, fref {}, activated stages {}'.format(
+        opts.rf_transverse_spin_coordinates,
+        None if event_dict.get('rf_mass_is_placeholder', False) else event_dict.get('MChirp'),
+        rf_fref, rf_activated))
+
+if opts.eccentric_phase_coordinates:
+    helper_cip_arg_list = [eccentric_phase_pipeline.helper_cip_stage(line,opts,first=(i==0))
+                          for i,line in enumerate(helper_cip_arg_list)]
 
 with open("helper_cip_arg_list.txt",'w+') as f:
     f.write("\n".join(helper_cip_arg_list))
@@ -1779,6 +2153,14 @@ if opts.assume_matter and opts.internal_tabular_eos_file:
     with open("helper_convert_args.txt", 'a') as f:
         f.write(" --export-eos ")
         
+if opts.use_EOB_parameters:
+    with open("helper_convert_args.txt",'a') as f:
+        f.write(" --export-EOB-parameters ")
+
+if opts.assume_hyperbolic:
+    with open("helper_convert_args.txt",'a') as f:
+        f.write(" --export-hyperbolic ")
+
 if opts.assume_eccentric:
     with open("helper_convert_args.txt",'a') as f:
         f.write(" --export-eccentricity ")

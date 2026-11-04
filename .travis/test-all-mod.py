@@ -53,11 +53,43 @@ EXCLUDE = re.compile("({})".format("|".join([
 IGNORE = re.compile("({})".format("|".join([
     r"\ANo module named torch\Z",
     r"\ANo module named 'torch'\Z",
+    r"\ANo module named gpytorch\Z",
+    r"\ANo module named 'gpytorch'\Z",
     r"\ANo module named cupy\Z",
     r"\ANo module named 'cupy'\Z",
     r"\ANo module named asimov\Z",
     r"\ANo module named 'asimov'\Z",
+    r"\ANo module named jax\Z",
+    r"\ANo module named 'jax'\Z",
+    r"\ANo module named optax\Z",
+    r"\ANo module named 'optax'\Z",
+    r"\ANo module named equinox\Z",
+    r"\ANo module named 'equinox'\Z",
+    r"\ANo module named tinygp\Z",
+    r"\ANo module named 'tinygp'\Z",
+    r"\ANo module named numpyro\Z",
+    r"\ANo module named 'numpyro'\Z",
+    r"\ANo module named flowMC\Z",
+    r"\ANo module named 'flowMC'\Z",
+    r"\ANo module named htcondor2\Z",
+    r"\ANo module named 'htcondor2'\Z",
 ])))
+
+
+# These modules deliberately wrap dependency errors with actionable diagnostics.
+# Skip only an absent optional ROOT; a broken installed API must still fail.
+OPTIONAL_MODULE_DEPENDENCIES = {"RIFT.likelihood.td_gs_precompute": "tdanalysis"}
+
+
+def _missing_optional_module(modname, exc):
+    dependency = OPTIONAL_MODULE_DEPENDENCIES.get(modname)
+    seen = set()
+    while dependency and exc is not None and id(exc) not in seen:
+        seen.add(id(exc))
+        if isinstance(exc, ModuleNotFoundError) and exc.name == dependency:
+            return True
+        exc = exc.__cause__ or exc.__context__
+    return False
 
 
 def iter_all_modules(path, exclude=EXCLUDE):
@@ -76,7 +108,7 @@ def test_import(modname):
     try:
         import_module(modname)
     except Exception as exc:
-        if IGNORE.search(str(exc)):
+        if IGNORE.search(str(exc)) or _missing_optional_module(modname, exc):
             pytest.skip(str(exc))
         raise
 

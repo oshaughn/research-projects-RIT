@@ -1,5 +1,14 @@
 #! /bin/bash
-# This is just a pipeline build test. The coinc file is from a synthetic event.
+# Pipeline build test. The coinc file is from a synthetic event.
+#
+# Builds (does not submit) RIFT DAGs from a reference ini + coinc using fake
+# data, verifies the complete extrinsic -> calibration-marginalization graph,
+# and verifies that the per-distance likelihood export flags (Plan A
+# density grid, Plan B fixed-distance slices) thread through
+# util_RIFT_pseudo_pipe.py -> create_event_parameter_pipeline_* and land in the
+# correct condor submit file (ILE_extr.sub, the extrinsic stage).
+
+set -e
 
 export RIFT_LOWLATENCY=True
 export SINGULARITY_RIFT_IMAGE=foo
@@ -7,4 +16,129 @@ export SINGULARITY_RIFT_IMAGE=foo
 export SINGULARITY_BASE_EXE_DIR=/usr/bin/
 alias gw_data_find=/bin/true  # don't want to reall do the datafind job
 touch foo.cache
-util_RIFT_pseudo_pipe.py --use-ini  `pwd`/.travis/ref_ini/GW150914.ini --use-coinc `pwd`/.travis/ref_ini/coinc.xml --use-rundir `pwd`/test_build_pipe --fake-data-cache `pwd`/foo.cache
+
+# Calmarg's Bilby-pickle stage records this executable in its submit file but
+# does not execute it during a DAG build. The ordinary CI lane intentionally
+# does not install the full bilby_pipe runtime, so provide a build-only witness
+# rather than adding a large dependency solely for `which` resolution.
+TEST_BUILD_BIN=`pwd`/test_build_bin
+mkdir -p $TEST_BUILD_BIN
+ln -sf /bin/true $TEST_BUILD_BIN/bilby_pipe_generation
+export PATH=$TEST_BUILD_BIN:$PATH
+
+# This DAG-only fixture has an empty placeholder cache. Explicitly disable
+# strain IO here; real frame staging and empty-cache rejection are tested in
+# test/pipeline_deployment, while the general reference ini stays unchanged.
+REF_INI=`pwd`/test_build_ref.ini
+sed 's/^internal-truncate-files-for-osg-file-transfer=True/internal-truncate-files-for-osg-file-transfer=False/' \
+    .travis/ref_ini/GW150914.ini > $REF_INI
+COINC=`pwd`/.travis/ref_ini/coinc.xml
+DAG_CONTRACT=`pwd`/MonteCarloMarginalizeCode/Code/test/dag_contract/rift_pipeline_contract.py
+
+# Keep the topology production-like while making its build independent of
+# protected frame and calibration files.  Nothing executes these inputs in a
+# build-only test, but the calibration submit writer must be able to stage them.
+CALMARG_DATA=`pwd`/test_build_calmarg_data
+mkdir -p $CALMARG_DATA
+touch $CALMARG_DATA/H1-calibration.dat $CALMARG_DATA/L1-calibration.dat
+CALMARG_BILBY_INI=`pwd`/test_build_bilby.ini
+sed \
+    -e "s|^data-dict=.*|data-dict={H1:`pwd`/foo.cache, L1:`pwd`/foo.cache}|" \
+    -e "s|^spline-calibration-envelope-dict=.*|spline-calibration-envelope-dict={H1:$CALMARG_DATA/H1-calibration.dat, L1:$CALMARG_DATA/L1-calibration.dat}|" \
+    .travis/ref_ini/bilby_GW150914.ini > $CALMARG_BILBY_INI
+
+# The baseline smoke build now reaches the final calibration combine. Keep the
+# checked-in general-purpose ini unchanged; render the two build-only deltas
+# here, with an absolute Bilby ini because pseudo_pipe changes directories.
+CALMARG_INI=`pwd`/test_build_calmarg.ini
+sed \
+    -e 's/^calibration-reweighting=False/calibration-reweighting=True/' \
+    -e 's/^calibration-reweighting-batchsize=200/calibration-reweighting-batchsize=200\ncalibration-reweighting-count=2/' \
+    -e "s|^bilby-ini-file=.*|bilby-ini-file=\"$CALMARG_BILBY_INI\"|" \
+    $REF_INI > $CALMARG_INI
+
+# Fast mutation tests prove that the structural gate itself fails for the
+# regressions it claims to catch, instead of merely passing one golden DAG.
+PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python -m pytest -q \
+    MonteCarloMarginalizeCode/Code/test/test_dag_build_contract.py
+
+# require a flag to be present in a file
+assert_has() {  # file pattern
+    if ! grep -q -- "$2" "$1"; then
+        echo "FAIL: expected '$2' in $1"; exit 1
+    fi
+}
+# require a flag to be absent from a file
+assert_absent() {  # file pattern
+    if grep -q -- "$2" "$1"; then
+        echo "FAIL: did not expect '$2' in $1"; exit 1
+    fi
+}
+
+# --- 1. full handoff build (extends the original baseline smoke test) ---
+util_RIFT_pseudo_pipe.py --use-ini $CALMARG_INI --use-coinc $COINC --use-rundir `pwd`/test_build_pipe --fake-data-cache `pwd`/foo.cache
+python $DAG_CONTRACT `pwd`/test_build_pipe --report `pwd`/test_build_pipe/dag-contract.json
+echo "OK: generated DAG reaches calibration marginalization without a premature-success exit"
+
+# --- 2. Plan-A distance-grid export, threaded onto the extrinsic stage ---
+# Distance marginalization must stay ON for the intrinsic ILE jobs (speedup)
+# and be disabled ONLY at the extrinsic export stage. The trailing space in
+# the pattern matches the standalone --distance-marginalization flag but not
+# --distance-marginalization-lookup-table.
+util_RIFT_pseudo_pipe.py --use-ini $REF_INI --use-coinc $COINC --use-rundir `pwd`/test_build_grid --fake-data-cache `pwd`/foo.cache --add-extrinsic --export-marginal-distance-grid
+assert_has    `pwd`/test_build_grid/ILE_extr.sub "--export-marginal-distance-grid"
+assert_has    `pwd`/test_build_grid/ILE_extr.sub "--internal-use-lnL"
+assert_absent `pwd`/test_build_grid/ILE.sub      "--export-marginal-distance-grid"
+assert_has    `pwd`/test_build_grid/args_ile.txt "--distance-marginalization "
+assert_has    `pwd`/test_build_grid/ILE.sub      "--distance-marginalization "
+assert_absent `pwd`/test_build_grid/ILE_extr.sub "--distance-marginalization "
+echo "OK: Plan-A grid export only on ILE_extr.sub; distance marginalization disabled only at the extrinsic stage"
+
+# --- 3. Plan-B distance-slice export, threaded onto the extrinsic stage ---
+util_RIFT_pseudo_pipe.py --use-ini $REF_INI --use-coinc $COINC --use-rundir `pwd`/test_build_slices --fake-data-cache `pwd`/foo.cache --add-extrinsic --export-distance-slices 10 --export-distance-slices-wing-delta-lnL 7.0 --export-distance-slices-skip-threshold 1.0
+assert_has    `pwd`/test_build_slices/ILE_extr.sub "--export-distance-slices 10"
+assert_has    `pwd`/test_build_slices/ILE_extr.sub "--distance-slice-wing-delta-lnL 7.0"
+assert_has    `pwd`/test_build_slices/ILE_extr.sub "--distance-slice-skip-threshold 1.0"
+assert_has    `pwd`/test_build_slices/ILE_extr.sub "--internal-use-lnL"
+assert_absent `pwd`/test_build_slices/ILE.sub      "--export-distance-slices"
+assert_has    `pwd`/test_build_slices/args_ile.txt "--distance-marginalization "
+assert_has    `pwd`/test_build_slices/ILE.sub      "--distance-marginalization "
+assert_absent `pwd`/test_build_slices/ILE_extr.sub "--distance-marginalization "
+echo "OK: Plan-B slice export only on ILE_extr.sub; distance marginalization disabled only at the extrinsic stage"
+
+# --- 4. Gauss-early ('G') CIP groups use the alternate exe where a real CIP runs ---
+# --use-gauss-early makes the first cip-args-list entry a G group.  Two regimes:
+#
+# 4a. Non-flat exploded jobs (gp fit method): the master job runs a real
+#     CIP (it saves the shared fit), so the G exe must land in the master sub
+#     (CIP_0.sub) and not just the worker sub; non-G groups keep the standard
+#     CIP.  Without explode jobs the master is the only CIP, same assignment.
+#     The ini's [rift-pseudo-pipe] section overrides the command line, so the
+#     gp fit method must be set in an ini variant, not via --cip-fit-method.
+GAUSS_INI=`pwd`/test_build_gauss_gpfit.ini
+sed 's/^cip-fit-method=.*/cip-fit-method="gp"/' $REF_INI > $GAUSS_INI
+util_RIFT_pseudo_pipe.py --use-ini $GAUSS_INI --use-coinc $COINC --use-rundir `pwd`/test_build_gauss --fake-data-cache `pwd`/foo.cache --use-gauss-early
+assert_has    `pwd`/test_build_gauss/CIP_0.sub        "GaussianResampling"
+assert_absent `pwd`/test_build_gauss/CIP_0.sub        "GenericCoordinates"
+assert_has    `pwd`/test_build_gauss/CIP_worker0.sub  "GaussianResampling"
+assert_has    `pwd`/test_build_gauss/CIP_1.sub        "GenericCoordinates"
+assert_absent `pwd`/test_build_gauss/CIP_1.sub        "GaussianResampling"
+echo "OK: gauss-early G group uses GaussianResampling in master and worker subs (non-flat)"
+
+# 4b. Flat exploded jobs (default here: non-gp fit method): no shared fit, so
+#     the master is a documented /bin/true no-op for EVERY group -- including G
+#     groups, whose exe must appear only in the worker sub.  Matches the
+#     non-per-iteration CIP.sub, which is also /bin/true in flat mode.
+util_RIFT_pseudo_pipe.py --use-ini $REF_INI --use-coinc $COINC --use-rundir `pwd`/test_build_gauss_flat --fake-data-cache `pwd`/foo.cache --use-gauss-early
+# CIP.sub (the non-per-iteration master) goes /bin/true via long-standing
+# separate code; it doubles as the witness that this render really is flat.
+assert_has    `pwd`/test_build_gauss_flat/CIP.sub            "/bin/true"
+assert_has    `pwd`/test_build_gauss_flat/CIP_0.sub          "/bin/true"
+assert_absent `pwd`/test_build_gauss_flat/CIP_0.sub          "GaussianResampling"
+assert_absent `pwd`/test_build_gauss_flat/CIP_0.sub          "GenericCoordinates"
+assert_has    `pwd`/test_build_gauss_flat/CIP_worker0.sub    "GaussianResampling"
+assert_has    `pwd`/test_build_gauss_flat/CIP_1.sub          "/bin/true"
+assert_has    `pwd`/test_build_gauss_flat/CIP_worker1.sub    "GenericCoordinates"
+echo "OK: flat explode mode keeps the no-op /bin/true master for G and non-G groups"
+
+echo "test-build.sh: all pipeline-build checks passed"

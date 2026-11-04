@@ -1,0 +1,75 @@
+# Example hyperpipe configuration that enables the parsimonious-placement
+# tracer workflow.
+#
+# Differences from the baseline hyperpipe_conf.yaml in this directory:
+#
+#   * puff.exe         -> util_HyperparameterTracerUpdate.py
+#                         (the tracer drop-in for util_HyperparameterPuffball.py)
+#   * puff.input-source = marg_net
+#                         tracer consumes all.marg_net (ILE-evaluated table)
+#                         and writes grid-{k+1}.dat directly, suppressing the
+#                         MARG_PUFF lane entirely. *Required* alongside a
+#                         tracer-aware puff.exe -- without it the pipeline
+#                         falls back to legacy posterior-mode wiring and
+#                         emits the MARG_PUFF lane with grid_puff-*.dat I/O.
+#   * puff.settings    -> sampler hyperparameters (smc-mala-bd / RF surrogate)
+#
+# The savings (~1.7-1.8x for N=5-6) come from killing the MARG_PUFF lane,
+# not from skipping MARG. MARG runs every iteration as normal -- the tracer
+# consumes each iteration's all.marg_net to place the next grid.
+#
+# Run with:
+#     util_RIFT_hyperpipe.py --config ./hyperpipe_conf_tracer.yaml
+#
+# Override any field on the command line with Hydra syntax, e.g.:
+#     util_RIFT_hyperpipe.py --config ./hyperpipe_conf_tracer.yaml \
+#         arch.n-iterations=6 puff.settings.update-method=birth-death
+
+arch:
+  method: default
+  n-iterations: 5
+  n-samples-per-job: 1000
+  explode-marg-jobs: 5
+  start-iteration: 0
+
+post:
+  coords-fit: "x y z"
+  coords-sample: "x:[-7,7] y:[-7,7] z:[-7,7]"
+  settings:
+    fit-method: rf
+
+marg-list:
+  - name: Gaussian
+    exe: example_gaussian.py
+    args: "--outdir Gaussian_example --conforming-output-name"
+    n-chunk: 100
+
+puff:
+  # Tracer-aware updater. Falls back to puffball automatically if
+  # RIFT.misc.tracer_placement is not importable (e.g. mismatched RIFT
+  # version), so this config remains usable even on older worker images.
+  exe: util_HyperparameterTracerUpdate.py
+  # REQUIRED for the tracer pathway -- without this the pipeline runs the
+  # tracer in legacy posterior mode and also emits the MARG_PUFF lane,
+  # which reads grid_puff-{k+1}.dat (not produced when tracer-only-marg is
+  # on, so MARG_PUFF jobs fail with "No such file or directory").
+  input-source: marg_net
+  puff-factor: 0.5
+  force-away: 0.03
+  settings:
+    update-method: smc-mala-bd   # primary recommendation (Tier-1 results)
+    tracer-fit-method: rf        # production default; cheap to rebuild
+    n-mala-steps: 8
+    target-ess-frac: 0.5
+    birth-death-rate: 1.0
+    rng-seed: null               # set to an int for deterministic runs
+
+init:
+  file: blind_gaussian_3d_xy_plus.dat
+
+general:
+  rundir: rundir_tracer
+  # Demo footprint: a 3-D Gaussian toy needs ~tens of MB per job, not the
+  # 16 GB baseline default tuned for GW PE. Bump back up if you adapt this
+  # for production hyperpipe runs.
+  request-memory: 200

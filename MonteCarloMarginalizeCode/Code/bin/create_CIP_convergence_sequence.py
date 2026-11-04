@@ -16,11 +16,14 @@ import lal
 import functools
 import itertools
 
-from glue import pipeline # https://github.com/lscsoft/lalsuite-archive/blob/5a47239a877032e93b1ca34445640360d6c3c990/glue/glue/pipeline.py
-
-import RIFT.misc.dag_utils as dag_utils
-from RIFT.misc.dag_utils import mkdir
-from RIFT.misc.dag_utils import which
+# Use the backend-neutral dag_utils_generic.  It exposes a `pipeline`
+# namespace with CondorDAG/CondorDAGNode/CondorDAGJob/CondorDAGManJob classes
+# that work under either the htcondor python bindings or, as a fallback, the
+# legacy glue.pipeline interface.
+import RIFT.misc.dag_utils_generic as dag_utils
+from RIFT.misc.dag_utils_generic import mkdir
+from RIFT.misc.dag_utils_generic import which
+from RIFT.misc.dag_utils_generic import pipeline
 
 
 parser = argparse.ArgumentParser()

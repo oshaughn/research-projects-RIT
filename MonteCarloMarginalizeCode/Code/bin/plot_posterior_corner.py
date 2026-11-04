@@ -220,6 +220,7 @@ parser.add_argument("--composite-file-has-labels",action='store_true',help="Assu
 parser.add_argument("--use-all-composite-but-grayscale",action='store_true',help="Composite")
 parser.add_argument("--flag-tides-in-composite",action='store_true',help='Required, if you want to parse files with tidal parameters')
 parser.add_argument("--flag-eos-index-in-composite",action='store_true',help='Required, if you want to parse files with EOS index in composite (and tides)')
+parser.add_argument("--source-redshift", default=None, type=float,help="Source redshift. Solely for use in converting composite files, assumed to be in detector frame, for comparison with files that use m1,m2 and are interpreted as source frame.")
 parser.add_argument("--posterior-label",action='append',help="label for posterior file")
 parser.add_argument("--external-exact-marginals",type=str,help="Provide this routne for EXACT marginals")
 parser.add_argument("--posterior-color",action='append',help="color and linestyle for posterior. PREPENDED onto default list, so defaults exist")
@@ -245,13 +246,49 @@ parser.add_argument("--meanPerAno-min",default=0,type=float)
 parser.add_argument("--meanPerAno-max",default=2*np.pi,type=float)
 parser.add_argument("--ecc-min",default=0,type=float)
 parser.add_argument("--ecc-max",default=1,type=float)
+parser.add_argument("--a6c-min",default=-80,type=float)
+parser.add_argument("--a6c-max",default=-20,type=float)
 parser.add_argument("--lnL-cut",default=None,type=float)
 parser.add_argument("--sigma-cut",default=0.4,type=float)
+parser.add_argument("--hyperbolic", action="store_true", help="Read sample files in format including hyperbolic")
+parser.add_argument("--a6c", action="store_true", help="Read sample files in format including a6c")
 parser.add_argument("--eccentricity", action="store_true", help="Read sample files in format including eccentricity")
 parser.add_argument("--meanPerAno", action="store_true", help="Read sample files in format including meanPerAno - assumes eccentricity also present")
 parser.add_argument("--matplotlib-block-defaults",action="store_true",help="Relies entirely on user to set plot options for plot styles from matplotlibrc")
 parser.add_argument("--no-mod-psi",action="store_true",help="Default is to take psi mod pi. If present, does not do this")
+parser.add_argument("--downselect-parameter",action='append', help='Name of parameter to be used to eliminate grid points ')
+parser.add_argument("--downselect-parameter-range",action='append',type=str)
+# ---- User-supplied coordinate-convert plugin (additive; the hardcoded RIFT
+#      conversion path is untouched).  When --supplementary-coordinate-code is
+#      omitted these flags are a no-op and plotting behaves byte-identically
+#      to the legacy tool.  When supplied, the plugin runs AFTER the existing
+#      per-file postprocessing -- it can only ADD columns to the record array,
+#      never override or shadow a name the RIFT path already produced.  See
+#      RIFT.misc.coordinate_plugin for the plugin contract.
+parser.add_argument("--supplementary-coordinate-code", default=None, type=str,
+                    help="Coordinate conversion plugin spec. Accepts the literal 'rift_default', "
+                         "a filesystem path to a .py file, or an importable dotted module name. "
+                         "When set, the plugin is loaded and used to materialize additional "
+                         "named columns on every loaded posterior / composite file -- columns "
+                         "already produced by the RIFT hardcoded path (extract_combination_from_LI "
+                         "etc.) are NOT overridden.")
+parser.add_argument("--supplementary-coordinate-function", default=None, type=str,
+                    help="Entry-point callable inside the plugin module. Defaults to 'convert_coordinates'.")
+parser.add_argument("--supplementary-coordinate-ini", default=None, type=str,
+                    help="Optional ini file parsed and handed to the plugin's prepare() hook.")
+parser.add_argument("--supplementary-coordinate-chart", default=None, type=str,
+                    help="Which chart (coordinate system) defined by the plugin to use. Required only "
+                         "when the plugin defines multiple charts; otherwise auto-resolved.")
+parser.add_argument("--supplementary-coordinate-input-parameter", action='append', default=None,
+                    help="Existing posterior/composite column name to feed to the plugin as input. "
+                         "Repeat for each input column. If omitted, the plugin's CHARTS[chart] "
+                         "input_parameters / INPUT_PARAMETERS attribute is used.")
+parser.add_argument("--supplementary-coordinate-output-parameter", action='append', default=None,
+                    help="Name of a column the plugin should produce and add to the record arrays. "
+                         "Repeat for each output column. If omitted, the plugin's CHARTS[chart] "
+                         "parameters / OUTPUT_PARAMETERS attribute is used.")
 parser.add_argument("--verbose",action='store_true',help='print matplotlibrc data')
+parser.add_argument("--no-special-param-ranges",action='store_true',help='Wipe all artifical param ranges; let samples guide the ranges')
 opts=  parser.parse_args()
 
 plt.rc('axes',unicode_minus=False)
@@ -285,6 +322,147 @@ if opts.posterior_file is None:
 if opts.pdf:
     fig_extension='.pdf'
 
+
+downselect_dict = {}
+dlist = []
+dlist_ranges=[]
+if opts.downselect_parameter:
+    dlist = opts.downselect_parameter
+    dlist_ranges  = list(map(eval,opts.downselect_parameter_range))
+else:
+    dlist = []
+    dlist_ranges = []
+if len(dlist) != len(dlist_ranges):
+    print(" downselect parameters inconsistent", dlist, dlist_ranges)
+for indx in np.arange(len(dlist_ranges)):
+    downselect_dict[dlist[indx]] = dlist_ranges[indx]
+if opts.downselect_parameter:
+    print("Parameter downselect " , downselect_dict)
+
+
+# ---------------------------------------------------------------------------
+# Optional coordinate-convert plugin.
+#
+# Loaded ONCE up front; the converter and the input/output name lists are
+# captured as module-level closures so the per-file materialize step below
+# is cheap.  Skipped entirely when --supplementary-coordinate-code is unset,
+# so the legacy invocation is byte-identical to the pre-plugin tool.
+#
+# Design note (don't break the hardcoded RIFT path): the plugin only ever
+# ADDS columns to a record array.  The `_materialize_plugin_columns`
+# helper skips any output name that already exists in samples.dtype.names,
+# so the converter cannot shadow a parameter produced by
+# `extract_combination_from_LI` or by the file-load hot loop's
+# `add_field`-based postprocessing.  The standard `samples[param] ... else
+# extract_combination_from_LI(...)` fallback at the plot-data extraction
+# sites just transparently finds the new columns when the user asks for
+# them.
+# ---------------------------------------------------------------------------
+_coord_plugin_converter = None
+_coord_plugin_in_names = []
+_coord_plugin_out_names = []
+if opts.supplementary_coordinate_code:
+    from RIFT.misc.coordinate_plugin import load_coordinate_converter
+
+    # Reuse the same loader util_ConstructEOSPosterior.py uses, so the
+    # plugin contract (CHARTS / prepare / register_priors / etc.) is
+    # exercised consistently across the codebase.  prior_map/prior_range_map
+    # are unused here (plotting doesn't sample anything) -- pass None so the
+    # loader doesn't try to install priors we'd ignore.
+    _coord_plugin_converter, _coord_plugin_module = load_coordinate_converter(
+        spec=opts.supplementary_coordinate_code,
+        function_name=opts.supplementary_coordinate_function,
+        ini_path=opts.supplementary_coordinate_ini,
+        coord_names=opts.supplementary_coordinate_output_parameter,
+        low_level_coord_names=opts.supplementary_coordinate_input_parameter,
+        chart=opts.supplementary_coordinate_chart,
+        opts=opts,
+        prior_map=None,
+        prior_range_map=None,
+    )
+
+    # Resolve the input/output name lists.  Priority: explicit CLI override
+    # > selected chart's declared names > module-level INPUT/OUTPUT_PARAMETERS.
+    _chart_spec = (
+        getattr(_coord_plugin_module, "CHARTS", {}).get(opts.supplementary_coordinate_chart)
+        if opts.supplementary_coordinate_chart
+        else None
+    )
+    if _chart_spec is None:
+        _charts = getattr(_coord_plugin_module, "CHARTS", None) or {}
+        if len(_charts) == 1:
+            _chart_spec = next(iter(_charts.values()))
+
+    _coord_plugin_out_names = list(
+        opts.supplementary_coordinate_output_parameter
+        or (_chart_spec.get("parameters") if _chart_spec else None)
+        or getattr(_coord_plugin_module, "OUTPUT_PARAMETERS", [])
+    )
+    _coord_plugin_in_names = list(
+        opts.supplementary_coordinate_input_parameter
+        or (_chart_spec.get("input_parameters") if _chart_spec else None)
+        or getattr(_coord_plugin_module, "INPUT_PARAMETERS", [])
+    )
+    if not _coord_plugin_out_names or not _coord_plugin_in_names:
+        raise ValueError(
+            "Coordinate plugin loaded but the input/output column names "
+            "could not be determined from CHARTS / INPUT_PARAMETERS / "
+            "OUTPUT_PARAMETERS. Pass --supplementary-coordinate-input-parameter "
+            "and --supplementary-coordinate-output-parameter explicitly."
+        )
+    print(
+        " plot_posterior_corner: coordinate plugin will materialize {} "
+        "from {} on every loaded posterior / composite file.".format(
+            _coord_plugin_out_names, _coord_plugin_in_names
+        )
+    )
+
+
+def _materialize_plugin_columns(samples, source_label=""):
+    """Return ``samples`` with the plugin's output columns spliced in.
+
+    Pure no-op when no plugin is loaded, when the plugin's required input
+    columns are missing from ``samples``, or when every output name is
+    already present (the legacy RIFT path wins by virtue of running first).
+    """
+    if _coord_plugin_converter is None:
+        return samples
+    missing_in = [n for n in _coord_plugin_in_names if n not in samples.dtype.names]
+    if missing_in:
+        print(
+            "  coordinate plugin: input column(s) {!r} missing from {!r}; "
+            "skipping conversion for this file.".format(missing_in, source_label or "samples")
+        )
+        return samples
+    # Names already in samples are NOT overridden -- the RIFT hardcoded path
+    # (and any per-file postprocessing) wins.  This is the only line that
+    # protects the legacy code path from a misconfigured plugin.
+    new_names = [n for n in _coord_plugin_out_names if n not in samples.dtype.names]
+    if not new_names:
+        return samples
+    x_in = np.column_stack(
+        [np.asarray(samples[n], dtype=float) for n in _coord_plugin_in_names]
+    )
+    y = _coord_plugin_converter(
+        x_in,
+        coord_names=_coord_plugin_out_names,
+        low_level_coord_names=_coord_plugin_in_names,
+    )
+    y = np.asarray(y, dtype=float)
+    if y.shape != (len(samples), len(_coord_plugin_out_names)):
+        raise ValueError(
+            "coordinate plugin returned shape {!r}, expected {!r}".format(
+                y.shape, (len(samples), len(_coord_plugin_out_names))
+            )
+        )
+    out = samples
+    for name in new_names:
+        col_indx = _coord_plugin_out_names.index(name)
+        out = add_field(out, [(name, float)])
+        out[name] = y[:, col_indx]
+    return out
+
+
 truth_P_list = None
 P_ref = None
 truth_dat = None
@@ -315,6 +493,7 @@ special_param_ranges = {
   'chi_pavg':[0,2],
   'chi_p':[0,1],
   'lambdat':[0,4000],
+  'a6c':[opts.a6c_min,opts.a6c_max],
   'eccentricity':[opts.ecc_min,opts.ecc_max],
   'meanPerAno':[opts.meanPerAno_min,opts.meanPerAno_max]
 }
@@ -329,7 +508,9 @@ if opts.bind_param:
          special_param_ranges[par]=eval(opts.param_bound[i])
          print(par +" range ",special_param_ranges[par])
 
-
+if opts.no_special_param_ranges:
+    special_param_ranges = {}
+    print("WARNING: Special Parameter Ranges being erased; make sure you want to do this!")
 # Parameters
 param_list = opts.parameter
 
@@ -371,7 +552,8 @@ label_list = []
 if opts.posterior_file:
  for fname in opts.posterior_file:
     samples = np.genfromtxt(fname,names=True,replace_space=None)  # don't replace underscores in names
-    samples = standard_expand_samples(samples)
+    if 'm1' in samples.dtype.names:
+        samples = standard_expand_samples(samples)
 #    if not(opts.no_mod_psi) and 'psi' in samples.dtype.names:
 #        samples['psi'] = np.mod(samples['psi'],np.pi)
     for name in samples.dtype.names:
@@ -447,6 +629,23 @@ if opts.posterior_file:
             new_samples[name] = samples[name][indx_ok]
         samples = new_samples
 
+    # impose downselect on samples
+    if len(downselect_dict.keys()) > 0:
+        indx_ok = np.ones(len(samples),dtype=bool)
+        print(" Downselecting input samples for file ", fname, len(samples))
+        for param in downselect_dict:
+            if not param in samples.dtype.names:
+                print(" FAILURE TO DOWNSELECT ON  ", param)
+                continue
+            indx_ok = np.logical_and(indx_ok, np.logical_and(samples[param] > downselect_dict[param][0], samples[param]<=downselect_dict[param][1]))
+            print("   {} : {} ", param, np.sum(indx_ok))
+        samples = samples[indx_ok]
+        
+
+    # Splice in any user-supplied coordinate-plugin output columns
+    # AFTER the legacy RIFT postprocessing has finished, never before.
+    # No-op when --supplementary-coordinate-code is unset.
+    samples = _materialize_plugin_columns(samples, source_label=fname)
 
     # Save samples
     posterior_list.append(samples)
@@ -489,12 +688,21 @@ composite_full_list = []
 field_names=("indx","m1", "m2",  "a1x", "a1y", "a1z", "a2x", "a2y", "a2z","lnL", "sigmaOverL", "ntot", "neff")
 if opts.flag_tides_in_composite:
     if opts.flag_eos_index_in_composite:
-        print(" Reading composite file, assumingtide/eos-index-based format ")
+        print(" Reading composite file, assuming tide/eos-index-based format ")
         field_names=("indx","m1", "m2",  "a1x", "a1y", "a1z", "a2x", "a2y", "a2z","lambda1", "lambda2", "eos_indx","lnL", "sigmaOverL", "ntot", "neff")
+    elif opts.a6c:
+        print(" Reading composite file, assuming tide-based format with EOB parameter a6c ")
+        field_names=("indx","m1", "m2",  "a1x", "a1y", "a1z", "a2x", "a2y", "a2z","lambda1", "lambda2", "a6c","lnL", "sigmaOverL", "ntot", "neff")
     else:
         print(" Reading composite file, assuming tide-based format ")
         field_names=("indx","m1", "m2",  "a1x", "a1y", "a1z", "a2x", "a2y", "a2z","lambda1", "lambda2", "lnL", "sigmaOverL", "ntot", "neff")
-if opts.eccentricity:
+elif opts.hyperbolic:
+    print(" Reading composite file, assuming hyperbolic-based format ")
+    field_names=("indx","m1", "m2",  "a1x", "a1y", "a1z", "a2x", "a2y", "a2z","E0", "p_phi0", "lnL", "sigmaOverL", "ntot", "neff")
+elif opts.a6c and (not opts.flag_tides_in_composite):
+    print(" Reading composite file, assuming non-tide-based format with EOB parameter a6c ")
+    field_names=("indx","m1", "m2",  "a1x", "a1y", "a1z", "a2x", "a2y", "a2z", "a6c","lnL", "sigmaOverL", "ntot", "neff")
+elif opts.eccentricity:
     print(" Reading composite file, assuming eccentricity-based format ")
     if opts.meanPerAno:
         print(" Reading composite file, assuming mpa-based format ")
@@ -510,9 +718,14 @@ if opts.composite_file:
     print(" Loading ... ", fname)
     if not(opts.composite_file_has_labels):
         samples = np.loadtxt(fname,dtype=composite_dtype)  # Names are not always available
+        if opts.source_redshift:
+            samples['m1'] *= 1./(1+opts.source_redshift)
+            samples['m2'] *= 1./(1+opts.source_redshift)
     else:
         samples = np.genfromtxt(fname,names=True)
         samples = rfn.rename_fields(samples, {'sigmalnL': 'sigmaOverL', 'sigma_lnL': 'sigmaOverL'})   # standardize names, some drift in labels
+        if opts.source_redshift:
+            print(" WARNING SOURCE REDSHIFT SCALING NOT IMPLEMENTED FOR THIS PATH")
     # enforce periodicity
     for name in samples.dtype.names:
         if name in lalsimutils.periodic_params:
@@ -535,12 +748,15 @@ if opts.composite_file:
 #    samples = np.recarray(samples.T,names=field_names,dtype=field_formats) #,formats=field_formats)
     # If no record names
     # Add mtotal, q, 
-    if 'm1' in samples.dtype.names:
-        samples=add_field(samples,[('mtotal',float)]); samples["mtotal"]= samples["m1"]+samples["m2"]; 
-        samples=add_field(samples,[('q',float)]); samples["q"]= samples["m2"]/samples["m1"]; 
-        samples=add_field(samples,[('mc',float)]); samples["mc"] = lalsimutils.mchirp(samples["m1"], samples["m2"])
+    if 'm1' in samples.dtype.names and not 'q' in samples.dtype.names:
+        samples=add_field(samples,[('mtotal',float)]); samples["mtotal"]= samples["m1"]+samples["m2"];
+        if not 'q' in samples.dtype.names:
+            samples=add_field(samples,[('q',float)]); samples["q"]= samples["m2"]/samples["m1"];
+        if not 'mc' in samples.dtype.names:
+            samples=add_field(samples,[('mc',float)]); samples["mc"] = lalsimutils.mchirp(samples["m1"], samples["m2"])
         samples=add_field(samples,[('eta',float)]); samples["eta"] = lalsimutils.symRatio(samples["m1"], samples["m2"])
-        samples=add_field(samples,[('chi_eff',float)]); samples["chi_eff"]= (samples["m1"]*samples["a1z"]+samples["m2"]*samples["a2z"])/(samples["mtotal"]); 
+        if not 'chi_eff' in samples.dtype.names:
+            samples=add_field(samples,[('chi_eff',float)]); samples["chi_eff"]= (samples["m1"]*samples["a1z"]+samples["m2"]*samples["a2z"])/(samples["mtotal"]); 
         chi1_perp = np.sqrt(samples['a1x']*samples["a1x"] + samples['a1y']**2)
         chi2_perp = np.sqrt(samples['a2x']**2 + samples['a2y']**2)
         samples = add_field(samples, [('chi1_perp',float)]); samples['chi1_perp'] = chi1_perp
@@ -552,6 +768,11 @@ if opts.composite_file:
         samples['phi1'] = phi1
         samples['phi2'] = phi2
         samples['phi12'] = phi2 - phi1
+        
+        chi1 = np.sqrt(samples['a1x']**2 + samples['a1y']**2+samples['a1z']**2)
+        chi2 = np.sqrt(samples['a2x']**2 + samples['a2y']**2+samples['a2z']**2)
+        samples = add_field(samples, [('chi1',float), ('chi2',float)])
+
 
         if ('lambda1' in samples.dtype.names):
             Lt,dLt = lalsimutils.tidal_lambda_tilde(samples['m1'], samples['m2'],  samples['lambda1'], samples['lambda2'])
@@ -601,6 +822,21 @@ if opts.composite_file:
             samples = new_samples
             print(" Stripped samples  from ", fname , len(np.atleast_1d(samples["m1"])))
 
+    # impose downselect on composite file
+    if len(downselect_dict.keys()) < 1:
+        indx_ok = np.ones(len(samples),dtype=bool)
+        for param in downselect_dict:
+            if not param in samples.dtype.names:
+                print(" FAILURE TO DOWNSELECT ON  ", param)
+                continue
+            indx_ok = np.logical_and(indx_ok, np.logical_and(samples[param] > downselect_dict[param][0], samples[param]<=downselect_dict[param][1]))
+        samples = samples[indx_ok]
+
+
+    # Same plugin hook as the posterior loop above: only ADDS columns,
+    # never overrides what the composite-file postprocessing produced.
+    samples      = _materialize_plugin_columns(samples,      source_label=fname)
+    samples_orig = _materialize_plugin_columns(samples_orig, source_label=fname + " (pre-lnL-cut)")
 
     composite_list.append(samples)
     composite_full_list.append(samples_orig)

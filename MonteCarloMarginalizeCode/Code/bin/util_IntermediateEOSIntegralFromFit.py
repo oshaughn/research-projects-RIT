@@ -55,15 +55,20 @@ def eta_prior(x):
 def delta_mc_prior(x):
     """
     delta_mc = sqrt(1-4eta)  <-> eta = 1/4(1-delta^2)
-    Transform the prior above
+    Transform the prior above: |d eta/d delta| = delta/2, and the 1/sqrt(1-4eta) = 1/delta
+    of eta_prior cancels the delta, leaving eta^(-6/5)/(2*1.44)
     """
     eta_here = 0.25*(1 -x*x)
-    return 2./np.power(eta_here, 6./5.)/1.44
+    return 0.5/np.power(eta_here, 6./5.)/1.44
 def s_component_zprior(x,R=chi_max):
     # assume maximum spin =1. Should get from appropriate prior range
     # Integrate[-1/2 Log[Abs[x]], {x, -1, 1}] == 1
-    val = -1./(2*R) * np.log( (np.abs(x)/R+1e-7).astype(float))
-    return val
+    # The small number CLAMPS the log argument, it does not offset it: offsetting
+    # makes this density negative for |x| > R*(1-1e-7), and one spin-boundary
+    # sample then carries a negative importance weight.  The outer clamp gives the
+    # density its proper support, zero outside [-R,R].
+    val = -1./(2*R) * np.log( np.maximum(np.abs(x)/R, 1e-7).astype(float))
+    return np.maximum(val, 0.)
 
 
 

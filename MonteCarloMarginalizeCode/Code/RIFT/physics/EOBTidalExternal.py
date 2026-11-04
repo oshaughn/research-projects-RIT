@@ -48,11 +48,37 @@ MsunInSec = lal.MSUN_SI*lal.G_SI/lal.C_SI**3
 
 
 def myzero(arg):
+    """Returns zero. Used as a helper for boundary conditions in RangeWrap1d."""
     return 0
+
 def RangeWrap1d(bound, val,fn):
-    return fn   # IDEALLY not necessary with modern interp1d
+    """
+    Returns the function fn unmodified. This is a placeholder function for range wrapping.
+    
+    Note: In modern interp1d implementations, this may not be necessary.
+    
+    Args:
+        bound: Unused parameter (was intended for boundary).
+        val: Unused parameter (was intended for value outside bounds).
+        fn: Function to return.
+    
+    Returns:
+        The input function fn unchanged.
+    """
+    return fn
 
 def ModeToString(pair):
+    """
+    Converts a harmonic mode pair (l, m) into a string for filename lookup.
+    
+    Note: This is only used for positive l, m (single digit).
+    
+    Args:
+        pair (tuple): A tuple containing (l, m) integers.
+    
+    Returns:
+        str: Concatenated string of l and m (e.g., (2,2) -> '22').
+    """
     return str(pair[0])+str(pair[1])   # this is only used for POSITIVE l,m (single digit)
 
 
@@ -65,6 +91,24 @@ class WaveformModeCatalog:
 
     def __init__(self, P,  lmax=2,
                  align_at_peak_l2_m2_emission=True, mode_list_to_load=[],build_fourier_time_window=1000,clean_with_taper=True,use_internal_interpolation_deltaT=None,build_strain_and_conserve_memory=False,reference_phase_at_peak=None,fix_phase_zero_at_coordinate=False):
+        """
+        Initializes the WaveformModeCatalog with EOB tidal waveform data.
+
+        This class interfaces with the Bernuzzi EOB model to generate tidal waveforms.
+        It requires MATLAB and the external EOB code to be set up.
+
+        Args:
+            P (ChooseWaveformParams): Waveform parameters containing mass, lambda, etc.
+            lmax (int): Maximum harmonic mode l to load. Defaults to 2.
+            align_at_peak_l2_m2_emission (bool): Whether to align at the peak of the (2,2) mode. Defaults to True.
+            mode_list_to_load (list): List of specific modes to load.
+            build_fourier_time_window (int): Window size for Fourier transforms.
+            clean_with_taper (bool): Whether to apply tapering to clean the waveform. Defaults to True.
+            use_internal_interpolation_deltaT (float, optional): Time step for internal interpolation.
+            build_strain_and_conserve_memory (bool): Whether to build strain and conserve memory.
+            reference_phase_at_peak (float, optional): Reference phase at the peak.
+            fix_phase_zero_at_coordinate (bool): Whether to fix phase zero at a specific coordinate.
+        """
         self.P  = P
         self.quantity = "h"
         self.fOrbitLower =0.    #  Used to clean results.  Based on the phase of the 22 mode
@@ -214,6 +258,21 @@ class WaveformModeCatalog:
 
 
     def complex_hoft(self,  force_T=False, deltaT=1./16384, time_over_M_zero=0.,sgn=-1):
+        """
+        Generates a complex-valued time-domain waveform.
+
+        This method combines the harmonic modes into a single complex time series,
+        applying appropriate spin-weighted spherical harmonics and phase shifts.
+
+        Args:
+            force_T (float/bool): If provided as a float, forces the time window to this length.
+            deltaT (float): The time sampling interval. Defaults to 1/16384.
+            time_over_M_zero (float): Time offset for the window.
+            sgn (int): Sign used in the phase exponent. Defaults to -1.
+
+        Returns:
+            lal.COMPLEX16TimeSeries: The resulting complex time-domain waveform.
+        """
         hlmT = self.hlmoft( force_T, deltaT,time_over_M_zero)
         npts = hlmT[(2,2)].data.length
         wfmTS = lal.CreateCOMPLEX16TimeSeries("Psi4", lal.LIGOTimeGPS(0.), 0., deltaT, lalsimutils.lsu_DimensionlessUnit, npts)
@@ -226,6 +285,15 @@ class WaveformModeCatalog:
             wfmTS.data.data += np.exp(-2*sgn*1j*self.P.psi)* hlmT[mode].data.data*lal.SpinWeightedSphericalHarmonic(self.P.incl,-self.P.phiref,-2, int(mode[0]),int(mode[1]))
         return wfmTS
     def complex_hoff(self, force_T=False):
+        """
+        Generates the Fourier-transformed version of the complex time-domain waveform.
+
+        Args:
+            force_T (float/bool): If provided as a float, forces the time window length before FFT.
+
+        Returns:
+            lal.COMPLEX16FrequencySeries: The frequency-domain waveform.
+        """
         htC  = self.complex_hoft( force_T=force_T,deltaT= self.P.deltaT)
         TDlen = int(1./self.P.deltaF * 1./self.P.deltaT)
         assert TDlen == htC.data.length
@@ -328,11 +396,20 @@ class WaveformModeCatalog:
 
 
     def estimateFminHz(self):
+        """
+        Estimates the minimum frequency in Hz for the waveform based on the orbital frequency.
+
+        Returns:
+            float: The estimated minimum frequency in Hz.
+        """
         return 2*self.fOrbitLower/(MsunInSec*(self.P.m1+self.P.m2)/lal.MSUN_SI)
 
     def estimateDurationSec(self):
         """
-        estimateDuration uses the ACTUAL UNITS IN THE WAVEFORM, which are already in sec
+        Estimates the total duration of the waveform in seconds based on the (2,2) mode.
+
+        Returns:
+            float: The duration of the waveform in seconds.
         """
         return np.real(self.waveform_modes_complex[(2,2)][-1,0]-self.waveform_modes_complex[(2,2)][0,0]) # self.deltaToverM*(self.len(self.waveform_modes[(2,2)])
 

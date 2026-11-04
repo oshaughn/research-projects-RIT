@@ -5,9 +5,13 @@ Using the pipeline
 Basics
 ------
 
+For optional analytic fits of the joint extrinsic posterior, see
+:doc:`posterior_compression`. The final CIP stage determines the intrinsic
+spin prior used by those fits; the data rows come from the extrinsic export.
+
 The primary user-interface for this code is a command line tool
 :code:`util_RIFT_pseudo_pipe.py` which is available after following the `installation
-instructions <installation.txt>`_. To see the help for this tool, run
+instructions <installation.txt>`_. For detailed documentation, see :doc:`executables/util_RIFT_pseudo_pipe`. To see the help for this tool, run
 
 .. code-block:: console
 
@@ -24,17 +28,29 @@ involved via an ini file. To compare the options for ini file use versus command
    $ util_RIFT_pseudo_pipe.py --gracedb-id G329473 --approx IMRPhenomD --calibration C01 --make-bw-psds --l-max 2 --choose-data-LI-seglen
 
 Note that the code will use selected environment variables to identify optional external dependencies necessary
-for various features.  The most important feature for most users is their accounting access information 
+for various features.  The most important feature for most users is their accounting access information
 
 .. code-block:: console
-		
+
   export LIGO_USER_NAME=albert.einstein
   export LIGO_ACCOUNTING=ligo.dev.o4.rift
+
+For eccentric PE (:code:`--assume-eccentric`), preliminary CIP iteration
+groups use :code:`--eccentricity-prior uniform` to explore the likelihood.
+The pipeline option :code:`--eccentricity-prior log_uniform` selects the prior
+for every :code:`Z` run-to-convergence subdag and the final CIP argument
+group. A convergence subdag retains that target prior even when followed by
+a final extrinsic-sampling group; all of its child CIP jobs use the same prior.
+The default, :code:`uniform`, keeps all groups uniform. A schedule containing only one group uses the requested final
+prior throughout. Inspect :code:`args_cip_list.txt` before submission to see
+the prior assigned to each group. This scheduling policy also applies when
+extra CIP arguments specify an eccentricity prior; direct CIP invocations
+continue to use the prior passed to them.
 
 When you run :code:`util_RIFT_psuedo_pipe.py`, the pipeline will create a directory structure as follows:
 
 .. code-block:: console
-		
+	
    long_directory_name_here/
       -> local.cache
       -> iteration_0_ile/
@@ -47,15 +63,17 @@ When you run :code:`util_RIFT_psuedo_pipe.py`, the pipeline will create a direct
       -> CIP*.sub
       -> marginalize_intrinsic_parameters_BasicIterationWorkflow.dag 
 
+The directory structure and DAG workflow are created by the :doc:`executables/create_event_parameter_pipeline_BasicIteration` executable, which is called internally by ``util_RIFT_pseudo_pipe.py``. For detailed documentation on this pipeline generator, see :doc:`executables/create_event_parameter_pipeline_BasicIteration`.
+
 Inside each iteration file is a `logs` subdirectory.  The various iterations will be initially be empty, except for the
 logfile locations.  The top level directory contains several `*.sub` submission scripts, along with the top-level dag
-submission script.  
+submission script.
 
 The standard RIFT pipeline only works within an HTCondor scheduling environment. To submit the workflow, use
 
 .. code-block:: console
 
-    $ condor_submit_dag marginalize_intrinsic_parameters_BasicIterationWorkflow.dag 
+    $ condor_submit_dag marginalize_intrinsic_parameters_BasicIterationWorkflow.dag
 
 Before you submit a workflow, however, we recommend you first confirm you've set it up correctly by running one of the worker jobs interactively from the command line. This is a great way to catch common configuration errors. Within the directory, there should be a script called :code:`command-single.sh`. This contains a single worker job, so you can simply run this script to confirm that your worker jobs will proceed smoothly.
 
@@ -101,7 +119,7 @@ The ``ILE.sub`` file contains the call to and arguments for `integrate_likelihoo
 
 CIP.sub
 ^^^^^^^^^^^
-The file called ``CIP.sub`` contains the call to and arguments for `util_ConstructIntrinsicPosterior_GenericCoordinates.py <https://git.ligo.org/rapidpe-rift/rift/-/blob/temp-RIT-Tides-port_python3_restructure_package/MonteCarloMarginalizeCode/Code/bin/util_ConstructIntrinsicPosterior_GenericCoordinates.py>`__. During this step, the log-likelihoof data is loaded in and the peak is fitted using some particular coordinate system. This is passed as an input to the Monte Carlo sampler where samples are drawn from the posterior distribution. These samples become the inputs for the successive iteration. 
+The file called ``CIP.sub`` contains the call to and arguments for `util_ConstructIntrinsicPosterior_GenericCoordinates.py <https://git.ligo.org/rapidpe-rift/rift/-/blob/temp-RIT-Tides-port_python3_restructure_package/MonteCarloMarginalizeCode/Code/bin/util_ConstructIntrinsicPosterior_GenericCoordinates.py>`__. During this step, the log-likelihoof data is loaded in and the peak is fitted using some particular coordinate system. This is passed as an input to the Monte Carlo sampler where samples are drawn from the posterior distribution. These samples become the inputs for the successive iteration.
 
 Initialization: PSDs and grids
 ------------------------------
@@ -113,7 +131,7 @@ Strongly recommended dependencies
 We strongly recommend you install `cuda` and `cupy`, and properly define your environment variables for such an install
 
 .. code-block:: console
-		
+
   # should be provided by igwn
   export CUDA_DIR=/usr/local/cuda  # only needed for GPU code
   export PATH=${PATH}:${CUDA_DIR}/bin  # only needed for GPU code
@@ -126,7 +144,7 @@ appropriate settings, and keep in mind some surrogates and/or simulations and/or
 publication or release to the broader community.
 
 .. code-block:: console
-		
+
    export NR_BASE=/home/oshaughn/unixhome/PersonalNRArchive/Archives/
    export GW_SURROGATE= # your installation of gwsurrogate goes here
    export PYTHONPATH=${PYTHONPATH}:${GW_SURROGATE}
@@ -144,7 +162,7 @@ For reference, here is the full output of
 .. highlight:: none
 
 .. code-block::
-   
+
    usage: util_RIFT_pseudo_pipe.py [-h] [--use-production-defaults] [--use-subdags] [--use-ini USE_INI] [--use-rundir USE_RUNDIR]
                                 [--use-online-psd-file USE_ONLINE_PSD_FILE] [--use-coinc USE_COINC] [--manual-ifo-list MANUAL_IFO_LIST] [--online]
                                 [--extra-args-helper EXTRA_ARGS_HELPER] [--manual-postfix MANUAL_POSTFIX] [--gracedb-id GRACEDB_ID] [--gracedb-exe GRACEDB_EXE]
@@ -186,10 +204,10 @@ Expand below for a description of each of the optional arguments:
 	      --manual-ifo-list MANUAL_IFO_LIST     Overrides IFO list normally retrieve by event ID. Use with care (e.g., glitch studies) or for events specified with --event-time.
 	      --online       online
 	      --extra-args-helper EXTRA_ARGS_HELPER        Filename with arguments for the helper. Use to provide alternative channel names and other advanced configuration (--channel-name, data type)!
-	      --manual-postfix MANUAL_POSTFIX        manual postfix      
-	      --gracedb-id GRACEDB_ID        event id from gracebd      
+	      --manual-postfix MANUAL_POSTFIX        manual postfix
+	      --gracedb-id GRACEDB_ID        event id from gracebd
 	      --gracedb-exe GRACEDB_EXE        exe from gracedb
-	      --use-legacy-gracedb       gracedb legacy       
+	      --use-legacy-gracedb       gracedb legacy
 	      --internal-use-gracedb-bayestar        Retrieve BS skymap from gracedb (bayestar.fits), and use it internally in integration with --use-skymap bayestar.fits.
 	      --event-time EVENT_TIME        Event time. Intended to override use of GracedbID. MUST provide --manual-initial-grid
 	      --calibration CALIBRATION        calibration
@@ -286,7 +304,6 @@ Expand below for a description of each of the optional arguments:
 
 
 
-			
 
 
 
@@ -302,4 +319,5 @@ Expand below for a description of each of the optional arguments:
 
 
 
-			  
+
+

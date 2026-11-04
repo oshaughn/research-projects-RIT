@@ -1,0 +1,6 @@
+kind: analysis
+name: generate-psd
+pipeline: bayeswave
+comment: Bayeswave on-source PSD estimation process
+needs:
+    - get-priors

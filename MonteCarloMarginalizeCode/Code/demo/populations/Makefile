@@ -1,11 +1,11 @@
 PWD=$(shell pwd)
-ENV_NAME=pop-ecc-inj
+ENV_NAME=rift-pop
 
 
-USER=katelyn.wagner
+USER=muhammad.zeeshan
 # note this *MUST* match dirname in your ini file
 RUNDIR='${PWD}/ecc_injections'
-PARAM_FILE='${PWD}/inj_demo.dat'
+PARAM_FILE='${PWD}/injections.dat'
 INI_FILE='${PWD}/pop-example.ini'
 
 WRITE_MDC='/home/$(USER)/.conda/envs/$(ENV_NAME)/src/research-projects-RIT/MonteCarloMarginalizeCode/Code/demo/populations/write_mdc.py'
@@ -17,10 +17,11 @@ setup-env:
 	conda activate $(ENV_NAME) && \
 	cd ~/.conda/envs/$(ENV_NAME) && mkdir src && cd src && \
 	git clone https://github.com/oshaughn/research-projects-RIT.git && \
-	cd research-projects-RIT && git checkout rift_O4c && \
+	cd research-projects-RIT && git checkout rift_O4d && \
 	pip install -e . && \
 	pip install --upgrade scipy && \
-	pip install --upgrade pyseobnr)
+	pip install --upgrade pyseobnr && \
+	pip install numpy==1.24.4)
 
 injections:
 	(mkdir $(RUNDIR) && \
@@ -33,10 +34,10 @@ rundir:
         conda activate $(ENV_NAME) && \
 	export PATH="$$PATH:$(PP_RIFT_DIR)" && \
 	which pp_RIFT_with_ini && \
-	source ./setup.sh && pp_RIFT_with_ini --use-ini ${INI_FILE} --use-gwsignal --use-osg')
+	source ./setup.sh && pp_RIFT_with_ini --use-ini ${INI_FILE} --add-extrinsic --use-gwsignal --use-osg')
 
 submit:
 	(bash -c 'source /cvmfs/software.igwn.org/conda/etc/profile.d/conda.sh && \
 	conda activate $(ENV_NAME) && \
 	cd $(RUNDIR) && \
-	condor_submit_dag -import_env master.dag')
+	condor_submit_dag -import_env master_clean.dag')

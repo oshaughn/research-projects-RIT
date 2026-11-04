@@ -11,15 +11,46 @@ from collections import defaultdict
 
 import numpy
 np=numpy #import numpy as np
+from RIFT.precision import RiftFloat  # platform-portable replacement for np.float128
+from RIFT.integrators.rvs_record import RvsRecord, SamplerOutputMixin   # see DESIGN_rvs_naming.md
 from scipy import integrate, interpolate, special
 import itertools
 import functools
+import inspect
+
+
+def _select_av_stopping_statistic(max_weight, kish, metric="max-weight"):
+    """Select stopping statistic without changing the conservative native return."""
+    if metric not in ("max-weight", "kish"):
+        raise ValueError("av_stop_metric must be max-weight or kish")
+    return max_weight if metric == "max-weight" else kish
+
+
+def _av_weight_statistics_from_log(log_weights):
+    """Stable counts of the retained weighted sample; neither is an output count."""
+    values = np.asarray(log_weights, dtype=float)
+    if values.ndim != 1 or not len(values) or not np.all(np.isfinite(values)):
+        raise ValueError("retained log weights must be a nonempty finite vector")
+    weights = np.exp(values - np.max(values))
+    total = np.sum(weights)
+    return {"max_weight": float(total), "kish": float(total ** 2 / np.sum(weights ** 2))}
+
+
+@functools.lru_cache(maxsize=None)
+def _prior_pdf_accepts_xpy(fn):
+    """True if a prior_pdf callable takes an `xpy` kwarg.  prior_prod passes xpy=numpy to
+    those that accept it, so a prior that binds a device backend still evaluates on the
+    host CPU copy."""
+    try:
+        return 'xpy' in inspect.signature(fn).parameters
+    except (TypeError, ValueError):
+        return False
 
 import os
 
 try:
   import cupy
-  import cupyx   # needed for logsumexp
+  import cupyx.scipy.special   # needed for logsumexp
   xpy_default=cupy
   try:
     xpy_special_default = cupyx.scipy.special
@@ -78,7 +109,7 @@ if not( 'RIFT_LOWLATENCY'  in os.environ):
  except:
     print(" - No healpy - ")
 
-from RIFT.integrators.statutils import  update,finalize, init_log,update_log,finalize_log
+from RIFT.integrators.statutils import  update,finalize, init_log,update_log,finalize_log, pareto_khat_from_log, ess_from_log_weights, bootstrap_lnZ_quantiles
 
 #from multiprocessing import Pool
 
@@ -88,11 +119,119 @@ __author__ = "R. O'Shaughnessy, V. Tiwari"
 
 rosDebugMessages = True
 
+# Opt-in per-cycle trace of the live-volume contraction (RIFT_AV_TRACE=1).  Diagnosing
+# a contraction failure needs the *sequence* of (n_finite, ninj, thr, nrec), which no
+# other output exposes; it is far too chatty for production, hence the env gate.
+_AV_TRACE = bool(os.environ.get('RIFT_AV_TRACE', ''))
+
+def _av_trace(msg):
+    if _AV_TRACE:
+        print("  [AV trace] " + msg)
+        sys.stdout.flush()
+
+def _warm_seed_rng(seed, stream):
+    """RNG for the warm-start seed clouds (the bootstrap_from_* family).
+
+    `seed=None` used to mean np.random.RandomState(None), which takes fresh OS
+    entropy and is reached by NOTHING that seed_everything touches -- so with the
+    driver's warm-start options on (their coverage floors default to 0.5, i.e. the
+    uniform cover cloud is drawn on every warm start) two invocations with the same
+    --seed built DIFFERENT live volumes, hence different draws and a different lnZ.
+    A warm seed cannot bias the integral, but it certainly moves it, which is
+    exactly what --seed exists to pin down.
+
+    So derive the stream from the run's seed instead, advancing a counter per call
+    so successive warm starts (one per intrinsic point) stay independent rather than
+    all sharing one coverage cloud.  An explicit integer `seed` still wins, and an
+    unseeded run still gets fresh entropy.
+    """
+    if seed is not None:
+        return np.random.RandomState(seed)
+    from RIFT.integrators.seeding import next_derived_rng
+    return next_derived_rng(stream)
+
 class NanOrInf(Exception):
     def __init__(self, value):
         self.value = value
     def __str__(self):
         return repr(self.value)
+
+class LiveVolumeCollapse(Exception):
+    """The adaptive-volume live set is empty (or carries no usable information).
+
+    Raised INSTEAD of the bare numpy/cupy "zero-size array to reduction operation
+    ... which has no identity" that the empty-live-volume path used to produce, so
+    callers and logs can tell a degenerate contraction apart from a waveform
+    generation failure.  See the collapse discussion in get_likelihood_threshold.
+    """
+    pass
+
+def live_volume_collapse_verdict(n_live, ndim, ess=None, khat=None,
+                                 n_empty_cycles=0, n_live_collapses=0,
+                                 n_warm_seed=None, n_warm_seed_rank=None,
+                                 n_warm_seed_dim=None):
+    """Has the adaptive-volume live set degenerated?  -> (collapsed, [reasons])
+
+    A degenerate contraction must be REPORTED rather than silently exported: the run
+    still returns a lnZ and a sample cloud, but both describe a single mode and the
+    cloud is not a fair posterior draw.
+
+    Thresholds, against the separation measured on zero-noise injections at a fixed
+    intrinsic point (rho_net 51 -> 147):
+        healthy    ESS 16.8-20.2,  k-hat 1.03-1.50   (rho 51.4, converges cold)
+        collapsed  ESS 1.0-1.7,    k-hat 21-202      (rho 103-147)
+      * n_live <= ndim -- a live set no larger than the dimension cannot span the
+        space, let alone describe a posterior in it.  Geometric, not tuned.
+      * ESS < 2 -- fewer than two effective samples IS one sample.
+      * ESS < 5 with k-hat > 10 -- near-degenerate AND a pathological weight tail.
+    The gap between the regimes is an order of magnitude wide, so these sit far from
+    both sides of it.  k-hat is deliberately NOT a gate on its own: it exceeds its
+    nominal 0.70 "unresolved tail" threshold even in the healthy runs on this problem,
+    and it is not always computable once the live set is tiny.
+
+    A WARM start fails the OTHER way, and none of the rules above see it: seeded from too
+    few points the grid contracts onto a sliver of the support, the integrand is then flat
+    across it, and the pass terminates in one cycle looking excellent -- large n_live, ESS
+    ~ n, small k-hat -- while lnZ is short by the mass outside the sliver.  Measured on 12
+    rho_net=146.8 rescue replicates: the eleven seeded from 2000 puffed points warm-started
+    at V = 7.5e-9 to 1.5e-8 (351-684 live bins) and returned ln(Z/Lmax) = -27.0 to -30.6;
+    the one seeded from 2 points warm-started at V = 9.2e-36 (13 bins) and returned -80.7,
+    i.e. ~50 nats low, with eff_samp 9789 of 10010 samples.  So:
+      * n_warm_seed_rank < n_warm_seed_dim -- the seed cloud's AFFINE RANK (rank of the
+        mean-centred points, per-axis scaled by the box) is below the dimension it must
+        span, so it lies in a lower-dimensional subspace and cannot define a volume there.
+    RANK, not row count, is the invariant.  Rows are neither necessary nor sufficient:
+    thousands of duplicated or collinear points span the same degenerate subspace two
+    points do and fail identically, while d+1 affinely independent points are exactly
+    enough to define a volume in d dimensions and must NOT be flagged.  Rank subsumes the
+    count anyway, since n points span at most n-1 affine dimensions.
+
+    n_warm_seed* are None on a cold pass -> the rule is skipped.  If rank is unavailable
+    (a grid restored by load_state from a run that predates it) we fall back to the count,
+    at the correct simplex boundary: fewer than dim+1 points, i.e. n <= dim.
+    """
+    reasons = []
+    _seed_dim = n_warm_seed_dim if n_warm_seed_dim else ndim
+    if n_warm_seed_rank is not None and n_warm_seed_dim:
+        if n_warm_seed_rank < n_warm_seed_dim:
+            reasons.append(
+                "warm-started from a seed of affine rank {} in {} adaptive dimension(s)"
+                "{}".format(n_warm_seed_rank, n_warm_seed_dim,
+                            "" if not n_warm_seed else " ({} point(s))".format(n_warm_seed)))
+    elif n_warm_seed and n_warm_seed <= _seed_dim:   # None (cold) / 0 (unknown) -> skip
+        reasons.append("warm-started from only {} seed point(s) in {} dimensions".format(
+            n_warm_seed, _seed_dim))
+    if n_empty_cycles:
+        reasons.append("{} cycle(s) with no finite in-volume sample".format(n_empty_cycles))
+    if n_live_collapses:
+        reasons.append("{} cycle(s) whose threshold emptied the live set".format(n_live_collapses))
+    if n_live <= ndim:
+        reasons.append("final live volume holds {} sample(s) in {} dimensions".format(n_live, ndim))
+    if ess is not None and (ess < 2.0 or (khat is not None and ess < 5.0 and khat > 10.0)):
+        reasons.append("ESS={:.2f}".format(ess)
+                       + ("" if khat is None else " with k-hat={:.1f}".format(khat)))
+    return bool(reasons), reasons
+
 
 ### V. Tiwari routines
 
@@ -104,7 +243,12 @@ def get_likelihood_threshold(lkl, lkl_thr, nsel, discard_prob,xpy_here=xpy_defau
     nsel : integer, has to do with size of array of likelihoods used to evaluate for next array.
     discard_prob: threshold on CDF to throw away an entire bin.  Should be very small
     """
-    
+    if len(lkl) == 0:
+        # Caller must not ask for a threshold on an empty live volume: every reduction
+        # below (max, argsort, [0]) is undefined.  Named error, so the caller can tell
+        # this apart from a waveform/likelihood failure.
+        raise LiveVolumeCollapse("no samples in the live volume: cannot set a likelihood threshold")
+
     w = xpy_here.exp(lkl - np.max(lkl))
     npoints = len(w)
     sumw = xpy_here.sum(w)
@@ -113,7 +257,7 @@ def get_likelihood_threshold(lkl, lkl_thr, nsel, discard_prob,xpy_here=xpy_defau
     ecdf = xpy_here.cumsum(prob[idx])
     F = xpy_here.linspace(np.min(ecdf), 1., npoints)
     prob_stop_thr = lkl[idx][ecdf >= discard_prob][0]
-    
+
     lkl_stop_thr = xpy_here.flip(np.sort(lkl))
     if len(lkl_stop_thr)>nsel:
         lkl_stop_thr = lkl_stop_thr[nsel]
@@ -121,15 +265,573 @@ def get_likelihood_threshold(lkl, lkl_thr, nsel, discard_prob,xpy_here=xpy_defau
         lkl_stop_thr = lkl_stop_thr[-1]
     lkl_thr = min(lkl_stop_thr, prob_stop_thr)
 
+    # CLAMP: the threshold is applied downstream as a STRICT `lkl > thr`, so a threshold
+    # at or above max(lkl) discards the entire live volume -- which encloses zero
+    # probability and so contradicts the enc_prob=0.999 this function exists to maintain.
+    # It happens whenever the live set is small AND one weight dominates: then
+    # prob_stop_thr saturates at max(lkl) (every other weight underflows to 0, so the
+    # discard_prob quantile IS the top sample) while lkl_stop_thr falls back to the
+    # array MINIMUM (the len<=nsel branch above).  At high SNR both conditions hold from
+    # the first cycle -- ~1e5 cold extrinsic draws yield a handful of finite lnL -- and
+    # the live volume ratchets down one sample per cycle to 1, then to 0, and every
+    # reduction over it raises "zero-size array to reduction operation ... no identity".
+    # Back the threshold off to the largest value strictly below the maximum so at least
+    # the peak always survives.  In a healthy run len(lkl) >> nsel and lkl_stop_thr is
+    # the nsel-th largest, far below the max, so this clamp never engages.
+    # Reduce on the ACTIVE backend and move only the scalar: identity_convert(lkl) here
+    # would copy the whole live set device->host every cycle, on the healthy path too.
+    lkl_max = float(identity_convert(xpy_here.max(lkl)))
+    if not (float(identity_convert(lkl_thr)) < lkl_max):
+        lkl_host = identity_convert(lkl)   # rare branch: the live set is tiny by construction
+        below = lkl_host[lkl_host < lkl_max]
+        if len(below):
+            lkl_thr = np.max(below)          # keep only the maximum: maximal (but safe) contraction
+        else:
+            # every surviving sample has the SAME lnL: no contraction is possible, so
+            # take a threshold below all of them and leave the live volume intact.
+            lkl_thr = np.nextafter(lkl_max, -np.inf)
+        _av_trace("threshold CLAMPED to {:.10g} (would have discarded the whole live volume of {})".format(
+            float(lkl_thr), npoints))
+
+    if _AV_TRACE:
+        _av_trace("threshold: n={} nsel={} lkl_stop_thr={:.6g} prob_stop_thr={:.6g} -> thr={:.6g} (max={:.6g})".format(
+            npoints, nsel, float(identity_convert(lkl_stop_thr)), float(identity_convert(prob_stop_thr)),
+            float(identity_convert(lkl_thr)), lkl_max))
+
     truncp = xpy_here.sum(w[lkl < lkl_thr]) / sumw
-            
+
     return identity_convert(lkl_thr), identity_convert(truncp)  # send both to CPU as needed
 
+def seed_affine_rank(pts, box_lo, box_hi, axes=None, tol=1e-9):
+    """Affine rank of a warm-seed cloud over `axes`, i.e. the dimension of the subspace
+    the seed actually spans -> (rank, n_in_box).
+
+    THE ONE PLACE this is defined, because two callers must agree exactly: the grid
+    builder records it for the collapse diagnostic, and the ILE's L0 rescue tests it to
+    decide whether the seed needs puffing.  A rescue that puffed on a rank the diagnostic
+    then measured differently would either puff a healthy seed or ship a flagged one.
+
+    Measured the way _build_grid_from_points must see it:
+      * IN-BOX ROWS ONLY.  The grid only ever spans the box, so out-of-box rows describe
+        nothing it will build -- and left in they inflate the rank, so a seed that is
+        degenerate where it matters could be recorded full-rank.
+      * mean-centred (AFFINE rank: n points span at most n-1 affine dimensions, so this
+        subsumes the row-count test that used to stand in for it), and
+      * per-axis scaled by the box, so the tolerance is unit-free -- a distance in Mpc and
+        an angle in radians must not get different tolerances.
+    """
+    pts = np.atleast_2d(np.asarray(pts, dtype=float))
+    box_lo = np.asarray(box_lo, dtype=float)
+    box_hi = np.asarray(box_hi, dtype=float)
+    if pts.size == 0:
+        return 0, 0
+    inside = np.all((pts >= box_lo) & (pts <= box_hi), axis=1)
+    core = pts[inside]
+    if len(core) < 2:
+        return 0, len(core)
+    ax = list(range(pts.shape[1])) if axes is None else list(axes)
+    core = core[:, ax]
+    scaled = (core - core.mean(axis=0)) / np.clip((box_hi - box_lo)[ax], 1e-300, None)
+    return int(np.linalg.matrix_rank(scaled, tol=tol)), len(core)
+
+
+def make_warm_seed_reserve(X, lnL, params_ordered, n_max=20000,
+                           log_joint_prior=None, log_joint_s_prior=None, rng=None,
+                           force_peak=True):
+    """A bounded copy of the points a pass RETAINED, for a later warm start -> dict.
+
+    THE ONE BUILDER, because every sampler that can be L0-rescued needs the identical
+    record and they reach this point by different routes: mcsamplerAdaptiveVolume from its
+    own accumulated draws, mcsamplerPortfolio from its aggregated _rvs (it drives members
+    through draw_simplified(), never their integrate_log(), so a member never builds one).
+
+    WHY IT HAS TO BE TAKEN EARLY.  Both samplers then prune _rvs and fair-draw it down to
+    ~1.5*n_eff rows resampled WITH REPLACEMENT -- a resample built for EXPORT.  Anything
+    that reads _rvs afterwards and treats it as the sample set sees, on the collapsed pass
+    a rescue exists for, a handful of rows several of which are the same point twice.
+
+    STRATIFY BY FINITE-NESS BEFORE BOUNDING, or the bound destroys exactly what it is
+    keeping.  AV arrives here with only retained (finite) rows, but the PORTFOLIO's _rvs
+    holds EVERY draw -- and on the collapsed pass this exists for, essentially all of them
+    are -inf.  A uniform subsample over all rows then keeps the finite ones in proportion,
+    which is to say almost none: measured, 10 finite rows among 1,000,000 at a 20,000 cap
+    survived as **2** (the forced peak, plus one lucky draw).  build_warm_seed would then
+    see a rank-0 core, warm_seed_scale_from_finite_points would decline for want of points,
+    and the puff would fall back to the fixed prior fraction -- the very truncation
+    (0.8-8.3 nats, with a healthy-looking ESS) this whole change exists to remove.
+
+    So the non-finite rows are dropped outright.  They are ballast for every consumer: the
+    seed core is `lnL > max - deltalnL`, the scale estimator filters to finite, and
+    _lnZ_of_rvs filters to finite before it averages -- so dropping them here leaves that
+    lnZ bit-identical while making the cap mean what it says.
+
+    NO SECOND STRATUM, deliberately.  Once the finite rows are the population, the cap only
+    binds on a run with >n_max FINITE samples -- a healthy one, where the peak window is
+    proportionally represented anyway (measured: a 20,001-row reserve out of 4e6 gave a
+    239-point seed core).  Adding a top-lnL stratum on top of that would buy nothing there
+    and would bias both the covariance estimate and any lnZ taken from the reserve, because
+    neither is a uniform sample of the level set any more.  The one deliberate exception is
+    the PEAK row, appended unconditionally because the seed is defined relative to it and a
+    subsample can drop it; at one row in n_max its effect on either estimate is negligible.
+
+    force_peak IS FOR A SEED, NOT FOR AN EXPORT.  Appending the peak row unconditionally
+    costs a seed nothing ("at one row in n_max its effect on either estimate is
+    negligible") because a seed is a SET of points and the peak defines its centre.  A
+    consumer that reads the reserve as a WEIGHTED SAMPLE sees something else.  Uniform
+    subsampling without replacement gives every row the same inclusion probability, which
+    cancels in a normalized histogram; that histogram is a RATIO of two unbiased estimators,
+    so it carries an O(1/n) bias rather than none (measured at +1.5 to +3.9 sigma in the
+    small-mass bins over 4000 seeds, i.e. negligible beside the MC noise, but not zero).
+    Forcing one row in at probability 1 while the rest come in at n_max/n_finite is a
+    different thing entirely: a bias that does not shrink with n.
+
+    HOW BIG DEPENDS ENTIRELY ON HOW DOMINANT THE PEAK IS, so the numbers below are a
+    measured range and not a constant.  On 8000 rows capped at 800, median of 15 subsample
+    seeds, as the top weight is lifted above the rest: no dominant row, ESS 506 forced
+    against 506 free (no effect at all); 3 e-folds up, 223 against 505; 6 e-folds, 3.6
+    against 505.  On a real starved GMM extrinsic pass (180,000 retained rows capped at
+    20,000, 20 seeds) the forced version reported ESS 33 where the population has 1163,
+    and displaced the exported curve by up to 1.22 nats in a bin against 0.72 free.
+
+    force_peak therefore stays True everywhere, and the .dgrid exporter divides that row by
+    its own inclusion probability instead (reserve_distance_and_ln_weights), which is why
+    n_subsample is recorded below.  Dropping the row instead is worse than it sounds: the
+    unforced subsample then usually misses the dominant row entirely and reports ESS 506
+    where the population has 99, against 87 for the forced-and-corrected version.
+
+    Neither setting makes the SUBSAMPLE's own ESS a description of the population -- that
+    is what ess_finite, recorded below before the cap, is for.
+
+    ISOLATED RNG.  This reserve is built unconditionally -- including when
+    --sampler-warmstart-retry-neff is unset and nothing will ever read it -- so drawing the
+    subsample from the global numpy stream would advance it before the fair draw, before the
+    exported posterior, and before every later event and replica.  An opt-in rescue that is
+    switched OFF must not change a seeded run's output.  Default to a private, deterministic
+    generator so the reserve is itself reproducible and costs the caller nothing.
+
+    The two prior components ride along when given, so a consumer can rebuild the importance
+    weight -- and therefore lnZ -- from the retained set rather than from the fair draw.
+    """
+    X = np.atleast_2d(np.asarray(identity_convert(X), dtype=float))
+    lnL = np.asarray(identity_convert(lnL), dtype=float).ravel()
+    n_ret = len(X)
+    extra = {}
+    if log_joint_prior is not None:
+        extra['log_joint_prior'] = np.asarray(identity_convert(log_joint_prior), dtype=float).ravel()
+    if log_joint_s_prior is not None:
+        extra['log_joint_s_prior'] = np.asarray(identity_convert(log_joint_s_prior), dtype=float).ravel()
+    # 1. keep only what any consumer can use
+    finite = np.isfinite(lnL)
+    if np.any(finite) and not np.all(finite):
+        X, lnL = X[finite], lnL[finite]
+        extra = {k: v[finite] for k, v in extra.items()}
+    n_fin = len(X)
+    # 2. RECORD THE EXACT TOTAL, before the cap can perturb it.  This is the one quantity a
+    #    bounded record cannot reconstruct afterwards, and the L0 reject gate needs exactly
+    #    it.  A capped reserve gives a Horvitz-Thompson estimate whose LINEAR total is
+    #    unbiased but whose LOGARITHM is not: when a few rare rows carry the weight, whether
+    #    the subsample happens to catch them moves lnZ in discrete jumps.  With two equally
+    #    dominant rows among 200,000 at n_max=2000, only the forced peak is certain and the
+    #    other is missed ~99% of the time -- lnZ low by log(2) = 0.69, against a default
+    #    reject threshold of 0.5.  A cold reserve that fits under the cap compared against an
+    #    otherwise identical warm reserve that does not would then reject a valid warm pass on
+    #    nothing but subsample luck.  Captured here, the gate never sees that error at all.
+    ln_sum_w = None
+    ess_finite = None
+    if 'log_joint_prior' in extra and 'log_joint_s_prior' in extra:
+        _lw = lnL + extra['log_joint_prior'] - extra['log_joint_s_prior']
+        _lw = _lw[np.isfinite(_lw)]
+        if _lw.size:
+            _mx = float(np.max(_lw))
+            ln_sum_w = float(_mx + np.log(np.sum(np.exp(_lw - _mx))))
+            # AND THE POPULATION'S EFFECTIVE SAMPLE SIZE, captured here for the same reason
+            # as the total above: a bounded record cannot reconstruct it afterwards, and a
+            # uniform subsample is not merely a noisier estimate of it.  Where one row
+            # carries the weight -- the starved, high-amplitude pass this whole area exists
+            # for -- the subsample either drops that row and reports a healthy ESS for a
+            # population that has none, or keeps it and reports a collapsed one.  Measured
+            # on 8000 rows capped at 800, varying how far the top weight sits above the
+            # rest: with the top row 9 e-folds up, the population ESS is 2.1 while the
+            # median uncapped-peak subsample reports 505.
+            _p = np.exp(_lw - ln_sum_w)
+            _den = float(np.sum(_p ** 2))
+            ess_finite = (1.0 / _den) if _den > 0 else None
+    # 3. bound, uniformly over that population, on a stream of our own
+    n_max = int(n_max)
+    capped = bool(n_max > 0 and n_fin > n_max)
+    if capped:
+        rng = rng if rng is not None else np.random.RandomState(20260811)
+        idx = rng.choice(n_fin, size=n_max, replace=False)
+        if force_peak:
+            idx = np.unique(np.append(idx, int(np.nanargmax(lnL))))
+        else:
+            idx = np.unique(idx)
+        X, lnL = X[idx], lnL[idx]
+        extra = {k: v[idx] for k, v in extra.items()}
+    out = dict(X=X, lnL=lnL, n_retained=int(n_ret), n_finite=int(n_fin),
+               ln_sum_w_finite=ln_sum_w, ess_finite=ess_finite,
+               params_ordered=list(params_ordered),
+               capped=capped, force_peak=bool(force_peak),
+               # The INCLUSION PROBABILITY of an ordinary row is n_subsample/n_finite, and
+               # the forced peak's is 1.  A consumer reading this as a weighted sample needs
+               # both numbers to undo that; neither is recoverable from the kept rows.
+               n_subsample=(int(n_max) if capped else None))
+    out.update(extra)
+    return out
+
+
+def make_reserve_from_rvs(rvs, params_ordered, n_max=20000, integrand_is_log=None,
+                          convert=None):
+    """The retained-set reserve for a sampler that still has its rows in ``_rvs`` -> dict.
+
+    ONE adapter in front of make_warm_seed_reserve, for the backends that reach the fair
+    draw with the retained set still in ``_rvs``: mcsampler, mcsamplerGPU (both entry
+    points), mcsamplerEnsemble and mcsamplerNFlow.  AV builds its own from allx/allloglkl
+    because it never keeps them in ``_rvs``; the portfolio aggregates its members' rows.
+
+    WHY THESE BACKENDS NEED ONE AT ALL.  Until now the reserve existed only for the L0
+    rescue, so only AV and the portfolio built it and ``reserve=None`` elsewhere was
+    described as "the honest answer, not a gap".  It is a gap for anything that EXPORTS a
+    shape: the fair draw below replaces ``_rvs`` with min(--fairdraw-extrinsic-output-n-max
+    (5 by default), 1.5*eff_samp, 1.5*neff) rows taken WITH REPLACEMENT, and the .dgrid
+    exporter then binned those five rows as though they were a likelihood-vs-distance
+    curve.  The retained rows are right here; keeping a bounded copy of them costs one
+    subsample and lets the exporter use the sample set instead of its export resample.
+
+    BOTH CONVENTIONS.  ``integrand`` is lnL on some backends and linear L on others, and
+    the sampler is the only thing that knows which (see RvsRecord.integrand_is_log).  The
+    log columns are preferred where they exist; otherwise the linear ones are converted
+    here.  log(0) is -inf, which make_warm_seed_reserve drops as a zero-weight row.
+    """
+    conv = convert if convert is not None else identity_convert
+
+    def _col(key):
+        return np.asarray(conv(rvs[key]), dtype=float).ravel()
+
+    with np.errstate(divide='ignore', invalid='ignore'):
+        if 'log_integrand' in rvs:
+            lnL = _col('log_integrand')
+        elif integrand_is_log:
+            lnL = _col('integrand')
+        else:
+            lnL = np.log(_col('integrand'))
+        if 'log_joint_prior' in rvs:
+            ln_prior = _col('log_joint_prior')
+        else:
+            ln_prior = np.log(_col('joint_prior'))
+        if 'log_joint_s_prior' in rvs:
+            ln_s_prior = _col('log_joint_s_prior')
+        else:
+            ln_s_prior = np.log(_col('joint_s_prior'))
+
+    # ONE CONJUNCTIVE KEEP-MASK, not three independent logs.  RvsRecord.log_weights()
+    # documents why: term-by-term, a row with a zero prior AND a zero sampling prior gives
+    # -inf - (-inf) = NaN rather than "no weight", and a single NaN propagates through
+    # _logsumexp to take the WHOLE export down.  Rows that cannot carry weight are marked
+    # -inf here, which make_warm_seed_reserve then drops as non-finite.
+    bad = ~(np.isfinite(lnL) & np.isfinite(ln_prior) & np.isfinite(ln_s_prior))
+    if np.any(bad):
+        lnL = np.where(bad, -np.inf, lnL)
+        ln_prior = np.where(bad, 0.0, ln_prior)
+        ln_s_prior = np.where(bad, 0.0, ln_s_prior)
+
+    # TUPLE KEYS ARE A REAL LAYOUT, not a curiosity: --skymap-file registers
+    # ("declination","right_ascension") as ONE parameter, so _rvs[key] is (2, N) and a
+    # plain ravel makes the vstack ragged -- which silently cost those runs their reserve.
+    # Flatten to component names so the reserve is addressable by coordinate either way.
+    names, cols = [], []
+    for name in params_ordered:
+        arr = np.asarray(conv(rvs[name]), dtype=float)
+        if isinstance(name, tuple):
+            arr = arr.reshape(len(name), -1)
+            for i, part in enumerate(name):
+                names.append(part)
+                cols.append(arr[i])
+        else:
+            names.append(name)
+            cols.append(arr.ravel())
+    X = np.vstack(cols).T
+    # The DEFAULT force_peak=True, deliberately, so every reserve in the tree is built the
+    # same way and one correction covers all of them.  Dropping the peak instead leaves the
+    # subsample looking healthier than the population it came from -- measured on 8000 rows
+    # capped at 800 with a dominant row, the unforced subsample reports ESS 506 where the
+    # population has 99, because it usually misses that row altogether.  Keeping it and
+    # dividing by its inclusion probability (reserve_distance_and_ln_weights) gives 87.
+    return make_warm_seed_reserve(X, lnL, names, n_max=n_max,
+                                  log_joint_prior=ln_prior,
+                                  log_joint_s_prior=ln_s_prior)
+
+
+def keep_reserve_from_rvs(sampler, label, integrand_is_log=None):
+    """Attach ``sampler._warm_seed_reserve`` from its own ``_rvs``, or leave it None.
+
+    Provenance for an export, never a reason to lose a completed integral -- the same
+    contract AV and the portfolio already use at their own reserve sites.
+    """
+    try:
+        sampler._warm_seed_reserve = make_reserve_from_rvs(
+            sampler._rvs, sampler.params_ordered,
+            n_max=getattr(sampler, 'n_warm_seed_reserve', 20000),
+            integrand_is_log=integrand_is_log,
+            convert=getattr(sampler, 'identity_convert', None))
+    except Exception as _e_res:
+        sampler._warm_seed_reserve = None
+        print("  [{}] retained-set reserve not kept (".format(label), _e_res, ")")
+
+
+def lnZ_from_reserve(reserve):
+    """lnZ implied by a warm-seed reserve, on the ORIGINAL PROPOSAL-DRAW normalization.
+
+    -> float, or None if the reserve cannot support the estimate.
+
+    THE DENOMINATOR IS THE POINT.  An importance estimate is mean(w) over the draws that were
+    MADE, and a draw whose likelihood underflowed to -inf is a real draw contributing a real
+    zero.  make_warm_seed_reserve drops those rows -- they are ballast for every other
+    consumer -- and may then cap what survives, so the stored array is neither the draw set
+    nor a uniform sample of it.  Averaging over the stored rows silently divides by the wrong
+    n, overestimating by log(n_retained/n_finite).  For a PORTFOLIO, whose _rvs holds every
+    draw and whose finite fraction on a collapsed pass is ~1e-5, that is ~11 nats.
+
+    It does not cancel in the L0 reject gate, which is what makes it dangerous rather than
+    merely wrong: the cold and warm passes have DIFFERENT finite fractions, so the gate would
+    see the difference of two different-sized errors and could again keep a mass-losing warm
+    pass or discard a good one -- the failure the gate change exists to remove, reappearing
+    one layer down.
+
+    So rebuild the estimate explicitly.  With `m` rows kept, out of `n_finite` finite draws,
+    out of `n_retained` draws made:
+
+        sum over the finite population  ~=  (n_finite / m) * sum over kept rows
+        lnZ = logsumexp(lw_kept) + log(n_finite) - log(m) - log(n_retained)
+
+    which collapses to logsumexp(lw) - log(m) exactly when nothing was dropped and nothing
+    was capped -- i.e. for AV, whose retained set is already all finite, leaving its
+    behaviour unchanged.
+
+    One wrinkle, disclosed rather than corrected: make_warm_seed_reserve force-appends the
+    peak row, so the kept rows are very slightly peak-biased rather than uniform.  At one row
+    in n_max (default 20000) that sits far below the MC error on either pass, and correcting
+    it exactly would mean tracking whether the peak was already in the subsample.
+    """
+    if not isinstance(reserve, dict):
+        return None
+    # EXACT PATH.  make_warm_seed_reserve records the finite-population weight total before
+    # the cap, precisely so this does not have to be estimated from the subsample.  Prefer it
+    # whenever it is there: the estimate below is a Horvitz-Thompson realization whose
+    # LOGARITHM carries sampling error, and this gate is a comparison of logarithms against a
+    # 0.5-nat threshold.  See the cap discussion in make_warm_seed_reserve.
+    _exact = reserve.get('ln_sum_w_finite')
+    _n_ret_exact = reserve.get('n_retained')
+    if _exact is not None and _n_ret_exact:
+        try:
+            if np.isfinite(float(_exact)) and float(_n_ret_exact) > 0:
+                return float(float(_exact) - np.log(float(_n_ret_exact)))
+        except (TypeError, ValueError):
+            pass
+    # FALLBACK: a reserve built without the prior components, or by an older writer.  Scale
+    # the kept rows back up to the finite population and then to the draws made -- unbiased
+    # in the linear total, but exposed to the cap sampling error described above.
+    try:
+        lnL = np.asarray(reserve['lnL'], dtype=float).ravel()
+        lp = np.asarray(reserve['log_joint_prior'], dtype=float).ravel()
+        ls = np.asarray(reserve['log_joint_s_prior'], dtype=float).ravel()
+    except (KeyError, TypeError, ValueError):
+        return None
+    m = len(lnL)
+    if m == 0 or len(lp) != m or len(ls) != m:
+        return None
+    lw = lnL + lp - ls
+    lw = lw[np.isfinite(lw)]
+    if lw.size == 0:
+        return None
+    n_fin = float(reserve.get('n_finite', m) or m)
+    n_ret = float(reserve.get('n_retained', n_fin) or n_fin)
+    if not (n_fin > 0 and n_ret > 0):
+        return None
+    mx = np.max(lw)
+    tot = mx + np.log(np.sum(np.exp(lw - mx)))
+    return float(tot + np.log(n_fin) - np.log(float(m)) - np.log(n_ret))
+
+
+def warm_seed_scale_from_finite_points(points, lnL, box_lo, box_hi, axes,
+                                       eig_lo=1e-5, eig_hi=0.5):
+    """Estimate the POSTERIOR scale (a box-scaled covariance over `axes`) from the finite
+    log-likelihoods a collapsed pass already drew -> cov, or None if it cannot be measured.
+
+    Why this exists.  The L0 rescue's fallback puff used a hardcoded 1/200 of each
+    parameter's prior range, which is a property of the PRIOR and knows nothing about the
+    posterior -- but the posterior narrows as 1/rho, so one fixed fraction cannot be right
+    across the amplitude range, and a puff narrower than the posterior truncates real mass
+    (VARAHA's live volume only ever contracts, so the seed is a ceiling on the support).
+
+    The information needed is already in hand and was being thrown away.  A cold pass at
+    high amplitude draws (near enough) uniformly from the prior box, and returns a finite
+    lnL only inside the region where exp() has not underflowed -- i.e. the level set
+    lnL > lnL_max - D.  For a locally Gaussian peak that level set is the ellipsoid
+    u^T A u < 2D (u box-scaled about the peak), and points uniform in an ellipsoid have
+    covariance (2D/(d+2)) A^{-1}.  So the posterior covariance A^{-1} is recovered as
+
+        cov_post  =  cov(finite points) * (d + 2) / (2 D),     D = lnL_max - min(finite lnL)
+
+    which is one sample covariance, no fit and nothing to fail to converge.  It also
+    delivers the CORRELATIONS -- sky position, time and distance are strongly correlated at
+    high amplitude, and an isotropic puff wastes almost all of its points off the ridge.
+
+    Deliberately approximate -- the draws are only uniform-in-prior until AV starts
+    contracting, and the peak is only locally Gaussian.  Measured against a known lnZ on a
+    correlated 6-D peak with the same 745-nat underflow (sigma recovered / true, per axis,
+    6 replicates): 1.01 - 1.23.  So it is good to ~20%, which is what matters, because the
+    error that was being made is a factor of ~5-10.
+
+    NEITHER DIRECTION IS FREE, so do not treat "wide is safe" as a licence.  Too narrow
+    silently truncates: on that same target a puff at the historical 1/200 of the prior
+    range came in 0.8 - 8.3 nats below the truth, with a healthy-looking ESS.  Too wide is
+    not merely inefficient, which is what the surrounding code used to assume.  Scanning a
+    multiplier on this estimate, mean (worst) lnZ error over 6 replicates, mean ESS:
+
+        x0.5   -8.52 (-19.0) nats, ESS 71      truncated
+        x1     -1.61  (-3.5) nats, ESS 53
+        x2     +0.08  (-0.2) nats, ESS 52      <-- the default
+        x3     +1.13  (+0.6) nats, ESS 26
+        x6     +3.03  (-1.6) nats, ESS 10      biased HIGH, and efficiency is going
+        x12   -29.99 (-71.9) nats, ESS  1      a cold start in all but name: re-collapses
+
+    Both tails are wrong, and the useful range is under a decade wide, so inflate by a small
+    factor and not by an order of magnitude.
+
+    Eigenvalues are floored/capped in box-scaled units (`eig_lo`, `eig_hi` are standard
+    deviations as a fraction of the box) so no direction can come back degenerate -- a
+    zero-width direction would re-create the rank deficiency this is being used to repair.
+    """
+    box_lo = np.asarray(box_lo, dtype=float)
+    box_hi = np.asarray(box_hi, dtype=float)
+    box = np.clip(box_hi - box_lo, 1e-300, None)
+    ax = list(axes)
+    d = len(ax)
+    pts = np.atleast_2d(np.asarray(points, dtype=float))
+    lnL = np.asarray(lnL, dtype=float).ravel()
+    good = np.isfinite(lnL) & np.all(np.isfinite(pts), axis=1) \
+        & np.all((pts >= box_lo) & (pts <= box_hi), axis=1)
+    if int(np.sum(good)) < max(2 * d, d + 2):
+        return None                     # too few finite points to estimate a d-dim covariance
+    u = (pts[good][:, ax] - box_lo[ax]) / box[ax]
+    depth = float(np.max(lnL[good]) - np.min(lnL[good]))
+    if not np.isfinite(depth) or depth <= 0:
+        return None
+    cov = np.cov(u, rowvar=False) * (d + 2.0) / (2.0 * depth)
+    cov = np.atleast_2d(cov)
+    if not np.all(np.isfinite(cov)):
+        return None
+    w, Q = np.linalg.eigh(0.5 * (cov + cov.T))
+    w = np.clip(w, eig_lo ** 2, eig_hi ** 2)
+    return Q @ np.diag(w) @ Q.T
+
+
+def build_warm_seed(points, lnL, box_lo, box_hi, axes, deltalnL=15.0,
+                    puff_width_frac=1.0 / 200, puff_scale='auto', puff_factor=2.0,
+                    n_puff=2000, seed=None):
+    """Build the L0 rescue's warm seed from a pass's own samples -> (seed, info).
+
+    `points` (n, ndim) and `lnL` (n,) are the completed pass's draws.  The seed is the
+    points within `deltalnL` of the peak, PUFFED to full rank if they do not span `axes`.
+
+    RANK, NOT COUNT, is the guard.  The rule this replaces was `len(seed) < 2`, and a count
+    cannot see the failure: measured on zero-noise injections, a 5-point seed at rho_net
+    102.8 had affine rank 2-4 of 6 and a 2-point seed at rho_net 146.8 had rank 0 of 6.
+    Both passed the count test, and both then warm-started a live volume that had collapsed
+    onto a degenerate subspace (V ~ 3e-06 and ~9e-36 against a healthy ~1e-08), which
+    reports a fine n_eff while lnZ is a lower bound.  n points span at most n-1 affine
+    dimensions, so the rank test subsumes the count it replaces.
+
+    AUGMENT, DO NOT REPLACE.  The handful of real points are the only direct evidence of
+    where the peak is and how wide it is, so they are kept and the puff is added alongside
+    them.  This can only help: the grid is built from the union's extent, so a real point
+    lying outside the puff widens the seeded volume to include it, and VARAHA can only
+    contract afterwards -- whereas replacing them throws that information away and pins the
+    support to a guessed width about a single point.
+
+    `puff_scale`:
+      'fixed'  -- isotropic, `puff_width_frac` of each parameter's prior range (the
+                  historical behaviour; `puff_width_frac` = 1/200 reproduces it exactly).
+      'auto'   -- the measured posterior scale and correlations from every finite lnL the
+                  pass drew (warm_seed_scale_from_finite_points), falling back to 'fixed'
+                  when there are too few finite points to estimate one.
+    `puff_factor` multiplies the resulting width (variance scales as its square).  2 is the
+    measured optimum and both tails are wrong -- see warm_seed_scale_from_finite_points.
+    """
+    pts = np.atleast_2d(np.asarray(points, dtype=float))
+    lnL = np.asarray(lnL, dtype=float).ravel()
+    box_lo = np.asarray(box_lo, dtype=float)
+    box_hi = np.asarray(box_hi, dtype=float)
+    box = np.clip(box_hi - box_lo, 1e-300, None)
+    ax = list(axes)
+    ndim = pts.shape[1]
+    best = pts[int(np.nanargmax(lnL))]
+    core = pts[lnL > (np.nanmax(lnL) - float(deltalnL))]
+    rank, n_in_box = seed_affine_rank(core, box_lo, box_hi, axes=ax)
+    info = dict(n_core=int(len(core)), n_core_in_box=int(n_in_box), rank_core=int(rank),
+                dim=len(ax), puffed=False, puff_scale=None, n_puff=0,
+                rank_final=int(rank), n_seed=int(len(core)))
+    if rank >= len(ax):
+        return core, info
+
+    # --- the seed is rank-deficient: puff to full rank about the best point
+    cov_u = None
+    if puff_scale == 'auto':
+        cov_u = warm_seed_scale_from_finite_points(pts, lnL, box_lo, box_hi, ax)
+    used = 'auto'
+    if cov_u is None:
+        used = 'fixed'
+        cov_u = np.diag(np.full(len(ax), float(puff_width_frac) ** 2))
+    cov_u = cov_u * (float(puff_factor) ** 2)
+    # The puff was RandomState(0): deterministic, so it never broke same-seed
+    # reproducibility -- it broke the other half of what --seed means.  Both driver call
+    # sites (L0 auto-rescue, sequential warm-start) omit `seed`, so EVERY intrinsic point
+    # of a run was puffed with the same standard normal deviates, and --seed 101 and
+    # --seed 202 got the identical cloud.  A replicate-seed study then has its rescue arm
+    # frozen across arms, which understates exactly the run-to-run spread it is measuring.
+    rng = _warm_seed_rng(seed, 'av.build_warm_seed.puff')
+    n_puff = int(n_puff)
+    # scaled draws on the adaptive axes; the remaining axes get the isotropic width (the
+    # grid puts one bin on them, so their only job is to not be a single repeated value)
+    u = rng.multivariate_normal(np.zeros(len(ax)), cov_u, size=n_puff)
+    pad = np.tile(best, (n_puff, 1)).astype(float)
+    pad[:, ax] += u * box[ax]
+    _other = [i for i in range(ndim) if i not in set(ax)]
+    if _other:
+        pad[:, _other] += rng.normal(
+            0.0, float(puff_width_frac) * float(puff_factor), size=(n_puff, len(_other))) * box[_other]
+    # CLIP to the box.  The grid builder discards out-of-box rows, so an unclipped puff
+    # silently loses points (and, at a peak near an edge, most of them) -- and a seed the
+    # sampler never sees is not the seed that was measured for rank here.
+    pad = np.clip(pad, box_lo, box_hi)
+    out = np.vstack([core, pad]) if len(core) else pad
+    rank_final, _ = seed_affine_rank(out, box_lo, box_hi, axes=ax)
+    info.update(puffed=True, puff_scale=used, n_puff=n_puff,
+                rank_final=int(rank_final), n_seed=int(len(out)),
+                puff_sigma_scaled=np.sqrt(np.clip(np.diag(cov_u), 0, None)))
+    return out, info
+
+
 def sample_from_bins(xrange, dx, bu, ninbin, reject_out_of_range=False):
-    
+        # Draw uniformly within each occupied hypercube bin.  VECTORIZED: the old
+        # implementation looped over bins in Python (a list comprehension + vstack
+        # over one entry per bin), which is O(n_bins) per chunk and becomes the
+        # bottleneck once the live volume is finely resolved -- e.g. a concentrated
+        # warm start from a full PE posterior can seed thousands of bins.  Here we
+        # instead repeat each bin's lower corner ninbin[k] times and add a single
+        # (N, ndim) uniform draw, so cost is O(N) with no Python-level bin loop.
         ndim = xrange.shape[0]
-        xlo, xhi = xrange.T[0] + dx * bu, xrange.T[0] + dx * (bu+1)
-        x = xpy_default.vstack([xpy_default.random.uniform(xlo[kk], xhi[kk], size = (npb, ndim)) for kk, npb in enumerate(ninbin)])
+        # per-bin lower corners + the point->bin expansion are done on the HOST
+        # (np.repeat with an int-array of counts is reliable everywhere; cupy.repeat
+        # with array repeats is version-fragile), then the single uniform draw is on
+        # the active backend so the output matches the previous cupy behaviour.
+        bu_h = identity_convert(bu); dx_h = np.asarray(identity_convert(dx))
+        xlo_h = np.asarray(identity_convert(xrange)).T[0] + dx_h * np.asarray(bu_h)  # (n_bins, ndim)
+        reps = np.asarray(identity_convert(ninbin)).astype(int)
+        lo_per_point = np.repeat(xlo_h, reps, axis=0)      # host (N, ndim)
+        N = lo_per_point.shape[0]
+        x = xpy_default.asarray(lo_per_point) + xpy_default.asarray(dx_h) * xpy_default.random.uniform(0.0, 1.0, size=(N, ndim))
         # remove points that are out of range.  Due to rounding issues etc, the sampler above can generate points out of range!
         # Note this rejection will bias the integral, because volumes are calculated assuming a regular grid. We *should* fix the grid sizes to integers
         if reject_out_of_range:
@@ -139,7 +841,140 @@ def sample_from_bins(xrange, dx, bu, ninbin, reject_out_of_range=False):
         return x
 
 
-class MCSampler(object):
+def dilate_bins(bins, nbins, axes, layers=1):
+    """Occupied bins plus their axis neighbours (``layers`` steps along each axis in ``axes``),
+    clipped to the grid.  The occupied set is built from retained points, so it misses the part
+    of the live region that holds no point yet; the neighbour layer keeps that part drawable."""
+    bins = np.asarray(bins).astype(np.int64)
+    if layers <= 0 or len(bins) == 0 or len(axes) == 0:
+        return bins
+    nb_max = np.ceil(np.asarray(nbins, dtype=float) - 1e-9).astype(np.int64)
+    for _ in range(int(layers)):
+        parts = [bins]
+        for ax in axes:
+            for step in (-1, 1):
+                nb = bins.copy()
+                nb[:, ax] += step
+                parts.append(nb[(nb[:, ax] >= 0) & (nb[:, ax] < nb_max[ax])])
+        bins = np.unique(np.vstack(parts), axis=0)
+    return bins
+
+
+class _BinSet(object):
+    """Occupied bins of one grid as sorted int64 keys with a count per key (rows only if keys
+    would overflow).  Bins projected onto fewer dimensions can coincide; the count is how many
+    original bins sit at each projected location, since draw_simple draws from every one."""
+
+    def __init__(self, bins, n_bins=None):
+        bins = np.asarray(bins).astype(np.int64)
+        self.n_bins = len(bins) if n_bins is None else int(n_bins)
+        self.shape = bins.max(axis=0) + 1 if len(bins) else np.ones(bins.shape[1], dtype=np.int64)
+        self.keys = self.rows = self.counts = None
+        if bins.shape[1] == 0:
+            return
+        if np.prod([float(v) for v in self.shape]) < 2.0**62:
+            self.keys, self.counts = np.unique(np.ravel_multi_index(tuple(bins.T), self.shape),
+                                               return_counts=True)
+        else:
+            self.rows, self.counts = np.unique(bins, axis=0, return_counts=True)
+
+    def multiplicity(self, idx):
+        """Number of bins at each point's projected location (0 if none)."""
+        if len(self.shape) == 0:          # every dimension pinned: all bins share one location
+            return np.full(len(idx), self.n_bins, dtype=np.int64)
+        out = np.zeros(len(idx), dtype=np.int64)
+        if self.rows is not None:
+            _, inv = np.unique(np.vstack([self.rows, idx]), axis=0, return_inverse=True)
+            inv = np.asarray(inv).ravel()
+            where = {int(v): j for j, v in enumerate(inv[:len(self.rows)])}
+            hit = np.array([where.get(int(v), -1) for v in inv[len(self.rows):]], dtype=np.int64)
+            out[hit >= 0] = self.counts[hit[hit >= 0]]
+            return out
+        if self.keys is None or len(self.keys) == 0 or len(idx) == 0:
+            return out
+        ok = np.all((idx >= 0) & (idx < self.shape), axis=1)
+        k = np.ravel_multi_index(tuple(np.where(ok[:, None], idx, 0).T), self.shape)
+        pos = np.minimum(np.searchsorted(self.keys, k), len(self.keys) - 1)
+        hit = ok & (self.keys[pos] == k)
+        out[hit] = self.counts[pos[hit]]
+        return out
+
+    def contains(self, idx):
+        return self.multiplicity(idx) > 0
+
+
+def log_retained_density(X, origin, grids, box_lo, dx0, pinned_dims=()):
+    """Per-point log density of the retained set, for the deterministic-mixture estimator.
+
+    grids[k] = (dx, bins, n_drawn) is the proposal integrate_log drew cycle k from: uniform
+    over the occupied bins (an (M, ndim) array, or a _BinSet over the non-pinned dims),
+    density 1/|B_k|.  The pooled draws come from the mixture sum_k n_k 1[x in B_k]/|B_k|;
+    dividing by the retained count gives a density for which
+    logsumexp(lnL + ln p - ln p_s) - ln(n_retained) is the balance-heuristic estimate
+    (1/N) sum L p / q_mix.  origin[i] is the cycle that drew point i, which is a member of
+    its own grid by construction (guards rounding at a bin's upper edge).  Pinned
+    dimensions are not drawn from the bins, so they enter with their full width.
+    """
+    X = np.asarray(X, dtype=float)
+    origin = np.asarray(origin, dtype=int)
+    dx0 = np.asarray(dx0, dtype=float)
+    box_lo = np.asarray(box_lo, dtype=float)
+    keep = np.ones(len(dx0), dtype=bool)
+    if len(pinned_dims):
+        keep[np.asarray(pinned_dims, dtype=int)] = False
+    log_dx0_pinned = float(np.sum(np.log(dx0[~keep])))
+    acc = np.full(len(X), -np.inf)
+    for k, (dx, bins, n_k) in enumerate(grids):
+        dx = np.asarray(dx, dtype=float)
+        if not isinstance(bins, _BinSet):
+            bins = np.asarray(bins).astype(np.int64)
+            bins = _BinSet(bins[:, keep], n_bins=len(bins))
+        log_vol = np.log(bins.n_bins) + np.sum(np.log(dx[keep])) + log_dx0_pinned
+        idx = np.floor((X[:, keep] - box_lo[keep]) / dx[keep]).astype(np.int64)
+        mult = bins.multiplicity(idx)
+        mult[(mult == 0) & (origin == k)] = 1
+        member = mult > 0
+        acc[member] = np.logaddexp(acc[member], np.log(n_k) + np.log(mult[member]) - log_vol)
+    return acc - np.log(len(X))
+
+
+# Above this, unseen_fraction warns.  On S250114ax (one intrinsic point, six sky configurations,
+# 3 runs each) healthy configurations read <= 0.036 and those 0.9-4 nats low read >= 0.066.
+COVERAGE_UNSEEN_WARN = 0.05
+
+
+def unseen_fraction(X, lnw, box_lo, dx, axes):
+    """Good-Turing estimate of the posterior mass the grid does not cover: the weight exp(lnw)
+    of live points alone in their bin, as a fraction of the total, binning only `axes`.
+
+    Grids hold only bins with a live point and retained points stay in every later grid, so
+    log_retained_density over-counts where points remain when the live set leaves bins empty.
+    Diagnostic only; see DESIGN_av_coverage_diagnostic.md."""
+    X = np.asarray(X, dtype=float)
+    axes = np.asarray(axes, dtype=int)
+    if len(X) == 0 or len(axes) == 0:
+        return 0.0
+    w = np.asarray(lnw, dtype=float)
+    w = np.exp(w - np.max(w))
+    idx = np.floor((X[:, axes] - np.asarray(box_lo)[axes]) / np.asarray(dx)[axes]).astype(np.int64)
+    _, inv, counts = np.unique(idx, axis=0, return_inverse=True, return_counts=True)
+    return float(np.sum(w[counts[np.asarray(inv).ravel()] == 1]) / np.sum(w))
+
+
+class MCSampler(SamplerOutputMixin, object):
+
+    # PORTFOLIO MEMBER CONTRACT.  draw_simplified() reports p_s on this sampler's own scale
+    # (V_s/V), which is NOT a normalized density -- see the note in draw_simplified.  A portfolio
+    # must therefore never use it as a stratified denominator; sampling_density() below is the
+    # contract and does return the density.  mcsamplerPortfolio reads this flag to tell a member
+    # whose joint_p_s it may pool from one whose it may not.
+    joint_p_s_is_normalized_density = False
+
+    # COMPACT SUPPORT: this sampler's density is EXACTLY ZERO outside its contracted live volume,
+    # so once seeded or contracted it cannot serve as the mixture's coverage guarantee.
+    # mcsamplerPortfolio reads this to decide whether it must hold one member cold.
+    has_unbounded_support = False
+
     """
     Class to define a set of parameter names, limits, and probability densities.
     """
@@ -205,7 +1040,17 @@ class MCSampler(object):
         # sampling tool
         self.V=None  # fractional volume
         self.delta_V=None  # fractional volume
-        
+        self._warm=None  # bootstrap/warm-start live-volume state (see bootstrap_from_*)
+        self._warm_applied=False  # has _warm been installed into the ACTIVE grid? (see _apply_warm_state)
+        # Opt-in ANISOTROPIC bin allocation: give each axis a different number of bins
+        # (fine where the live points cluster tightly -- phase/pol/sky; coarse where they are
+        # broad -- distance/inclination), instead of the default equal split.  Keeps the same
+        # total bin budget (prod(nbins)=1/delta_V) so the estimator is unchanged.  Default off.
+        self.anisotropic_bins = False
+        # Axis-neighbour layers added to the occupied bins each cycle in integrate_log (see
+        # dilate_bins).  0 draws only from bins that hold a retained point.
+        self.dilate_layers = 0
+
 
     def setup(self, **kwargs):
         ndim = len(self.params)
@@ -224,6 +1069,9 @@ class MCSampler(object):
         self.V_s = np.prod([ self.rlim[x] - self.llim[x] for x in self.llim])  # global sampling volume
         self.lnL_thresh = -np.inf
         self.enc_prob = 0.999
+        # Live set, threshold and truncated probability carried between
+        # update_sampling_prior_selfish calls; None = start cold on the next call.
+        self._selfish_state = None
 
         self.is_varaha=True
 
@@ -279,21 +1127,94 @@ class MCSampler(object):
     def prior_prod(self, x):
         """
         Evaluates prior_pdf(x), multiplying together all factors
+
+        prior_pdf are host (numpy) functions in general, so evaluate them on a
+        CPU copy of the samples and convert the product back to the active
+        backend. identity_convert / identity_convert_togpu are no-ops when cupy
+        is not in use.
         """
         p_out = xpy_default.ones(len(x))
+        x_cpu = identity_convert(x)
         indx = 0
         for param in self.params_ordered:
-            p_out *= self.prior_pdf[param](x[:,indx])
-            indx +=1
+            fn = self.prior_pdf[param]
+            xc = x_cpu[:, indx]
+            # Force host evaluation: a prior_pdf may bind a device backend, which would raise on
+            # the numpy host copy when cupy is importable (e.g. GPU container runs).
+            val = fn(xc, xpy=numpy) if _prior_pdf_accepts_xpy(fn) else fn(xc)
+            p_out *= identity_convert_togpu(val)
+            indx += 1
         return p_out
 
 
+    def _apply_warm_state(self):
+        """Install a seeded live-volume grid (self._warm) into the ACTIVE sampling state.
+
+        `bootstrap_from_samples` / `bootstrap_from_oracle` / `load_state` only STORE the seeded grid
+        in `self._warm`; historically it was installed only inside `integrate_log`.  Anything that
+        drives this sampler WITHOUT calling its own integrate_log -- above all a PORTFOLIO, which
+        calls draw_simplified()/update_sampling_prior() directly, and the driver's L0 auto-rescue,
+        which re-seeds a portfolio then re-runs -- therefore kept drawing from the COLD grid while
+        reporting that it had been warm-started.  Idempotent; safe to call on every draw.
+        """
+        warm = getattr(self, '_warm', None)
+        if warm is None or getattr(self, '_warm_applied', False):
+            return
+        # A new grid invalidates the selfish step's live set and threshold.
+        self._selfish_state = None
+        try:
+            self.binunique = np.array(warm['binunique'])
+            self.dx = np.array(warm['dx'])
+            self.nbins = np.array(warm['nbins'])
+            self.ninbin = ((self.n_chunk // self.binunique.shape[0] + 1)
+                           * np.ones(self.binunique.shape[0])).astype(int)
+            if 'V' in warm:
+                self.V = float(warm['V'])
+            if 'loglkl_thr' in warm:
+                self.lnL_thresh = float(warm['loglkl_thr'])
+            self._warm_applied = True
+            print("  [AV warm-start] seeded grid APPLIED to the active draw path: "
+                  "live bins={}".format(self.binunique.shape[0]))
+        except Exception as e:
+            # never let a malformed seed break sampling: fall back to the cold grid
+            print("  [AV warm-start] could not apply seeded grid ({}); continuing cold".format(e))
+            self._warm_applied = True
+
     def draw_simplified(self,n_to_get, *args, **kwargs):
+        # Self-contained cold start.  A PORTFOLIO (mcsamplerPortfolio) drives draw_simplified on
+        # its members directly, WITHOUT running each member's own integrate()/setup(), so a cold
+        # AV member may not have its live-volume grid (my_ranges/dx/binunique/ninbin) built yet
+        # -> AttributeError on self.my_ranges.
+        # Build the cold full-box grid on first use so AV works as a portfolio member cold or warm.
+        if getattr(self, 'my_ranges', None) is None:
+            self.setup()
+        # ... and if a seed was supplied, INSTALL it: setup() above (and the driver, which calls
+        # setup BEFORE bootstrap_from_samples) leaves the active grid cold, so without this a
+        # warm-started portfolio member draws from the cold grid.
+        self._apply_warm_state()
         rv, log_p = self.draw_simple()
-        p = np.exp(log_p)[:n_to_get]
+        # Subsample RANDOMLY, never a head slice: sample_from_bins emits points
+        # grouped in lexicographic bin order (binunique from np.unique), so
+        # rv[:n_to_get] returns only the first ~n_to_get/ninbin bins of the live
+        # volume while sampling_density (hence the portfolio's q_mix) claims
+        # uniform coverage of ALL occupied bins.  In any multi-member portfolio
+        # that mismatch systematically biased the recovered shape (pulls up to
+        # 0.6 sigma at d2; random subsample collapses them to ~1e-3).
+        n_have = len(rv)
+        if n_to_get < n_have:
+            keep = np.random.choice(n_have, size=int(n_to_get), replace=False)
+            rv = rv[keep]
+            log_p = log_p[keep]
+        p = np.exp(log_p)
+        # NOT A DENSITY, DELIBERATELY.  The points are uniform over the live volume, whose
+        # measure is V_s*V (V_s = full box, V = live FRACTION), so the density they come from is
+        # 1/(V_s*V) -- what sampling_density() returns.  What is reported here is V_s/V, larger by
+        # V_s**2.  It is kept for callers that read this scale; integrate_log does not use it.
+        # A PORTFOLIO MUST NOT USE THIS AS A MIXTURE DENOMINATOR: sampling_density() is the member
+        # contract (see mcsamplerPortfolio.integrate_log).  Mixing this scale with a member that
+        # does report a density cost 0.63 nats on a constant integrand whose exact ln Z is 1.386.
         ps = self.xpy.ones(len(p))*self.V_s/self.V   # sampling prior, full hypercube normalized to 1
-        ps = ps[:n_to_get]
-        rv = rv[:n_to_get].T
+        rv = rv.T
         return ps, p, rv
 
     def draw_simple(self):
@@ -305,10 +1226,138 @@ class MCSampler(object):
                indx_p = self.params_ordered.index(p)
                x[:,indx_p] = self.params_pinned_vals[p]
           
-        # probabilities at these points.  
+        # probabilities at these points.
         log_p = np.log(self.prior_prod(x))
         # Not including any sampling prior factors, since it is de facto uniform right now (just discarding 'irrelevant' regions)
         return x, log_p
+
+    def sampling_density(self, X):
+        """Pointwise sampling density q(theta) of THIS member, evaluated at
+        ARBITRARY points X (shape (N, ndim), columns in self.params_ordered
+        order).  Returns a host (numpy) array of length N, or None if the
+        live-volume state has not been set up yet.
+
+        VARAHA draws uniformly over its live volume -- the union of the
+        currently-occupied hypercubes (self.binunique), each of width self.dx.
+        The density of the CURRENT grid is therefore the constant
+
+            q_live = 1 / (n_occupied_bins * prod(dx))
+
+        inside the live volume and 0 outside it.  (integrate_log's own
+        log_joint_s_prior is the mixture of every grid it drew from; see
+        log_retained_density.)  We use the geometric form
+        1/(n_bins*prod(dx)) directly: it is *exactly* the density of the points
+        draw_simple() produces (equal draws per occupied bin, uniform within a
+        bin), so a multiple-importance-sampling denominator built from it is
+        unbiased regardless of any drift between the tracked scalar V and the
+        actual bin grid.
+
+        This method is READ-ONLY -- it does not touch any sampler state and does
+        not affect this sampler's own integrate_log.  It exists so the portfolio
+        can form the balance-heuristic mixture density q_mix = sum_m w_m q_m.
+        """
+        binunique = getattr(self, 'binunique', None)
+        dx = getattr(self, 'dx', None)
+        if binunique is None or dx is None or not hasattr(self, 'my_ranges'):
+            return None
+        X = np.atleast_2d(np.asarray(identity_convert(X), dtype=float))
+        ndim = len(self.params_ordered)
+        if X.shape[1] != ndim and X.shape[0] == ndim:
+            X = X.T  # tolerate (ndim, N)
+        box_lo = self.my_ranges.T[0]
+        box_hi = self.my_ranges.T[1]
+        dx = np.asarray(identity_convert(dx), dtype=float)
+        bins = np.asarray(identity_convert(binunique)).astype(np.int64)
+        n_bins = bins.shape[0]
+        if n_bins == 0:
+            return np.zeros(X.shape[0], dtype=float)
+        # bin index of each point (same floor((x-lo)/dx) mapping the sampler uses
+        # in integrate_log to build binidx), then test membership in the occupied
+        # set.  Points outside the box floor out of range and are excluded below.
+        binidx = np.floor((X - box_lo) / dx).astype(np.int64)
+        binset = set(map(tuple, bins.tolist()))
+        inside = np.array([tuple(row) in binset for row in binidx], dtype=bool)
+        inside &= np.all((X >= box_lo) & (X <= box_hi), axis=1)
+        q_live = 1.0 / (float(n_bins) * float(np.prod(dx)))
+        q = np.zeros(X.shape[0], dtype=float)
+        q[inside] = q_live
+        return q
+
+    def _allocate_nbins(self, live_pts, delta_V, ndim):
+        """Per-axis bin counts whose product over adaptive dims equals 1/delta_V (the same
+        total resolution the isotropic split uses, so the volume V=n_bins*prod(dx) and hence
+        the estimator are unchanged).
+
+        Default (self.anisotropic_bins False): equal split -- nbins_i = (1/delta_V)**(1/d).
+        Anisotropic: redistribute that SAME total bin budget by each axis's *compressibility*
+        c_i = log(range_i / spread_i), where spread_i is the std of the live points on axis i.
+        Axes whose points fill only a small fraction of their range (tight: phase, polarization,
+        sky) get many bins (fine); broad axes (distance, inclination) get few (coarse).  This
+        lets the live hypercube wrap a correlated/degenerate posterior far more tightly than an
+        isotropic grid, which must use one resolution for both the narrow and the broad axes."""
+        nbins = np.ones(ndim)
+        if self.d_adaptive <= 0:
+            return nbins
+        adaptive = np.ones(ndim, dtype=bool)
+        if len(self.indx_not_adaptive):
+            adaptive[np.array(self.indx_not_adaptive, dtype=int)] = False
+        total_log = -np.log(max(float(delta_V), 1e-300))   # log(1/delta_V): total log-bins to spread
+        n_live = 0 if live_pts is None else len(live_pts)
+        if (not self.anisotropic_bins) or n_live < max(8, 2 * self.d_adaptive):
+            nbins[adaptive] = np.exp(total_log / self.d_adaptive)      # isotropic fallback
+            return nbins
+        lp = np.asarray(identity_convert(live_pts))
+        rng = np.diff(self.my_ranges, axis=1).flatten()               # range per axis
+        spread = lp.std(axis=0)
+        spread = np.maximum(spread, 1e-6 * np.maximum(rng, 1e-30))
+        c = np.clip(np.log(np.maximum(rng, 1e-30) / spread), 0.0, None)  # compressibility
+        c[~adaptive] = 0.0
+        csum = c[adaptive].sum()
+        if csum <= 0:
+            nbins[adaptive] = np.exp(total_log / self.d_adaptive)     # degenerate -> isotropic
+        else:
+            nbins[adaptive] = np.exp(c[adaptive] / csum * total_log)  # prod(adaptive)=1/delta_V
+        return nbins
+
+    @staticmethod
+    def _at_final_threshold(trunc_p, enc_prob=0.999):
+        """The test integrate_log uses to stop moving the likelihood threshold."""
+        return np.round(enc_prob/trunc_p) - np.round(enc_prob/(1 - enc_prob)) == 0
+
+    def reset_selfish_state(self):
+        """Start a new integration pass: forget the live set and threshold, keep the grid.
+
+        A new pass may use a different integrand (e.g. the calmarg burn-in followed by the
+        full likelihood), so a threshold carried from the previous pass could exclude every
+        new draw.  If the previous pass had reached the final threshold, the grid is frozen
+        as adapted for the new pass: the selfish step then does nothing, so the grid is
+        neither contracted again nor re-binned.  Otherwise contraction restarts from the
+        current grid."""
+        state = getattr(self, '_selfish_state', None)
+        if state is not None and (state.get('frozen')
+                                  or self._at_final_threshold(state['trunc_p'])):
+            self._selfish_state = dict(frozen=True)
+        else:
+            self._selfish_state = None
+
+    def _cap_selfish_live_set(self, loglkl, first_in_bin, nsel):
+        """Indices of the carried live set to keep, or None to keep all.
+
+        After the final threshold nothing is removed from the live set, so without a cap it
+        grows by about n_chunk per call.  Keep one point per occupied bin (so the rebuilt grid
+        and live volume do not change), the nsel highest-lnL points (which set the threshold),
+        and a random fill up to the cap."""
+        cap = int(getattr(self, 'selfish_live_set_cap', 0) or 4 * self.n_chunk)
+        n = len(loglkl)
+        if n <= cap:
+            return None
+        must = np.union1d(np.asarray(first_in_bin, dtype=int),
+                          np.argsort(np.asarray(loglkl))[-int(nsel):])
+        rest = np.setdiff1d(np.arange(n), must, assume_unique=True)
+        n_fill = max(cap - len(must), 0)
+        if n_fill < len(rest):
+            rest = np.random.choice(rest, size=n_fill, replace=False)
+        return np.sort(np.concatenate([must, rest]))
 
     def update_sampling_prior_selfish(self, lnF, *args, xpy=xpy_default,no_protect_names=True,**kwargs):
         """
@@ -321,22 +1370,39 @@ class MCSampler(object):
 
       We therefore do a single pure step of VARAHA, including *independent* draws.  We will keep state about 'V' etc from previous iterations.
         We therefore also have to know about the function we are integrating. However, we do not keep track of the integral result here -- the top -level routine does this.
+
+      One call is one cycle of integrate_log's loop, so the cycle state persists between
+      calls in self._selfish_state: the live set (allx/allloglkl/allp), the threshold and
+      the truncated probability trunc_p.  Restarted on every call, each call would keep
+      only the top nsel of its own draws, V would shrink by n_chunk/nsel per call, the
+      final threshold would never be reached, and the live volume would contract without
+      limit.  The state is cleared by setup(), by installing a warm seed, and by
+      reset_selfish_state(), which mcsamplerPortfolio calls at the start of each pass.
+      The carried live set is capped (_cap_selfish_live_set) to bound memory and cost.
        """
         xpy_here = self.xpy
         enforce_bounds=True
 
         # VT specific items
-        loglkl_thr = -1e15
         enc_prob = 0.999 #The approximate upper limit on the final probability enclosed by histograms.
         V = self.V  # nominal scale factor for hypercube volume
         ndim = len(self.params_ordered)
-        allx, allloglkl = np.transpose([[]] * ndim), []
-        allp = []
-        trunc_p = 1e-10 #How much probability analysis removes with evolution
         nsel = 1000# number of largest log-likelihood samples selected to estimate lkl_thr for the next cycle.
-        if cupy_ok:
-          allx = identity_convert_togpu(allx)
-          allloglkl = identity_convert_togpu(allloglkl)
+        nsel = np.min([nsel, int(0.1*self.n_chunk)]) #  if chunk size is small, don't pick too many points
+        state = getattr(self, '_selfish_state', None)
+        if state is not None and state.get('frozen'):
+            return   # grid adapted by an earlier pass; see reset_selfish_state
+        if state is None:
+            allx, allloglkl = np.transpose([[]] * ndim), []
+            allp = []
+            loglkl_thr = -1e15
+            trunc_p = 1e-10 #How much probability analysis removes with evolution
+            if cupy_ok:
+              allx = identity_convert_togpu(allx)
+              allloglkl = identity_convert_togpu(allloglkl)
+        else:
+            allx, allloglkl, allp = state['allx'], state['allloglkl'], state['allp']
+            loglkl_thr, trunc_p = state['loglkl_thr'], state['trunc_p']
 
         ntotal_true = 0
         if True: # while (eff_samp < neff and ntotal_true < nmax ): #  and (not bConvergenceTests):
@@ -347,25 +1413,71 @@ class MCSampler(object):
               rv = identity_convert_togpu(rv) # send random numbers to GPU : ugh
               log_joint_p_prior = identity_convert_togpu(log_joint_p_prior)    # send to GPU if required. Don't waste memory reassignment otherwise
 
-            # Evaluate function, protecting argument order
-            if True: #'no_protect_names' in kwargs:
-                unpacked0 = rv.T
-                lnL = lnF(*unpacked0)  # do not protect order
-            # else:
-            #     unpacked = dict(list(zip(self.params_ordered,rv.T)))
-            #     lnL= lnF(**unpacked)  # protect order using dictionary
+            # Evaluate the integrand, device-first with a remembered host retry -- the
+            # same contract as integrate_log() below and as mcsamplerPortfolio.  The
+            # production ILE likelihood is device-native; a host-only integrand (CI toy,
+            # benchmark, a user's CPU likelihood) raises TypeError on a cupy array.  The
+            # host copy is the MODULE-level identity_convert, the counterpart of the
+            # identity_convert_togpu that put rv on the device three lines up.
+            #
+            # Argument order is positional here as it always has been: no_protect_names is
+            # a named parameter of this method, so it can never reach **kwargs and the dict
+            # branch integrate_log keys on was already unreachable.
+            #
+            # Two things this site needs that integrate_log does not, both because
+            # mcsamplerPortfolio hands this method a verdict it did not learn itself:
+            #   - a propagated verdict can be WRONG (the portfolio may have latched on a
+            #     transient ValueError from a device-native likelihood).  Unlatch and go
+            #     back to the device instead of dying on an unguarded host call.
+            def _eval_integrand(samples):
+                return lnF(*samples.T)  # do not protect order
+            if not cupy_ok:
+                # no device exists, so there is no second array to try: call ONCE.  Retrying
+                # the identical host array would run a legitimately-failing integrand twice
+                # (doubled side effects, doubled RNG draws in a marginalizing likelihood).
+                lnL = _eval_integrand(rv)
+            elif getattr(self, '_integrand_wants_host', False):
+                try:
+                    lnL = _eval_integrand(identity_convert(rv))
+                except (TypeError, ValueError):
+                    self._integrand_wants_host = False
+                    print("  [AV selfish-update] host evaluation refused; returning to the device backend")
+                    lnL = _eval_integrand(rv)
+            else:
+                try:
+                    lnL = _eval_integrand(rv)
+                except (TypeError, ValueError):
+                    self._integrand_wants_host = True
+                    print("  [AV selfish-update] integrand refused a device array; evaluating on the host from here on")
+                    lnL = _eval_integrand(identity_convert(rv))
             # take log if we are NOT using lnL
             if cupy_ok:
               if not(isinstance(lnL,cupy.ndarray)):
+                if getattr(lnL, 'dtype', None) == RiftFloat:
+                    lnL = lnL.astype(np.float64)   # cupy has no extended precision (CIP's fit returns RiftFloat)
                 lnL = identity_convert_togpu(lnL)  # send to GPU, if not already there
 
 
             # For now: no prior, just duplicate VT algorithm
             log_integrand =lnL  + log_joint_p_prior
-            
+
             loglkl = log_integrand # note we are putting the prior in here
 
-            idxsel = xpy_here.where(loglkl > loglkl_thr)
+            # admit only FINITE samples above threshold: a cold portfolio member can draw points
+            # whose loglkl is -inf/NaN (out-of-support / degenerate extrinsic config).  With the
+            # initial threshold -1e15 the plain "> thr" test then passes NaN (breaking later maxes)
+            # or, if ALL are non-finite, yields an empty set -> the reported crash chain
+            # (get_likelihood_threshold max of empty array; then this method's max at line ~532).
+            idxsel = xpy_here.where(xpy_here.logical_and(loglkl > loglkl_thr, xpy_here.isfinite(loglkl)))
+            n_new = len(idxsel[0])
+            if n_new == 0:
+                # Nothing finite in the live volume this step (cold portfolio member / degenerate
+                # draw).  Leave V, the threshold and the grid UNCHANGED: re-thresholding the
+                # carried live set on no new evidence would shrink V for nothing (integrate_log
+                # has the same guard).  The portfolio's other members carry this step.
+                print("  [AV selfish-update] no finite in-volume samples this step; live volume unchanged")
+                self.V = V
+                return
             #only admit samples that lie inside the live volume, i.e. one that cross likelihood threshold
             allx = xpy_here.append(allx, rv[idxsel], axis = 0)
             allloglkl = xpy_here.append(allloglkl, loglkl[idxsel])
@@ -386,6 +1498,11 @@ class MCSampler(object):
             allp = allp[idxsel]
             allx = allx[idxsel]
             nrec = len(allloglkl)   # recovered size of active volume at present, after selection
+            if nrec == 0:
+                # threshold selected nothing (degenerate all-equal finite draws): leave the
+                # live volume unchanged instead of crashing on max()/divide-by-zero below.
+                self.V = V
+                return
 
             # Weights
             lw = allloglkl - xpy_here.max(allloglkl)
@@ -400,7 +1517,8 @@ class MCSampler(object):
             # Redefine bin sizes, reassign points to redefined hypercube set. [Asymptotically this becomes stationary]
             # Note hypercube calculation is on CPU at present, always
             if self.d_adaptive > 0:
-              self.nbins = np.ones(ndim)*(1/delta_V) ** (1/self.d_adaptive)  # uniform split in each dimension is normal, but we have array - can be irregular
+              # per-axis (anisotropic) or equal (default) split; same total bin budget either way
+              self.nbins = self._allocate_nbins(allx, delta_V, ndim)
               self.nbins[self.indx_not_adaptive] = 1  # reset to 1 bin for non-adaptive dimensions
             else:
               self.nbins = np.ones(ndim) # why are we even doing this!
@@ -412,14 +1530,374 @@ class MCSampler(object):
             self.dx = np.diff(self.my_ranges, axis = 1).flatten() / self.nbins   # update bin widths
             binidx = ( (( identity_convert(allx) - self.my_ranges.T[0]) / self.dx.T).astype(int)  ) #bin indexs of the samples ... sent back to CPU as needed
 
-            self.binunique = np.unique(binidx, axis = 0)
+            self.binunique, first_in_bin = np.unique(binidx, axis = 0, return_index=True)
             self.ninbin = ((self.n_chunk // self.binunique.shape[0] + 1) * np.ones(self.binunique.shape[0])).astype(int)
 
             self.cycle += 1
 
+            # Cap only once the threshold is final: before then a fixed-size set can hold
+            # trunc_p just short of final while the threshold keeps rising.
+            keep = None
+            if self._at_final_threshold(trunc_p, enc_prob):
+                keep = self._cap_selfish_live_set(identity_convert(allloglkl), first_in_bin, nsel)
+            if keep is not None:
+                keep = xpy_here.asarray(keep) if cupy_ok else keep
+                allx, allloglkl, allp = allx[keep], allloglkl[keep], allp[keep]
+
         self.V = V
         self.delta_V  = delta_V
-        
+        self._selfish_state = dict(allx=allx, allloglkl=allloglkl, allp=allp,
+                                   loglkl_thr=loglkl_thr, trunc_p=trunc_p)
+
+
+    ###
+    ### BOOTSTRAP / WARM-START SUPPORT
+    ###
+    # The VARAHA algorithm normally starts every integrate_log() call cold: one
+    # bin spanning the whole box, threshold -1e15, fractional volume V=1, and
+    # spends its first several chunks carving the live volume down from the full
+    # prior.  In production (repeated ILE instances, successive CIP iterations,
+    # or events with a known Fisher matrix) we already know roughly where the
+    # posterior lives, so that carving is wasted work -- worst in high dimension.
+    #
+    # These methods seed the live-volume state (`self._warm`) from prior
+    # information; integrate_log() then starts from that concentrated grid.  The
+    # seeded fractional volume is set GEOMETRICALLY (n_occupied_bins / prod(nbins)),
+    # which sizes the first contraction's bins.
+
+    def _order_columns(self, samples, params=None):
+        """Return samples as an (M, ndim) array whose columns are in
+        self.params_ordered order.  `params` names the columns of `samples`;
+        if None the caller guarantees they are already in order."""
+        X = np.atleast_2d(np.asarray(samples, dtype=float))
+        if X.shape[1] != len(self.params_ordered) and X.shape[0] == len(self.params_ordered):
+            X = X.T  # tolerate (ndim, M)
+        if params is None:
+            return X
+        out = np.empty((X.shape[0], len(self.params_ordered)))
+        for j, p in enumerate(self.params_ordered):
+            out[:, j] = X[:, list(params).index(p)]
+        return out
+
+    def warm_seed_axes(self):
+        """Column indices a warm seed must span: the ADAPTIVE axes (all of them when
+        nothing is adaptive, since then the grid is one bin per dim and the seed's only
+        job is to be well-defined).  Exposed so a caller building a seed -- the ILE's L0
+        rescue -- can ask the sampler which dimensions its seed will be judged on instead
+        of guessing.  A portfolio has no such axes of its own; ask a member."""
+        if getattr(self, 'd_adaptive', 0) > 0:
+            return list(self.indx_adaptive)
+        return list(range(len(self.params_ordered)))
+
+    def _build_grid_from_points(self, pts, loglkl=None, enc_prob=0.999, dilate=1,
+                                resolution_pts=None):
+        """Build a VARAHA live-volume grid (binunique, dx, nbins) and a
+        geometrically-consistent fractional volume V from points that populate
+        the high-likelihood region.  Mirrors the bin-refinement block of
+        integrate_log() so a warm start lands on the same kind of grid the cold
+        algorithm would have converged to.
+
+        `dilate` (>=0): grow the occupied-bin set by this many axis-neighbor
+        layers along the adaptive dimensions.  This is a SAFETY margin: VARAHA's
+        live volume only ever *contracts*, so a warm start that seeded a grid
+        tighter than the true support could never recover the missing region and
+        would bias the integral low.  Dilating guarantees the seed is a superset
+        of the sampled support (at a small efficiency cost the first few chunks
+        then trim away)."""
+        ndim = len(self.params_ordered)
+        pts = np.atleast_2d(np.asarray(pts, dtype=float))
+        box_lo = self.my_ranges.T[0]
+        box_hi = self.my_ranges.T[1]
+        inside = np.all((pts >= box_lo) & (pts <= box_hi), axis=1)
+        pts = pts[inside]
+        if loglkl is not None:
+            loglkl = np.asarray(loglkl, dtype=float)[inside]
+        nrec = len(pts)
+        if nrec < 2:
+            raise ValueError("AV bootstrap needs >=2 in-box reference points (got {})".format(nrec))
+        box = box_hi - box_lo
+        # Bin RESOLUTION (nbins) is set from the CONCENTRATED core, not the full
+        # cloud: when a coverage floor (cover_frac) adds uniform full-box points,
+        # they must not coarsen the grid to a single bin per dim (which collapses
+        # V to 1 and throws away the seed's concentration).  resolution_pts is the
+        # core (the actual proposal, without the uniform floor); coverage points
+        # then land in scattered fine bins that still guarantee coverage.
+        # The core is filtered to the box by the SAME rule as `pts` above.  It describes the
+        # grid that gets built, and the grid only ever spans the box, so points outside it
+        # are not part of that description: left in, they widen `ext` (under-resolving the
+        # grid, since V_extent can even exceed 1) and they inflate the recorded affine rank,
+        # so a seed that is degenerate in-box could be recorded full-rank.  Callers do not
+        # always clip -- bootstrap_from_samples clips only when inflating, and the ILE's
+        # puffed fallback seed is an unclipped Gaussian about the peak.
+        if resolution_pts is None:
+            res_pts = pts
+        else:
+            res_pts = np.atleast_2d(np.asarray(resolution_pts, dtype=float))
+            _res_in = np.all((res_pts >= box_lo) & (res_pts <= box_hi), axis=1)
+            # Fall back to the (already filtered, guaranteed non-empty) full cloud if the
+            # core lies entirely outside: a resolution set of zero points defines nothing.
+            res_pts = res_pts[_res_in] if np.any(_res_in) else pts
+        n_res = max(len(res_pts), 2)
+        lo = np.quantile(res_pts, 0.5 * (1 - enc_prob), axis=0)
+        hi = np.quantile(res_pts, 1 - 0.5 * (1 - enc_prob), axis=0)
+        ext = np.clip(hi - lo, box * 1e-6, None)
+        V_extent = float(np.prod(ext / box))
+        # VARAHA bin count: nbins = (1/delta_V)^(1/d_adaptive), delta_V = V/sqrt(nrec)
+        delta_V = V_extent / np.sqrt(n_res)
+        if self.d_adaptive > 0:
+            # per-axis (anisotropic) or equal (default) split of the warm-seed grid
+            nbins = self._allocate_nbins(res_pts, delta_V, ndim)
+            nbins[self.indx_not_adaptive] = 1
+        else:
+            nbins = np.ones(ndim)
+        nbins = np.maximum(np.floor(nbins), 1)
+        dx = box / nbins
+        # CLIP bin indices to [0, nbins-1]: a point exactly on the upper box edge
+        # maps to binidx == nbins (out of range), which would put out-of-range bins
+        # in binunique -> V = n_bins/prod(nbins) can exceed 1 (an invalid fractional
+        # volume) and draw_simple would sample outside the box.  This bites hardest
+        # for a WIDE seed (e.g. a full PE posterior + cover_frac spanning the box).
+        nb_int = np.maximum(nbins.astype(np.int64), 1)
+        binidx = np.clip(((pts - box_lo) / dx).astype(np.int64), 0, nb_int - 1)
+        binunique = np.unique(binidx, axis=0)
+        # SAFETY dilation: grow occupied bins by axis-neighbor layers along the
+        # adaptive dims, clipped to [0, nbins-1].  Uses a bounded 2*d_adaptive
+        # neighborhood per layer (not the full 3^d) so the volume grows linearly.
+        if dilate and self.d_adaptive > 0:
+            bins = set(map(tuple, binunique.tolist()))
+            nb_max = nbins.astype(int)
+            for _ in range(int(dilate)):
+                grown = set(bins)
+                for b in bins:
+                    for ax in self.indx_adaptive:
+                        for step in (-1, 1):
+                            nb = list(b); nb[ax] += step
+                            if 0 <= nb[ax] < nb_max[ax]:
+                                grown.add(tuple(nb))
+                bins = grown
+            binunique = np.array(sorted(bins))
+        # fractional volume ACTUALLY sampled = occupied bins / total bins
+        V = float(binunique.shape[0] / np.prod(nbins))
+        # seed the threshold just below the reference support so the first chunk
+        # keeps the seeded region; if no lnL given, let integrate_log recompute it
+        # (the concentrated grid already delivers the efficiency win).
+        loglkl_thr = -1e15 if loglkl is None else float(np.min(loglkl))
+        # SEED PROVENANCE, carried so integrate_log can report a seed that cannot define a
+        # volume -- see live_volume_collapse_verdict.  Not sampling parameters.
+        #
+        # The row COUNT alone is the wrong test.  Many rows that are duplicated or
+        # collinear span the same degenerate subspace two points do and produce the
+        # identical near-zero-volume failure; conversely d+1 affinely independent points
+        # are exactly enough to define a volume in d dimensions and are fine.  So record
+        # the AFFINE RANK of the seed cloud -- the rank of the mean-centred points -- over
+        # the adaptive axes, scaled by the box so the test is unit-free (a distance in Mpc
+        # and an angle in radians must not get different tolerances).  n points span at
+        # most n-1 affine dimensions, so rank subsumes the count test.
+        _ax = self.warm_seed_axes()
+        n_seed_rank, _ = seed_affine_rank(res_pts, box_lo, box_hi, axes=_ax)
+        return dict(binunique=binunique, dx=dx, nbins=nbins, V=V,
+                    loglkl_thr=loglkl_thr, trunc_p=1e-10, n_seed=nrec,
+                    n_seed_rank=n_seed_rank, n_seed_dim=len(_ax))
+
+    def bootstrap_from_samples(self, samples, params=None, loglkl=None, enc_prob=0.999,
+                               cover_frac=0.0, dilate=1, inflate=1.0, seed=None):
+        """Warm-start from an explicit set of reference points populating the
+        high-likelihood region (e.g. a previous run's posterior draws, a puff of
+        an earlier MAP point, or fair-draw samples from a prior ILE instance).
+        `loglkl` (optional) is L*prior at those points, used to seed the threshold.
+
+        `cover_frac` (0..1) mixes this fraction of uniform full-box points into the
+        seed cloud, widening the seeded live volume.  Leave 0 when reusing a proposal
+        for the SAME problem (e.g. an in-run second pass).
+
+        IT IS NOT A COVERAGE GUARANTEE, despite what this docstring claimed until
+        2026-08.  A FINITE set of uniform points occupies only the bins it lands in,
+        so the seeded grid is NOT a superset of a cold (uniform) start -- and the
+        shortfall grows fast with dimension.  Measured, fraction of the [-5,5]^d prior
+        box covered by the seeded grid (a cold start is 1.0 by construction):
+
+            cover_frac:      0.0        0.2       0.5      0.9
+            d=2           0.027      0.634     0.982     1.000
+            d=4          0.0015      0.028     0.104     0.620
+            d=6         6.3e-05    0.00087    0.0033    0.0287
+
+        At d=6 even cover_frac=0.9 leaves 97% of the box unsampled.  So the claim that
+        "a warm-started integral can never be MORE biased than a cold one" was false;
+        do not rely on it.
+
+        WHAT ACTUALLY PROTECTS YOU is having a component with support everywhere.  In
+        the default AV+GMM portfolio that is the GMM member: a Gaussian mixture has
+        nonzero density over the whole box, so q_mix never vanishes and a badly-seeded
+        AV member costs efficiency rather than bias (measured with a deliberately
+        displaced seed at d=4 and d=6: |lnZ bias| <= 0.05 in every run).  An ALL-AV
+        portfolio has no such member -- every component is a hard-edged box -- and the
+        same displaced seed gave lnZ bias -1.0 to -6.8 nats.
+
+        And note the limit of any coverage fix: in that all-AV test, keeping one member
+        fully cold (V=1) still gave -1.1 to -4.2 nats, because a uniform member at d=6
+        finds a sharp peak too rarely to carry the integral within the budget (n_eff
+        3-9).  Coverage in principle is necessary, not sufficient.  A badly mismatched
+        seed is an efficiency catastrophe no knob repairs -- detect it (the L0 rescue)
+        or do not warm-start across dissimilar points.
+
+        `inflate` (>=1) is the HANDOFF SAFETY MARGIN: widen the seed cloud by this
+        factor about its own mean before building the grid.  When importing a proposal
+        that came from a *neighbouring* intrinsic point, the true peak is shifted (and
+        often slightly broader) at this point, so an un-inflated seed may sit just off
+        it; inflate>1 (e.g. 1.5-2) gives margin for that shift while staying far tighter
+        than a cold start.  cover_frac is the coarse safety net for gross mismatch;
+        inflate is the fine margin for a modest shift."""
+        if not hasattr(self, 'my_ranges'):
+            self.setup()
+        X = self._order_columns(samples, params)
+        inflate = float(max(inflate, 1.0))
+        if inflate > 1.0 and len(X) >= 2:
+            _m = np.mean(X, axis=0)
+            X = _m + inflate * (X - _m)
+            X = np.clip(X, self.my_ranges.T[0], self.my_ranges.T[1])
+            loglkl = None   # inflated points no longer carry their original lnL
+        cover_frac = float(np.clip(cover_frac, 0.0, 1.0))
+        _core = X   # the concentrated proposal; sets the grid RESOLUTION
+        if cover_frac > 0:
+            rng = _warm_seed_rng(seed, 'av.bootstrap_from_samples.cover')
+            n_cover = max(int(cover_frac / (1.0 - cover_frac) * len(X)), 1)
+            Xc = rng.uniform(self.my_ranges.T[0], self.my_ranges.T[1],
+                             size=(n_cover, len(self.params_ordered)))
+            X = np.vstack([X, Xc])
+            # the cover points are not part of the high-L region, so drop the
+            # lnL-threshold seed (let integrate_log recompute it from the data)
+            loglkl = None
+        # resolution from the core (not the uniform cover), so the coverage floor
+        # cannot coarsen away the proposal's concentration (a wide PE + cover_frac
+        # would otherwise collapse the grid to one bin per dim, V->1)
+        self._warm = self._build_grid_from_points(X, loglkl=loglkl, enc_prob=enc_prob,
+                                                  dilate=dilate, resolution_pts=_core)
+        self._warm_applied = False   # a NEW seed must be re-installed (L0 rescue re-seeds mid-run)
+        return self._warm
+
+    def bootstrap_from_gaussian(self, mean, cov, n=None, params=None, enc_prob=0.999,
+                                seed=None, cover_frac=0.0, dilate=1):
+        """Warm-start from a single Gaussian proposal N(mean, cov) -- the
+        Fisher-oracle entry point.  Draws `n` points from the (box-clipped)
+        Gaussian and builds the live-volume grid from them.
+
+        IMPORTANT -- this is a UNIMODAL seed.  A single Gaussian covers only one
+        mode, and because VARAHA's live volume only ever contracts, any mode the
+        seed misses is lost forever and biases the integral low.  Use this only
+        when the target is (locally) unimodal -- e.g. a Fisher matrix at the MAP.
+        For known multimodal structure use bootstrap_from_gaussian_mixture(); for
+        an empirical proposal use bootstrap_from_samples() (both cover the full
+        support and stay unbiased).
+
+        `cover_frac` (0..1): optional safety valve -- fraction of the seed cloud
+        drawn uniformly from the full box, trading efficiency for coverage on a
+        possibly-misspecified seed.  Default 0."""
+        if not hasattr(self, 'my_ranges'):
+            self.setup()
+        rng = _warm_seed_rng(seed, 'av.bootstrap_from_gaussian')
+        mean = np.asarray(mean, dtype=float)
+        cov = np.atleast_2d(np.asarray(cov, dtype=float))
+        if params is not None:
+            order = [list(params).index(p) for p in self.params_ordered]
+            mean = mean[order]
+            cov = cov[np.ix_(order, order)]
+        n = int(n or self.n_chunk)
+        n_cover = int(np.clip(cover_frac, 0.0, 1.0) * n)
+        n_gauss = n - n_cover
+        X = rng.multivariate_normal(mean, cov, size=n_gauss)
+        X = np.clip(X, self.my_ranges.T[0], self.my_ranges.T[1])
+        if n_cover > 0:
+            Xc = rng.uniform(self.my_ranges.T[0], self.my_ranges.T[1],
+                             size=(n_cover, len(self.params_ordered)))
+            X = np.vstack([X, Xc])
+        self._warm = self._build_grid_from_points(X, enc_prob=enc_prob, dilate=dilate)
+        self._warm_applied = False   # a NEW seed must be re-installed (L0 rescue re-seeds mid-run)
+        return self._warm
+
+    def bootstrap_from_fisher(self, mean, fisher, **kwargs):
+        """Warm-start from a Fisher matrix (mean, Gamma): cov = Gamma^{-1}.
+        This is the 'Fisher-matrix oracle' -- an essentially free substitute for
+        an expensively-trained flow, giving the integrator a correct-to-2nd-order
+        starting proposal."""
+        cov = np.linalg.inv(np.atleast_2d(np.asarray(fisher, dtype=float)))
+        return self.bootstrap_from_gaussian(mean, cov, **kwargs)
+
+    def bootstrap_from_gaussian_mixture(self, means, covs, weights=None, n=None,
+                                        params=None, enc_prob=0.999, seed=None, dilate=1):
+        """Warm-start from a MIXTURE of Gaussians -- the general oracle seed for
+        multimodal targets.  This is what a flow oracle, a GMM fit of a previous
+        posterior, or a set of known degenerate modes (e.g. sky reflections)
+        provides.  Because the seed cloud covers every component, the resulting
+        live volume is a superset of the support and the integral stays
+        unbiased."""
+        if not hasattr(self, 'my_ranges'):
+            self.setup()
+        rng = _warm_seed_rng(seed, 'av.bootstrap_from_gaussian_mixture')
+        means = [np.asarray(m, dtype=float) for m in means]
+        covs = [np.atleast_2d(np.asarray(c, dtype=float)) for c in covs]
+        k = len(means)
+        weights = np.ones(k) / k if weights is None else np.asarray(weights, float) / np.sum(weights)
+        if params is not None:
+            order = [list(params).index(p) for p in self.params_ordered]
+            means = [m[order] for m in means]
+            covs = [c[np.ix_(order, order)] for c in covs]
+        n = int(n or self.n_chunk)
+        counts = rng.multinomial(n, weights)
+        chunks = []
+        for c, m, cov in zip(counts, means, covs):
+            if c > 0:
+                chunks.append(rng.multivariate_normal(m, cov, size=c))
+        X = np.vstack(chunks)
+        X = np.clip(X, self.my_ranges.T[0], self.my_ranges.T[1])
+        self._warm = self._build_grid_from_points(X, enc_prob=enc_prob, dilate=dilate)
+        self._warm_applied = False   # a NEW seed must be re-installed (L0 rescue re-seeds mid-run)
+        return self._warm
+
+    def save_state(self, path):
+        """Serialize the compact live-volume state (occupied bins + widths +
+        volume + threshold) to a lightweight .npz.  This is RIFT's cheap
+        alternative to persisting a trained flow: the entire adapted proposal is
+        just an integer bin-index array plus a few scalars."""
+        warm = getattr(self, '_warm', None)
+        if warm is None:
+            thr = float(self.lnL_thresh) if np.isfinite(self.lnL_thresh) else -1e15
+            warm = dict(binunique=self.binunique, dx=self.dx, nbins=self.nbins,
+                        V=float(self.V), loglkl_thr=thr, trunc_p=1e-10)
+        np.savez(path,
+                 params=np.array([str(p) for p in self.params_ordered]),
+                 llim=self.my_ranges.T[0], rlim=self.my_ranges.T[1],
+                 binunique=warm['binunique'], dx=warm['dx'], nbins=warm['nbins'],
+                 V=warm['V'], loglkl_thr=warm['loglkl_thr'],
+                 trunc_p=warm.get('trunc_p', 1e-10),
+                 n_seed=warm.get('n_seed', 0),   # 0 = unknown provenance (grid taken from the live state)
+                 n_seed_rank=warm.get('n_seed_rank', -1),   # -1 = not recorded by the producing run
+                 n_seed_dim=warm.get('n_seed_dim', 0))
+        return path
+
+    def load_state(self, path):
+        """Restore a live-volume state saved by save_state().  Verifies the
+        parameter names and box match this sampler before warm-starting."""
+        if not hasattr(self, 'my_ranges'):
+            self.setup()
+        d = np.load(path, allow_pickle=True)
+        saved_params = [str(p) for p in d['params']]
+        if saved_params != [str(p) for p in self.params_ordered]:
+            raise ValueError("saved state params {} != sampler params {}".format(
+                saved_params, [str(p) for p in self.params_ordered]))
+        if not (np.allclose(d['llim'], self.my_ranges.T[0]) and
+                np.allclose(d['rlim'], self.my_ranges.T[1])):
+            raise ValueError("saved state box does not match sampler box")
+        self._warm_applied = False   # new seed -> must be re-installed
+        self._warm = dict(binunique=np.array(d['binunique']), dx=np.array(d['dx']),
+                          nbins=np.array(d['nbins']), V=float(d['V']),
+                          loglkl_thr=float(d['loglkl_thr']), trunc_p=float(d['trunc_p']),
+                          n_seed=int(d['n_seed']) if 'n_seed' in d else 0,
+                          # -1 / 0 = a state file written before the rank was recorded; the
+                          # verdict then falls back to the count rule.
+                          n_seed_rank=int(d['n_seed_rank']) if 'n_seed_rank' in d else -1,
+                          n_seed_dim=int(d['n_seed_dim']) if 'n_seed_dim' in d else 0)
+        return self._warm
+
 
     @profile
     def integrate_log(self, lnF, *args, xpy=xpy_default,**kwargs):
@@ -439,13 +1917,35 @@ class MCSampler(object):
         temper_log -- Adapt in min(ln L, 10^(-5))^tempering_exp
         tempering_adapt -- Gradually evolve the tempering_exp based on previous history.
         floor_level -- *total probability* of a uniform distribution, averaged with the weighted sampled distribution, to generate a new sampled distribution
-        n_adapt -- number of chunks over which to allow the pdf to adapt. Default is zero, which will turn off adaptive sampling regardless of other settings
+        n_adapt -- IGNORED as an adaptation schedule by this sampler; accepted only for API
+            compatibility with mcsampler/mcsamplerGPU, where it does gate update_sampling_prior.
+            AV has no update_sampling_prior: its volume adaptation is intrinsic to the algorithm
+            and runs every cycle regardless of this value. (Verified: output is bit-identical for
+            n_adapt in {10,100,1000}.) The ONLY thing it still does here is participate in the
+            save_intg gate, so n_adapt=0 can still suppress the _rvs cache. Do not reach for this
+            expecting an "adapt then freeze" control -- there isn't one.
         convergence_tests - dictionary of function pointers, each accepting self._rvs and self.params as arguments. CURRENTLY ONLY USED FOR REPORTING
         Pinning a value: By specifying a kwarg with the same of an existing parameter, it is possible to "pin" it. The sample draws will always be that value, and the sampling prior will use a delta function at that value.
         """
 
 
         xpy_here = self.xpy
+
+        # A SECOND integral on the same sampler object (the ILE L0 warm-start rescue) must not
+        # inherit the first one's 'integrand'.  integrate() writes that key AFTER integrate_log
+        # returns -- i.e. after the block below has already moved every array to the host and, if
+        # a fair draw ran, truncated it to the fair-draw length.  It is therefore stale on entry
+        # here in BOTH size and backend, and integrate_log repopulates every other key but not it.
+        # The fair-draw loop then indexes it (host, cold length) with a device index array and
+        # raises "Implicit conversion to a NumPy array is not allowed", aborting the pass.
+        # mcsamplerPortfolio.integrate_log already drops it on entry for the same reason.
+        if 'integrand' in self._rvs:
+          del self._rvs['integrand']
+        # Same hazard for the warm-seed reserve, and a worse consequence: a pass that raises
+        # part-way leaves the PREVIOUS point's retained samples sitting here, and an L0 rescue
+        # would then seed this point's live volume from a different point's peak.  Drop it on
+        # entry, so "present" always means "this pass wrote it".
+        self._warm_seed_reserve = None
 
         #
         # Pin values
@@ -469,7 +1969,9 @@ class MCSampler(object):
         # Determine stopping conditions
         #
         nmax = kwargs["nmax"] if "nmax" in kwargs else float("inf")
-        neff = kwargs["neff"] if "neff" in kwargs else numpy.float128("inf")
+        neff = kwargs["neff"] if "neff" in kwargs else RiftFloat("inf")
+        av_stop_metric = kwargs.get("av_stop_metric", "max-weight")
+        _select_av_stopping_statistic(0, 0, av_stop_metric)  # validate before drawing
         n = int(kwargs["n"] if "n" in kwargs else min(100000, nmax))
         convergence_tests = kwargs["convergence_tests"] if "convergence_tests" in kwargs else None
         save_no_samples = kwargs["save_no_samples"] if "save_no_samples" in kwargs else None
@@ -483,13 +1985,25 @@ class MCSampler(object):
             print("  Note: cannot adapt, no history ")
 
         tempering_exp = kwargs["tempering_exp"] if "tempering_exp" in kwargs else 0.0
-        n_adapt = int(kwargs["n_adapt"]*n) if "n_adapt" in kwargs else 1000  # default to adapt to 1000 chunks, then freeze
+        # NOTE: n_adapt does NOT schedule adaptation in this sampler -- AV has no
+        # update_sampling_prior, and the volume adaptation below runs every cycle
+        # unconditionally.  It survives only as a way to force save_intg off (n_adapt=0),
+        # which is how --no-adapt reaches this code.  It is deliberately NOT wired up to
+        # gate adaptation: doing so would change the numerics of every production AV run.
+        # Do not read the value below as "adapt to 1000 chunks, then freeze" -- it never
+        # freezes.  (Empirically bit-identical output for n_adapt in {10,100,1000}.)
+        n_adapt = int(kwargs["n_adapt"]*n) if "n_adapt" in kwargs else 1000
         floor_integrated_probability = kwargs["floor_level"] if "floor_level" in kwargs else 0
         temper_log = kwargs["tempering_log"] if "tempering_log" in kwargs else False
         tempering_adapt = kwargs["tempering_adapt"] if "tempering_adapt" in kwargs else False
             
 
         save_intg = kwargs["save_intg"] if "save_intg" in kwargs else False
+        # opt-in anisotropic (per-axis) bin allocation; also settable as a sampler attribute
+        if "anisotropic_bins" in kwargs:
+            self.anisotropic_bins = bool(kwargs["anisotropic_bins"])
+        if kwargs.get("dilate_layers") is not None:
+            self.dilate_layers = int(kwargs["dilate_layers"])
         # FIXME: The adaptive step relies on the _rvs cache, so this has to be
         # on in order to work
         if n_adapt > 0 and tempering_exp > 0.0:
@@ -498,6 +2012,14 @@ class MCSampler(object):
         deltalnL = kwargs['igrand_threshold_deltalnL'] if 'igrand_threshold_deltalnL' in kwargs else float("Inf") # default is to return all
         deltaP    = kwargs["igrand_threshold_p"] if 'igrand_threshold_p' in kwargs else 0 # default is to omit 1e-7 of probability
         bFairdraw  = kwargs["igrand_fairdraw_samples"] if "igrand_fairdraw_samples" in kwargs else False
+        # The fair draw below REPLACES _rvs with an export resample; a consumer that then
+        # weights those rows applies w twice.  Record whether it actually FIRED -- the CLI
+        # flag is not the same predicate, since the draw is skipped when it would not
+        # shrink the record.  Reset per pass: samplers are reused across events.
+        self._rvs_is_fairdraw = False
+        # The record describes THIS pass only.  Cleared with the flag above and set
+        # below, so it can never survive into a pass it does not describe.
+        self._rvs_record = None
         n_extr = kwargs["igrand_fairdraw_samples_max"] if "igrand_fairdraw_samples_max" in kwargs else None
 
         bShowEvaluationLog = kwargs['verbose'] if 'verbose' in kwargs else False
@@ -516,6 +2038,7 @@ class MCSampler(object):
 
         current_log_aggregate = None
         eff_samp = 0  # ratio of max weight to sum of weights
+        stop_eff_samp = 0
         maxlnL = -np.inf  # max lnL
         maxval=0   # max weight
         outvals=None  # define in top level scope
@@ -538,29 +2061,100 @@ class MCSampler(object):
         trunc_p = 1e-10 #How much probability analysis removes with evolution
         nsel = 1000# number of largest log-likelihood samples selected to estimate lkl_thr for the next cycle.
         nsel = np.min([nsel, int(0.1*self.n_chunk)]) #  if chunk size is small, don't pick too many points
+
+        # WARM START: if this sampler was bootstrapped (bootstrap_from_* /
+        # load_state), override the cold single-bin grid, fractional volume and
+        # threshold with the seeded live-volume state.  self.setup() above has
+        # already reset these to cold defaults, so we re-apply the seed here.
+        warm = getattr(self, '_warm', None)
+        n_warm_seed = None   # in-box points the seeded grid was built from (None: cold pass)
+        n_warm_seed_rank = None  # affine rank of that seed cloud (None: cold, or not recorded)
+        n_warm_seed_dim = None   # dimensions it had to span
+        V_warm = None        # the seeded fractional volume, for the collapse report
+        if warm is not None:
+            self.binunique = np.array(warm['binunique'])
+            self.dx = np.array(warm['dx'])
+            self.nbins = np.array(warm['nbins'])
+            self.ninbin = ((self.n_chunk // self.binunique.shape[0] + 1) * np.ones(self.binunique.shape[0])).astype(int)
+            V = float(warm['V'])
+            loglkl_thr = float(warm['loglkl_thr'])
+            trunc_p = float(warm.get('trunc_p', 1e-10))
+            # 0 (or absent) = provenance unknown, e.g. a grid restored by load_state from a run
+            # that predates this field; the seed-size check below then does not fire.
+            n_warm_seed = int(warm.get('n_seed', 0)) or None
+            # Affine rank of the seed cloud, which is the invariant the verdict tests; -1 or
+            # absent means the producing run predates it and the count rule is used instead.
+            _rk = int(warm.get('n_seed_rank', -1))
+            n_warm_seed_rank = _rk if _rk >= 0 else None
+            n_warm_seed_dim = int(warm.get('n_seed_dim', 0)) or None
+            V_warm = V
+            if bShowEvaluationLog:
+                print("  [AV warm-start] live bins={} V={:.3e} loglkl_thr={:.3g} from {} seed pt(s), affine rank {}/{}".format(
+                    self.binunique.shape[0], V, loglkl_thr,
+                    "?" if n_warm_seed is None else n_warm_seed,
+                    "?" if n_warm_seed_rank is None else n_warm_seed_rank,
+                    "?" if n_warm_seed_dim is None else n_warm_seed_dim))
+
+        var_lnV = 0.0  # accumulated variance of ln(V), V a stochastic product of per-cycle
+                       # binomial survival fractions; reported as sigma_lnV.  V sizes the bins
+                       # only; it does not enter lnZ (see log_retained_density)
         if cupy_ok:
           allx = identity_convert_togpu(allx)
           allloglkl = identity_convert_togpu(allloglkl)
 
+        # live-volume health bookkeeping (reported at the end and in dict_return)
+        n_empty_cycles = 0      # cycles in which NO finite sample fell inside the live volume
+        n_live_collapses = 0    # cycles in which the threshold would have emptied the live set
+        collapse_reported = False
+        nrec = 0
+        allcyc = np.zeros(0, dtype=int)   # index into draw_grids of the cycle that drew each retained point
+        draw_grids = []                   # (dx, binunique, n_drawn) of every proposal drawn from
+        _pinned = [self.params_ordered.index(p) for p in self.params_pinned_vals]
+        _keep_dims = np.setdiff1d(np.arange(ndim), _pinned)   # bins of pinned dims are not stored
+        allloglkl_prev, allp_prev, allx_prev, allcyc_prev = allloglkl, allp, allx, allcyc
+        loglkl_thr_prev = loglkl_thr
+
         ntotal_true = 0
-        while (eff_samp < neff and ntotal_true < nmax ): #  and (not bConvergenceTests):
+        while (stop_eff_samp < neff and ntotal_true < nmax ): #  and (not bConvergenceTests):
             # Draw samples. Note state variables binunique, ninbin -- so we can re-use the sampler later outside the loop
             rv, log_joint_p_prior = self.draw_simple()  # Beware reversed order of rv
             ntotal_true += len(rv)
+            _bu = np.asarray(identity_convert(self.binunique))
+            draw_grids.append((np.array(identity_convert(self.dx)), _BinSet(_bu[:, _keep_dims], n_bins=len(_bu)), len(rv)))
             if cupy_ok:
               rv = identity_convert_togpu(rv) # send random numbers to GPU : ugh
               log_joint_p_prior = identity_convert_togpu(log_joint_p_prior)    # send to GPU if required. Don't waste memory reassignment otherwise
 
-            # Evaluate function, protecting argument order
-            if 'no_protect_names' in kwargs:
-                unpacked0 = rv.T
-                lnL = lnF(*unpacked0)  # do not protect order
+            # Evaluate the integrand.  Two contracts exist: the production
+            # GPU/vectorized ILE likelihood is DEVICE-native (wants cupy arrays),
+            # while synthetic/host integrands (CI tests, benchmarks) want numpy.
+            # Feed the native (device) array -- matching production -- but if a
+            # host-only integrand chokes on a cupy array, fall back to a host copy
+            # and remember the choice for the rest of the run.  (The previous
+            # version always fed a host copy, which silently broke the real GPU
+            # ILE likelihood with 'Unsupported type numpy.ndarray'.)
+            def _eval_integrand(samples):
+                if 'no_protect_names' in kwargs:
+                    return lnF(*samples.T)
+                return lnF(**dict(list(zip(self.params_ordered, samples.T))))
+            # `or not cupy_ok` matches mcsamplerPortfolio and mcsamplerNFlow: with no cupy
+            # identity_convert is the identity, so without it a legitimately-failing
+            # integrand is invoked a second time with the identical array before the
+            # exception propagates.
+            if getattr(self, '_integrand_wants_host', False) or not cupy_ok:
+                lnL = _eval_integrand(identity_convert(rv))
             else:
-                unpacked = dict(list(zip(self.params_ordered,rv.T)))
-                lnL= lnF(**unpacked)  # protect order using dictionary
+                try:
+                    lnL = _eval_integrand(rv)
+                except (TypeError, ValueError):
+                    self._integrand_wants_host = True
+                    print("  [AV] integrand refused a device array; evaluating on the host from here on")
+                    lnL = _eval_integrand(identity_convert(rv))
             # take log if we are NOT using lnL
             if cupy_ok:
               if not(isinstance(lnL,cupy.ndarray)):
+                if getattr(lnL, 'dtype', None) == RiftFloat:
+                    lnL = lnL.astype(np.float64)   # cupy has no extended precision (CIP's fit returns RiftFloat)
                 lnL = identity_convert_togpu(lnL)  # send to GPU, if not already there
 
 
@@ -575,13 +2169,53 @@ class MCSampler(object):
             
             loglkl = log_integrand # note we are putting the prior in here
 
-            idxsel = xpy_here.where(loglkl > loglkl_thr)
+            # Admit only FINITE samples above threshold.  A +inf lnL (overflow in a
+            # degenerate extrinsic configuration) passes the plain `> thr` test and then
+            # poisons every downstream max()/exp(); NaN silently fails it.  Screening here
+            # matches update_sampling_prior_selfish, which already does this.
+            idxsel = xpy_here.where(xpy_here.logical_and(loglkl > loglkl_thr, xpy_here.isfinite(loglkl)))
+            # How many samples did THIS chunk contribute?  Count before the append: `ninj`
+            # below is the CUMULATIVE live-set size, so testing that instead would only ever
+            # detect LEADING empty chunks.  Once a single sample has survived, a later chunk
+            # contributing nothing would sail past such a test and re-threshold the recycled
+            # live set -- shedding a point and shrinking V every cycle on no new evidence at
+            # all, which contracts the grid on no evidence.  Measured before this guard: 20 live
+            # points and ln V decreasing monotonically -0.05, -0.11, -0.16, -0.22, ... over
+            # chunks that each returned zero finite samples.
+            n_new = len(idxsel[0])
             #only admit samples that lie inside the live volume, i.e. one that cross likelihood threshold
             allx = xpy_here.append(allx, rv[idxsel], axis = 0)
+            allcyc = np.append(allcyc, np.full(n_new, len(draw_grids) - 1, dtype=int))
             allloglkl = xpy_here.append(allloglkl, loglkl[idxsel])
             allp = xpy_here.append(allp, log_joint_p_prior[idxsel])
             ninj = len(allloglkl)
 
+            if _AV_TRACE:
+                _lk = identity_convert(loglkl)
+                _av_trace("cycle {}: drawn={} finite={} neginf={} posinf={} nan={} new={} ninj={} thr_in={:.6g}".format(
+                    cycle, len(_lk), int(np.sum(np.isfinite(_lk))), int(np.sum(np.isneginf(_lk))),
+                    int(np.sum(np.isposinf(_lk))), int(np.sum(np.isnan(_lk))), n_new, ninj, loglkl_thr))
+
+            if n_new == 0:
+                # This chunk contributed NO finite in-volume sample.  At high SNR the
+                # production likelihood underflows to -inf more than ~745 nats below its
+                # peak, so a chunk can hold nothing usable.  Contraction is an inference
+                # FROM the chunk, so an empty chunk supports none: leave the threshold, V
+                # and the grid untouched and draw again.  This is recoverable; the old code
+                # instead either fell into get_likelihood_threshold and died on max() of an
+                # empty array (no survivors yet) or contracted on recycled samples.
+                n_empty_cycles += 1
+                if not collapse_reported:
+                    print("  [AV collapse] cycle {}: no finite in-volume samples ({} drawn, all -inf/NaN;"
+                          " live set holds {}).".format(cycle, len(rv), ninj))
+                    print("                Threshold and live volume left unchanged; continuing to draw.")
+                    print("                This is the high-SNR likelihood-underflow regime --")
+                    print("                see --sampler-warmstart-retry-neff.")
+                    collapse_reported = True
+                cycle += 1
+                if cycle > 1000:
+                    break
+                continue
 
             #just some test to verify if we dont discard more than 1 - Pthr probability
             at_final_threshold = np.round(enc_prob/trunc_p) - np.round(enc_prob/(1 - enc_prob)) == 0
@@ -589,20 +2223,46 @@ class MCSampler(object):
             if not(at_final_threshold):
                 loglkl_thr, truncp = get_likelihood_threshold(allloglkl, loglkl_thr, nsel, 1 - enc_prob - trunc_p,xpy_here=xpy_here)
                 trunc_p += truncp
-    
+
             # Select with threshold
             idxsel = xpy_here.where(allloglkl > loglkl_thr)
             allloglkl = allloglkl[idxsel]
             allp = allp[idxsel]
             allx = allx[idxsel]
+            allcyc = allcyc[identity_convert(idxsel[0])]
             nrec = len(allloglkl)   # recovered size of active volume at present, after selection
+
+            _av_trace("cycle {}: after selection at thr={:.6g}: nrec={} (was ninj={})".format(
+                cycle, loglkl_thr, nrec, ninj))
+
+            if nrec == 0:
+                # Defensive: get_likelihood_threshold now clamps the threshold below max(lkl),
+                # so this is unreachable by the route that produced the reported crash.  Keep
+                # the guard anyway -- an empty live set must never reach the reductions below.
+                n_live_collapses += 1
+                print("  [AV collapse] cycle {}: threshold {:.6g} emptied a live volume of {}; ".format(cycle, loglkl_thr, ninj)
+                      + "restoring it and stopping contraction.")
+                allloglkl, allp, allx, allcyc = allloglkl_prev, allp_prev, allx_prev, allcyc_prev
+                draw_grids.pop()   # this cycle's draws are discarded, so its grid leaves the mixture
+                loglkl_thr = loglkl_thr_prev
+                nrec = len(allloglkl)
+                if nrec == 0:
+                    raise LiveVolumeCollapse(
+                        "adaptive-volume live set is empty after {} cycles: the likelihood returned no "
+                        "finite value inside the sampled volume (high-SNR underflow, or a likelihood/"
+                        "waveform failure).  This is NOT a waveform Nyquist/duration problem.".format(cycle))
+                break
+
+            # remember the last GOOD state, so a degenerate contraction can be undone
+            allloglkl_prev, allp_prev, allx_prev, allcyc_prev, loglkl_thr_prev = allloglkl, allp, allx, allcyc, loglkl_thr
 
             # Weights
             lw = allloglkl - xpy_here.max(allloglkl)
             w = xpy_here.exp(lw)
             neff_varaha = identity_convert(xpy_here.sum(w) ** 2 / xpy_here.sum(w ** 2))
             eff_samp = identity_convert(xpy_here.sum(w)/xpy_here.max(w))  # to CPU as needed
- 
+            stop_eff_samp = _select_av_stopping_statistic(eff_samp, neff_varaha, av_stop_metric)
+
             #New live volume based on new likelihood threshold
             V *= (nrec / ninj)
             delta_V = V / np.sqrt(nrec) 
@@ -610,7 +2270,8 @@ class MCSampler(object):
             # Redefine bin sizes, reassign points to redefined hypercube set. [Asymptotically this becomes stationary]
             # Note hypercube calculation is on CPU at present, always
             if self.d_adaptive > 0:
-              self.nbins = np.ones(ndim)*(1/delta_V) ** (1/self.d_adaptive)  # uniform split in each dimension is normal, but we have array - can be irregular
+              # per-axis (anisotropic) or equal (default) split; same total bin budget either way
+              self.nbins = self._allocate_nbins(allx, delta_V, ndim)
               self.nbins[self.indx_not_adaptive] = 1  # reset to 1 bin for non-adaptive dimensions
             else:
               self.nbins = np.ones(ndim) # why are we even doing this!
@@ -623,8 +2284,16 @@ class MCSampler(object):
             binidx = ( (( identity_convert(allx) - self.my_ranges.T[0]) / self.dx.T).astype(int)  ) #bin indexs of the samples ... sent back to CPU as needed
 
             self.binunique = np.unique(binidx, axis = 0)
+            if self.d_adaptive > 0:
+              self.binunique = dilate_bins(self.binunique, self.nbins, self.indx_adaptive, self.dilate_layers)
             self.ninbin = ((self.n_chunk // self.binunique.shape[0] + 1) * np.ones(self.binunique.shape[0])).astype(int)
             self.ntotal = current_log_aggregate[0]
+            # accumulate the binomial variance of this cycle's ln(V) update:
+            # Var(ln p_hat) ~= (1-p_hat)/(n p_hat) = (1-nrec/ninj)/nrec.  Cycles reuse
+            # surviving samples, so this is an approximate (disclosed) budget rather
+            # than a rigorous iid propagation; it vanishes as the volume stabilizes.
+            if nrec > 0 and ninj > 0:
+                var_lnV += (1.0 - nrec/ninj)/nrec
 
             if super_verbose:
               print(ntotal_true,eff_samp, np.round(neff_varaha), np.round(np.max(allloglkl), 1), len(allloglkl), np.mean(self.nbins), V,  len(self.binunique),  np.round(loglkl_thr, 1), trunc_p)
@@ -637,19 +2306,90 @@ class MCSampler(object):
 
         # VT approach was to accumulate samples, but then prune them.  So we have all the lnL and x draws
 
+        if len(allloglkl) == 0:
+            # Every cycle came back empty: the integrand never returned a finite value inside
+            # the sampled volume.  There is no integral to report, so fail with a message that
+            # names the actual cause instead of an anonymous empty-array reduction.
+            raise LiveVolumeCollapse(
+                "adaptive-volume live set is empty after {} cycles ({} draws): the likelihood "
+                "returned no finite value anywhere in the sampled volume.  At high network SNR "
+                "this is likelihood UNDERFLOW (exp() of a lnL more than ~745 nats below the peak "
+                "returns 0), not a waveform Nyquist/start-frequency/duration problem; narrow the "
+                "extrinsic prior or seed the sampler (--sampler-warmstart-retry-neff).".format(
+                    cycle, ntotal_true))
+
+        try:
+            unseen_frac = unseen_fraction(identity_convert(allx), identity_convert(allloglkl),
+                                          self.my_ranges.T[0], self.dx, self.indx_adaptive)
+        except Exception as _e_unseen:
+            print(" mcsamplerAdaptiveVolume: coverage diagnostic failed ({}); continuing.".format(_e_unseen))
+            unseen_frac = float('nan')
+
         # write in variables requested in the standard format
         for indx in np.arange(len(self.params_ordered)):
             self._rvs[self.params_ordered[indx]] = allx[:,indx]  # pull out variable
         # write out log integrand
         self._rvs['log_integrand']  = allloglkl - allp  # remember 'allloglkl' really is Lp -- despite the misleading name! --  so we are *undoing* that
         self._rvs['log_joint_prior'] = allp
-        self._rvs['log_joint_s_prior'] = xpy_here.ones(len(allloglkl))*(np.log(1/V) - np.sum(np.log(self.dx0)))  # effective uniform sampling on this volume
+        # Sampling density of the retained set: the mixture of every grid drawn from, not
+        # 1/(V*prod(dx0)).  V (the product of per-cycle survival fractions nrec/ninj) is
+        # biased high whenever a cycle's occupied bins miss part of the previous live
+        # region, because the missed part is its low-likelihood rim; V now only sizes bins.
+        # Result is put on allloglkl's backend so the arithmetic below stays on one backend.
+        _log_ps = log_retained_density(identity_convert(allx), allcyc, draw_grids,
+                                       self.my_ranges.T[0], self.dx0, pinned_dims=_pinned)
+        self._rvs['log_joint_s_prior'] = xpy_here.ones_like(allloglkl)*(identity_convert_togpu(_log_ps) if cupy_ok else _log_ps)
+
+        # WARM-SEED RESERVE: keep a bounded copy of the points this pass actually RETAINED,
+        # before the fair draw below overwrites self._rvs in place.
+        #
+        # That overwrite is why a warm start seeded from _rvs was starving.  The fair draw
+        # takes n_extr = min(n_extr, 1.5*eff_samp, 1.5*neff) rows WITH REPLACEMENT and
+        # REBINDS every _rvs key to that subset, so on the collapsed high-amplitude pass the
+        # rescue is meant to fix -- eff_samp ~ 1 -- everything downstream sees ONE row, no
+        # matter that the live set held a thousand.  Measured at rho_net 146.8: "Fairdraw
+        # size : 1", and the rescue then reported a 1-point seed; at rho_net 102.8, 5 rows,
+        # several of them the same point drawn twice, which is how a "5-point" seed came back
+        # with affine rank 2 (and a "2-point" seed with rank 0 -- two copies of one point).
+        # So the earlier reading of this failure, that "a collapsed cold pass never sampled
+        # more than a handful of finite-likelihood points", was wrong: the points were drawn
+        # and retained, then discarded by a resample meant for EXPORT, not for provenance.
+        # It also explains why widening --sampler-sequential-warmstart-deltalnL could not
+        # help -- there were only n_extr rows left to admit at any window.
+        #
+        # Bounded, because this is the array the surrounding code calls a memory hog: a
+        # uniform subsample without replacement (plus the peak row, which the seed needs and
+        # a subsample can drop) is all a seed or a scale estimate can use.
+        # The two PRIOR components ride along as well, so a consumer can rebuild the
+        # importance weight -- and therefore lnZ -- from the retained set.  Without them the
+        # only reconstructable lnZ is the one from the fair-drawn _rvs, and on this pass that
+        # is a SINGLE row drawn proportional to weight, i.e. the largest weight rather than
+        # the mean: an estimate high by ~log(n_retained / eff_samp), about 7 nats here.
+        try:
+            self._warm_seed_reserve = make_warm_seed_reserve(
+                allx, allloglkl - allp, self.params_ordered,
+                n_max=getattr(self, 'n_warm_seed_reserve', 20000),
+                log_joint_prior=allp,
+                log_joint_s_prior=self._rvs['log_joint_s_prior'])
+        except Exception as _e_res:
+            # Provenance for a rescue, never a reason to lose a completed integral.
+            self._warm_seed_reserve = None
+            print("  [AV] warm-seed reserve not kept (", _e_res, ")")
 
         # Manual estimate of integrand, done transparently (no 'log aggregate' or running calculation -- so memory hog
         log_wt = self._rvs["log_integrand"] + self._rvs["log_joint_prior"] - self._rvs["log_joint_s_prior"]
         log_wt = identity_convert(log_wt)  # convert to CPU
         log_int = special.logsumexp( log_wt) - np.log(len(log_wt))  # mean value
-        rel_var = np.var( np.exp(log_wt - log_int))/len(log_wt)   # error in integral, estimated: just taking int = <w> , so error is V(w_k)/N (sample mean/variance)
+        # Relative variance of (1/N_drawn) sum w over ALL draws: rejected draws are zeros in that
+        # average, so the count is N_drawn, not the retained count.
+        _w = np.exp(log_wt - np.max(log_wt))
+        _n_drawn = float(sum(g[2] for g in draw_grids))
+        rel_var_mc = max(float(np.sum(_w**2) / np.sum(_w)**2) - 1.0 / _n_drawn, 0.0)
+        # Total DISCLOSED relative variance: the weight-variance term above plus the
+        # probability deliberately truncated by the likelihood threshold (trunc_p, a
+        # one-sided systematic entered here as a variance in quadrature).  var_lnV is not
+        # added: V no longer enters the estimate (see log_joint_s_prior above).
+        rel_var = rel_var_mc + trunc_p**2
         eff_samp = np.sum(np.exp(log_wt - np.max(log_wt)))
         maxval = np.max(allloglkl)  # max of log
 
@@ -662,30 +2402,147 @@ class MCSampler(object):
 #        rel_var = np.exp(outvals[1]/2  - outvals[0]  - np.log(self.ntotal)/2 )
 
         # Do a fair draw of points, if option is set. CAST POINTS BACK TO NUMPY, IDEALLY
+        # (DESIGN_rvs_naming.md) _rvs is the RETAINED set at this point -- pruned,
+        # perhaps, but never resampled.  Record that before the draw below can change what it
+        # means, so "not resampled" is a statement the record makes rather than the absence of
+        # one.  The reserve rides along BY REFERENCE where the sampler keeps one (AV and the
+        # portfolio); None elsewhere is the honest answer, not a gap.
+        self._rvs_record = RvsRecord.retained(
+            self._rvs, reserve=getattr(self, '_warm_seed_reserve', None))
         if bFairdraw and not(n_extr is None):
            n_extr = int(numpy.min([n_extr,1.5*identity_convert(eff_samp),1.5*neff]))
            print(" Fairdraw size : ", n_extr)
            ln_wt = self.xpy.array(self._rvs["log_integrand"] + self._rvs["log_joint_prior"] - self._rvs["log_joint_s_prior"] ,dtype=float)
            ln_wt = identity_convert(ln_wt)  # send to CPU
            ln_wt += - special.logsumexp(ln_wt)
-           wt = xpy.exp(identity_convert_togpu(ln_wt))
+           # Build the weights on the SAMPLER's backend (self.xpy), which is what draws below.
+           # The module-global `xpy` kwarg defaults to cupy independently of self.xpy, so using it
+           # here handed a device array to numpy.random.choice whenever the two disagreed.
+           wt = self.xpy.exp(self.xpy.asarray(ln_wt))
            if n_extr < len(self._rvs["log_integrand"]):
                indx_list = self.xpy.random.choice(self.xpy.arange(len(wt)), size=n_extr,replace=True,p=wt) # fair draw
                # FIXME: See previous FIXME
+               # Gather on the HOST.  _rvs entries are not guaranteed to sit on the same backend as
+               # indx_list (a caller may set self.xpy independently of the module-level backend, and
+               # keys written outside integrate_log arrive host-typed), and a numpy array indexed by
+               # a cupy array raises "Implicit conversion to a NumPy array is not allowed" -- which
+               # aborted this pass mid-way, leaving the caller's result tuple unassigned.  Converting
+               # first is free: the block just below moves every array to the host anyway.
+               indx_host = np.asarray(identity_convert(indx_list))
                for key in list(self._rvs.keys()):
+                   arr = identity_convert(self._rvs[key])
                    if isinstance(key, tuple):
-                       self._rvs[key] = identity_convert(self._rvs[key][:,indx_list])
+                       self._rvs[key] = arr[:,indx_host]
                    else:
-                       self._rvs[key] = identity_convert(self._rvs[key][indx_list])
-
-
+                       self._rvs[key] = arr[indx_host]
+               # (see DESIGN_rvs_naming.md) the same rows, under a name that says what
+               # they are, carrying their own provenance.  Written HERE because this is the
+               # moment the meaning of _rvs changes -- from the retained set to an export
+               # resample -- and the whole point is that the change of meaning is recorded
+               # where it happens rather than reconstructed later from a flag someone else
+               # has to maintain.  NOTHING READS THIS YET; it is a no-op on every output.
+               self._rvs_is_fairdraw = True   # _rvs is now an EXPORT resample, rows already ~ w
+               # ...and now it is an export resample.  n_retained comes from that record's
+                # PROVENANCE, which captured the count eagerly -- NOT from len(), which reads
+                # self._rvs and would return the POST-draw length: the retained record holds a
+                # REFERENCE to the live dict this block has just replaced in place.  That is
+                # this project's own bug class, so it is spelled out rather than assumed.
+               self._rvs_record = RvsRecord.fair_draw(
+                   self._rvs, n_retained=self._rvs_record.n_retained(),
+                   reserve=getattr(self, '_warm_seed_reserve', None))
         # perform type conversion of all stored variables.  VERY LARGE -- should only do this if we need it!
         if cupy_ok:
           for name in self._rvs:
             if isinstance(self._rvs[name],xpy_default.ndarray):
               self._rvs[name] = identity_convert(self._rvs[name])   # this is trivial if xpy_default is numpy, and a conversion otherwise
 
-        dict_return = {}
+        try:
+            self.last_stopping_statistics = _av_weight_statistics_from_log(log_wt)
+        except ValueError:
+            if av_stop_metric == "kish":
+                raise
+            # Diagnostic only on the default path; never fail a run that used to complete.
+            self.last_stopping_statistics = {"max_weight": float(eff_samp), "kish": float("nan")}
+        self.last_stopping_statistics.update({
+            "metric": av_stop_metric, "target": float(neff), "total_draws": int(ntotal_true),
+            "selected": float(_select_av_stopping_statistic(
+                self.last_stopping_statistics["max_weight"], self.last_stopping_statistics["kish"], av_stop_metric)),
+            "native_return_metric": "max-weight", "retained_rows": int(len(log_wt))})
+        dict_return = {"av_stopping_statistics": self.last_stopping_statistics.copy()}
+
+        # MC-error diagnostics: disclose the components and the weight-tail state.
+        # sigma_lnV describes the grid-sizing volume V, which no longer enters lnZ.
+        try:
+            mc_diag = {'sigma_lnZ_mc': float(np.sqrt(rel_var_mc)),
+                       'sigma_lnV': float(np.sqrt(var_lnV)),
+                       'trunc_p': float(trunc_p)}
+            _kh = pareto_khat_from_log(log_wt)
+            if _kh is not None:
+                mc_diag['pareto_khat'] = _kh
+            mc_diag['n_ESS'] = ess_from_log_weights(log_wt)
+            if np.sqrt(rel_var) > 0.3:
+                _q = bootstrap_lnZ_quantiles(log_wt, n_total=len(log_wt), n_drawn=_n_drawn)
+                if _q is not None:
+                    mc_diag['lnZ_ci90'] = _q
+            dict_return.update(mc_diag)
+            print(" [AV mc diag] sigma_mc={:.4f} sigma_lnV={:.4f} trunc_p={:.2e} khat={} ESS={} unseen={:.3f}".format(
+                mc_diag['sigma_lnZ_mc'], mc_diag['sigma_lnV'], mc_diag['trunc_p'],
+                round(mc_diag['pareto_khat'],3) if 'pareto_khat' in mc_diag else None,
+                round(mc_diag['n_ESS'],1) if 'n_ESS' in mc_diag else None, unseen_frac))
+        except Exception as _e_diag:
+            print(" mcsamplerAdaptiveVolume: MC-error diagnostics failed ({}); continuing.".format(_e_diag))
+
+        # ------------------------------------------------------------------
+        # LIVE-VOLUME COLLAPSE VERDICT: a degenerate contraction must be REPORTED, not
+        # silently exported.  Thresholds and the measured regimes they separate are
+        # documented on live_volume_collapse_verdict.
+        n_live_final = int(len(log_wt))
+        _ess = dict_return.get('n_ESS', None)
+        _khat_v = dict_return.get('pareto_khat', None)
+        collapsed, _reasons = live_volume_collapse_verdict(
+            n_live_final, ndim, ess=_ess, khat=_khat_v,
+            n_empty_cycles=n_empty_cycles, n_live_collapses=n_live_collapses,
+            n_warm_seed=n_warm_seed, n_warm_seed_rank=n_warm_seed_rank,
+            n_warm_seed_dim=n_warm_seed_dim)
+        dict_return['live_volume_collapsed'] = collapsed
+        dict_return['n_live_final'] = n_live_final
+        dict_return['n_empty_cycles'] = int(n_empty_cycles)
+        dict_return['n_live_collapses'] = int(n_live_collapses)
+        dict_return['unseen_frac_final'] = float(unseen_frac)
+        if unseen_frac > COVERAGE_UNSEEN_WARN:
+            print(" [AV coverage] {:.3f} of the live weight sits in bins holding one point (warn above"
+                  " {:.2f}): the grid misses part of the posterior and lnZ may read low.".format(
+                      unseen_frac, COVERAGE_UNSEEN_WARN))
+        if n_warm_seed is not None:
+            dict_return['n_warm_seed'] = int(n_warm_seed)
+            if n_warm_seed_rank is not None:
+                dict_return['n_warm_seed_rank'] = int(n_warm_seed_rank)
+                dict_return['n_warm_seed_dim'] = int(n_warm_seed_dim or 0)
+            dict_return['V_warm_start'] = float(V_warm)
+        if collapsed:
+            dict_return['collapse_reason'] = "; ".join(_reasons)
+            print(" [AV COLLAPSE] the live volume degenerated: " + dict_return['collapse_reason'] + ".")
+            print(" [AV COLLAPSE] lnZ and the exported samples describe a SINGLE mode of the integrand and are")
+            print(" [AV COLLAPSE] NOT a fair draw from the posterior.  Do not use this export unweighted.")
+            # The same test the verdict used -- rank when recorded, count at the simplex
+            # boundary otherwise -- so the advice always matches the reason just given.
+            _seed_degenerate = (
+                (n_warm_seed_rank < n_warm_seed_dim)
+                if (n_warm_seed_rank is not None and n_warm_seed_dim)
+                else (n_warm_seed is not None and n_warm_seed <= (n_warm_seed_dim or ndim)))
+            if _seed_degenerate:
+                # OPPOSITE failure to the cold one below, so it needs the opposite advice: the
+                # numbers look GOOD (n_eff at target in one cycle) precisely because the seeded
+                # volume is too small for the integrand to vary across it.  lnZ is a lower bound.
+                print(" [AV COLLAPSE] this is an OVER-CONTRACTED WARM START (V={:.3e}), not underflow:".format(V_warm))
+                print(" [AV COLLAPSE] a healthy n_eff here is an artifact of a live volume too small to")
+                print(" [AV COLLAPSE] resolve the peak, and lnZ is a LOWER BOUND missing the mass outside it.")
+                print(" [AV COLLAPSE] Seed from more points (widen --sampler-sequential-warmstart-deltalnL,")
+                print(" [AV COLLAPSE] or let the caller puff a thin peak) rather than trusting this pass.")
+            else:
+                print(" [AV COLLAPSE] At high network SNR this is likelihood underflow over a cold extrinsic prior;")
+                print(" [AV COLLAPSE] narrow the prior or seed the sampler (--sampler-warmstart-retry-neff).")
+
         return log_int, np.log(rel_var)  +2*log_int, eff_samp, dict_return
 
         # if outvals:
@@ -717,7 +2574,13 @@ class MCSampler(object):
         temper_log -- Adapt in min(ln L, 10^(-5))^tempering_exp
         tempering_adapt -- Gradually evolve the tempering_exp based on previous history.
         floor_level -- *total probability* of a uniform distribution, averaged with the weighted sampled distribution, to generate a new sampled distribution
-        n_adapt -- number of chunks over which to allow the pdf to adapt. Default is zero, which will turn off adaptive sampling regardless of other settings
+        n_adapt -- IGNORED as an adaptation schedule by this sampler; accepted only for API
+            compatibility with mcsampler/mcsamplerGPU, where it does gate update_sampling_prior.
+            AV has no update_sampling_prior: its volume adaptation is intrinsic to the algorithm
+            and runs every cycle regardless of this value. (Verified: output is bit-identical for
+            n_adapt in {10,100,1000}.) The ONLY thing it still does here is participate in the
+            save_intg gate, so n_adapt=0 can still suppress the _rvs cache. Do not reach for this
+            expecting an "adapt then freeze" control -- there isn't one.
         convergence_tests - dictionary of function pointers, each accepting self._rvs and self.params as arguments. CURRENTLY ONLY USED FOR REPORTING
         Pinning a value: By specifying a kwarg with the same of an existing parameter, it is possible to "pin" it. The sample draws will always be that value, and the sampling prior will use a delta function at that value.
         """

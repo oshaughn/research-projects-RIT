@@ -10,9 +10,13 @@
 # add these directories to sys.path here. If the directory is relative to the
 # documentation root, use os.path.abspath to make it absolute, like shown here.
 #
-# import os
-# import sys
-# sys.path.insert(0, os.path.abspath('.'))
+import os
+import sys
+# Add RIFT module path for autodoc
+sys.path.insert(0, os.path.abspath('../../MonteCarloMarginalizeCode/Code'))
+# Add current source path to allow importing md_converter
+sys.path.insert(0, os.path.abspath('.'))
+
 import sphinx_rtd_theme
 
 # -- Project information -----------------------------------------------------
@@ -35,9 +39,9 @@ master_doc = "index"
 
 extensions = ["sphinx.ext.autodoc",
               "sphinx_rtd_theme",
-              "sphinx_tabs.tabs",
+              #"sphinx_tabs.tabs",
               "sphinx_multiversion",
-              "sphinx_toolbox.collapse"
+              #"sphinx_toolbox.collapse"
 ]
 
 # Add any paths that contain templates here, relative to this directory.
@@ -65,9 +69,9 @@ html_theme_options = {
     # Toc options
     "collapse_navigation": True,
     "sticky_navigation": True,
-    "navigation_depth": 25,
+    "navigation_depth": 4,
     "includehidden": True,
-    "titles_only": False,
+    "titles_only": True,
 }
 
 # Add any paths that contain custom static files (such as style sheets) here,
@@ -78,3 +82,21 @@ html_static_path = ['_static']
 html_css_files = [
     'custom.css',
 ]
+
+import md_converter
+
+def setup(app):
+    # Dynamically convert DESIGN.md to RST before the build
+    source_dir = os.path.dirname(__file__)
+    md_file = os.path.abspath(os.path.join(source_dir, '../../MonteCarloMarginalizeCode/Code/RIFT/simulation_manager/DESIGN.md'))
+    rst_file = os.path.abspath(os.path.join(source_dir, 'api_reference/simulation_manager/design_overview.rst'))
+    
+    if os.path.exists(md_file):
+        # Prefer pandoc if available for a high‑quality conversion
+        try:
+            import subprocess, shlex
+            subprocess.run(shlex.split(f"pandoc {md_file} -f markdown -t rst -o {rst_file}"), check=True)
+        except Exception:
+            # Fallback to the simple Python converter
+            md_converter.convert_md_to_rst(md_file, rst_file)
+

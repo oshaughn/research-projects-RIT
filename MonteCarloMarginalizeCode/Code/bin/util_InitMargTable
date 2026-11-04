@@ -79,17 +79,17 @@ elif  (opts.d_prior == 'cosmo' or opts.d_prior == 'cosmo_sourceframe'):
     redshift_to_distance = lambda x: x
     from astropy.cosmology import z_at_value
     from astropy import units as u
-    from astropy.cosmology import FlatLambdaCDM
-    from astropy.units import Hz
     import RIFT.likelihood.priors_utils as priors_utils
-    # ported form https://github.com/lscsoft/lalsuite/blob/master/lalinference/python/lalinference/bayespputils.py
-    # need way to query lalsuite parameters! See
-    # https://git.ligo.org/cbc/action_items/-/issues/37#note_1158065
-    try:
-      from lal import H0_SI, OMEGA_M
-    except:
-      H0_SI, OMEGA_M = 2.200489137532724e-18, 0.3065
-    my_cosmo = FlatLambdaCDM(H0=H0_SI*Hz, Om0=OMEGA_M)
+    # SAME cosmology as the ILE driver, from the same helper.  This file builds the distance
+    # prior for the MARGINALIZED path (--internal-marginalize-distance), while the ILE driver
+    # builds it for the unmarginalized one, and helper_LDG_Events passes both the same
+    # --d-prior.  So if these two disagree, identical CLI gives two different cosmological
+    # priors depending only on whether distance marginalization is on -- which is what
+    # happened for one commit when the ILE driver moved to the helper and this did not.
+    # History: the lal-constant route came from
+    # https://git.ligo.org/cbc/action_items/-/issues/37#note_1158065 and was ported from
+    # lalinference/bayespputils.py.  Superseded deliberately.
+    my_cosmo = priors_utils.get_astropy_cosmology("Planck15")
 #    omega = lal.CreateDefaultCosmologicalParameters() # matching the lal options. Only needed if we have it
     zmin  = z_at_value(my_cosmo.luminosity_distance, dmin*u.Mpc).value
     zmax = z_at_value(my_cosmo.luminosity_distance, dmax*u.Mpc).value # use astropy estimate for zmax

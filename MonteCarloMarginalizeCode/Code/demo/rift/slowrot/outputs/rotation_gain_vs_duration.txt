@@ -1,0 +1,5 @@
+# slow-rotation demo: --rotation-slow recovers SNR the static analysis loses on long signals
+# label seglen[s] SNR Omega*T lnL_static lnL_rot gain=lnL_rot-lnL_static
+null_bbh 2 30.0567 0.000145842 70.1014 70.105 0.00367852
+bbh_8_8 16 29.1207 0.00116674 106.254 106.297 0.0430423
+bbh_4_4 64 31.1072 0.00466695 107.632 107.819 0.186851

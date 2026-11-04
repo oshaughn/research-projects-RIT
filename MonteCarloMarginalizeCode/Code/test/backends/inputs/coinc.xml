@@ -1,0 +1,74 @@
+<?xml version='1.0' encoding='utf-8'?>
+<!DOCTYPE LIGO_LW SYSTEM "http://ldas-sw.ligo.caltech.edu/doc/ligolwAPI/html/ligolw_dtd.txt">
+<LIGO_LW>
+	<Table Name="sngl_inspiral:table">
+		<Column Name="process:process_id" Type="int_8s"/>
+		<Column Name="ifo" Type="lstring"/>
+		<Column Name="search" Type="lstring"/>
+		<Column Name="channel" Type="lstring"/>
+		<Column Name="end_time" Type="int_4s"/>
+		<Column Name="end_time_ns" Type="int_4s"/>
+		<Column Name="end_time_gmst" Type="real_8"/>
+		<Column Name="impulse_time" Type="int_4s"/>
+		<Column Name="impulse_time_ns" Type="int_4s"/>
+		<Column Name="template_duration" Type="real_8"/>
+		<Column Name="event_duration" Type="real_8"/>
+		<Column Name="amplitude" Type="real_4"/>
+		<Column Name="eff_distance" Type="real_4"/>
+		<Column Name="coa_phase" Type="real_4"/>
+		<Column Name="mass1" Type="real_4"/>
+		<Column Name="mass2" Type="real_4"/>
+		<Column Name="mchirp" Type="real_4"/>
+		<Column Name="mtotal" Type="real_4"/>
+		<Column Name="eta" Type="real_4"/>
+		<Column Name="kappa" Type="real_4"/>
+		<Column Name="chi" Type="real_4"/>
+		<Column Name="tau0" Type="real_4"/>
+		<Column Name="tau2" Type="real_4"/>
+		<Column Name="tau3" Type="real_4"/>
+		<Column Name="tau4" Type="real_4"/>
+		<Column Name="tau5" Type="real_4"/>
+		<Column Name="ttotal" Type="real_4"/>
+		<Column Name="psi0" Type="real_4"/>
+		<Column Name="psi3" Type="real_4"/>
+		<Column Name="alpha" Type="real_4"/>
+		<Column Name="alpha1" Type="real_4"/>
+		<Column Name="alpha2" Type="real_4"/>
+		<Column Name="alpha3" Type="real_4"/>
+		<Column Name="alpha4" Type="real_4"/>
+		<Column Name="alpha5" Type="real_4"/>
+		<Column Name="alpha6" Type="real_4"/>
+		<Column Name="beta" Type="real_4"/>
+		<Column Name="f_final" Type="real_4"/>
+		<Column Name="snr" Type="real_4"/>
+		<Column Name="chisq" Type="real_4"/>
+		<Column Name="chisq_dof" Type="int_4s"/>
+		<Column Name="bank_chisq" Type="real_4"/>
+		<Column Name="bank_chisq_dof" Type="int_4s"/>
+		<Column Name="cont_chisq" Type="real_4"/>
+		<Column Name="cont_chisq_dof" Type="int_4s"/>
+		<Column Name="sigmasq" Type="real_8"/>
+		<Column Name="rsqveto_duration" Type="real_4"/>
+		<Column Name="Gamma0" Type="real_4"/>
+		<Column Name="Gamma1" Type="real_4"/>
+		<Column Name="Gamma2" Type="real_4"/>
+		<Column Name="Gamma3" Type="real_4"/>
+		<Column Name="Gamma4" Type="real_4"/>
+		<Column Name="Gamma5" Type="real_4"/>
+		<Column Name="Gamma6" Type="real_4"/>
+		<Column Name="Gamma7" Type="real_4"/>
+		<Column Name="Gamma8" Type="real_4"/>
+		<Column Name="Gamma9" Type="real_4"/>
+		<Column Name="spin1x" Type="real_4"/>
+		<Column Name="spin1y" Type="real_4"/>
+		<Column Name="spin1z" Type="real_4"/>
+		<Column Name="spin2x" Type="real_4"/>
+		<Column Name="spin2y" Type="real_4"/>
+		<Column Name="spin2z" Type="real_4"/>
+		<Column Name="event_id" Type="int_8s"/>
+		<Stream Name="sngl_inspiral:table" Delimiter="," Type="Local">
+			0,"H1","","",1325030418,96289396,0,0,0,0,0,0,627.54431,0,109.3373,18.676668,36.693504,128.01397,0.12461004,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,20,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0.77562588,0,0,-0.074640036,0,
+			0,"L1","","",1325030418,96289396,0,0,0,0,0,0,627.54431,0,109.3373,18.676668,36.693504,128.01397,0.12461004,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,20,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0.77562588,0,0,-0.074640036,0
+		</Stream>
+	</Table>
+</LIGO_LW>

@@ -1,0 +1,12 @@
+# Apply after shared rc12 defaults and before event/analysis configuration.
+# O4d bandlimited quadrature owns continuous conditional-posterior time draws;
+# the rc11/rc12 fixed export lattice is not an O4d-compatible source input.
+kind: configuration
+pipelines:
+  rift:
+    scheduler:
+      pipeline:
+        internal-ile-srate-time-resampling: false
+    sampler:
+      ile:
+        q time pregrid factor: 2

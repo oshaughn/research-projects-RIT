@@ -1,0 +1,287 @@
+# Audit: every `_rvs` consumer, against the fair-draw rebind
+
+Mandate: *"Every other consumer of `_rvs` rows or lengths in the ILE is unaudited. Everything
+found here was in code this change happened to touch."*  This is that sweep, done
+mechanically so it can be re-run rather than repeated by hand.
+
+Different axis from `RVS_CACHE_AUDIT.md` in this directory.  That one asks *"cached column,
+or canonical components?"*; this one asks *"before or after the rebind?"*.  A site can be
+wrong on either axis independently, and the two sweeps agree on nothing except the file list.
+
+## How to re-run it
+
+```
+python3 audit_rvs_fairdraw.py --summary        # counts per file and phase
+python3 audit_rvs_fairdraw.py --post-rebind    # only the sites that see the resample
+python3 audit_rvs_fairdraw.py --check          # CI gate: every such site has a verdict
+python3 make_rvs_fairdraw_ledger.py            # regenerate the verdicts from the rules
+```
+
+`--check` runs in CI.  It does **not** assert that post-rebind reads are bugs -- most are
+legitimately per-row.  It asserts that each one carries a recorded human verdict, keyed by a
+whitespace-normalized hash of the read itself.  Moving or reindenting a line keeps its
+verdict; changing what it reads does not, and a new consumer fails the build.  Function-level
+keying was rejected deliberately: `analyze_event` alone holds 40 sites, and every one of the
+five known defects was added *next to* correct code.
+
+## The census
+
+306 reads of `_rvs` across the seven integrators, the three ILE scripts, the two CIP scripts
+and `RIFT/misc/distance_slices.py`.  131 of them see the resample.  (Counts move as the code
+is edited -- `--summary` is the authority, not this table.)
+
+| | sites |
+|---|---|
+| `BEFORE` the rebind, inside the rebinding function | 160 |
+| `AFTER`, inside it | 26 |
+| `POST_INTEGRATE` (bin/ scripts, after `integrate` returned) | 104 |
+| post-rebind reads carrying a recorded verdict | 131 / 131 |
+
+Those 131 reads collapse to 123 distinct ledger entries (identical reads share a key):
+`PER_ROW` 54, `BENIGN` 61, `FIXED` 3, `NO_FAIRDRAW` 4, **`BROKEN` 1** -- down from 8 when the
+sweep started.  The one remaining is #79's cross-source fallback, described under Finding 0.
+
+**Inside the integrators, nothing post-rebind is broken.**  All 26 lexically-`AFTER` sites are
+the rebind's own right-hand side or the element-wise cupy→numpy conversion loop that follows
+it.  That is a real result and it narrows the search: the hazard lives entirely in the
+consumers, not in the samplers.
+
+`--fairdraw-extrinsic-output` is not exotic.  `create_event_parameter_pipeline_BasicIteration`,
+`cepp_basic_htcondor` and `create_event_nr_pipeline_with_cip` all append it to the extrinsic
+stage unconditionally, so every one of these paths runs on the resample in production.
+
+## Measured, not asserted
+
+`verify_skew.py` drives the ILE's own `_lnZ_of_rvs` / `_kish_neff_of_rvs`:
+
+| claim | result |
+|---|---|
+| `_lnZ_of_rvs(..., already_pooled=False)` on a fair-drawn record is high by `log(n/n_eff)` | excess `+4.509` vs predicted `+4.503` at n_eff 44; `+7.33` vs `+7.47` at n_eff 2.3 |
+| the error does not cancel between two passes at different n_eff | two passes with **identical true lnZ**, n_eff 1.8 vs 53.3: the gate reads `+3.48` nats |
+| ...and therefore rejects a good warm pass | **100%** of the time at the 0.5 default; 94% at 2.0 |
+| re-weighting an already fair-drawn record shifts a posterior mean | **13%** of the true value on a weight-correlated coordinate |
+
+## Finding 0 -- PR #79 was not in the development line (RESOLVED by #86)
+
+> **Resolved 2026-08-13.** Re-landed as PR #86 (merge `5a2965ba`), cherry-picking `23be21ab`
+> and `9fc806f8` onto `0ae3f48f` -- both clean, and the resulting diff byte-identical to the
+> original, so #79's approval carried over rather than being re-reviewed. A sweep of all 74
+> merged PRs found **no other orphans**: the only other non-ancestors are four `master`-based
+> PRs touching solely `.github/workflows/private-review-dispatch.yml`, which correctly do not
+> belong in `rift_O4d`.
+>
+> Two lessons worth keeping, since ancestry alone answers neither:
+> * `git merge-base --is-ancestor` gives FALSE ALARMS when content re-lands by cherry-pick
+>   (#79 still fails it; its patch-ids are present). Confirm with `git cherry` / `patch-id`.
+> * `git cherry` gives false alarms of its own when a change lands FOLDED into another commit
+>   -- `7c986d63` reports `+` while its content is in `rift_O4d`, verified by diffing the
+>   function. Neither tool is sufficient alone; the file is the authority.
+>
+> One residual survives #79 and is recorded as `BROKEN` in the ledger: its cross-source
+> fallback (`_cold_src != _warm_src`) re-reads both sides from the fair-draw record, which is
+> self-consistent but not unbiased, since the two passes sit at different `n_eff`. Bounded to
+> the mismatch case and documented at the site. Closing it needs a reserve for the samplers
+> that keep none.
+
+The original finding, kept because it explains how this happens and how to detect it.  Past
+tense throughout: this described the tree before #86.
+
+The reject-gate fix was **not an ancestor of `junior/rift_O4d`**, so the gate in the tree we
+developed from was the pre-#79 code, and the measurement above described production.
+
+```
+7ca5c8df  warm-seed reserve: record the exact pre-cap weight total   (PR #84 branch tip)
+68987b26  Merge PR #79 into that branch                              <- has the fix
+bc210833  Merge PR #84 ... parents are ad426d9f and 7ca5c8df         <- took the branch BEFORE 68987b26
+```
+
+`junior/claude/l0-rescue-exact-total` pointed at `68987b26`, but `bc210833` merged `7ca5c8df`.
+So #79 was merged into the #84 branch *after* #84 had already gone to `rift_O4d`, and never
+followed.  Verified three ways: `merge-base --is-ancestor` fails for `23be21ab`, `7efdd229`,
+`9fc806f8` and `68987b26`; `git show 0ae3f48f:...batchmode | grep _lnZ_of_reserve_or_rvs`
+returns nothing; and `lnZ_from_reserve` is absent from `mcsamplerAdaptiveVolume.py`.
+
+Note `rift_O4d_wt_ralph`, a **pinned measurement tree**, sat at `7efdd229` -- a copy of the #79
+work -- so measurements had been running against code the development line did not have.
+
+The `--sampler-l0-rescue-reject-dlnZ` re-tune was blocked on this, since re-tuning against the
+`log(n/n_eff)` artifact would have calibrated to the bug.  With #86 in it was measurable, and
+was measured: see Finding 4.
+
+## Finding 1 -- the sequential warm-start seed (FIXED here)
+
+`--sampler-sequential-warmstart` captures a seed for the next intrinsic point.  It read
+`sampler._rvs` and guarded with `_lnv.size >= 2` / `np.sum(_keep) >= 2`.  That is PR #78's
+defect exactly, one code path away: the resample, and a **count** where a **rank** is needed.
+
+Both failure directions are real and neither is loud.  On the measured pass the fair draw
+keeps **one** row (`Fairdraw size : 1`), so the count declines and the feature is *silently
+inert* -- the user asked for a warm start and got none.  At the rho_net 102.8 regime it keeps
+~5 and the count *accepts* a rank-2-of-6 seed, so the next point warm-starts into a sliver and
+reports a healthy n_eff over truncated support.
+
+Fixed by routing through `_warm_seed_reserve_for` (new shared lookup) and `build_warm_seed`
+(rank test + puff), mirroring the L0 rescue.  The L0 rescue's inline reserve lookup was
+replaced by the shared one, so the pair cannot drift.  13 tests in
+`test/test_seq_warmstart_seed.py`, added to CI; `test_l0_rescue_seed.py` +
+`test_av_empty_live_volume.py` still pass (100 passed, 2 skipped).
+
+## Finding 2 -- three double-weighting sites (FIXED)
+
+All three took rows that are already a `w`-proportional draw and weighted them by `w` again.
+`_pool_replica_rvs` has guarded against exactly this since the replica work, via
+`already_resampled`; none of these had an equivalent.
+
+The predicate matters, and it is not the CLI flag: the samplers skip the draw when it would not
+shrink the record, and those rows still carry real importance weights. So each sampler now marks
+the rebind ITSELF (`self._rvs_is_fairdraw`, set at all seven rebind sites, reset per pass because
+samplers are reused across events), and the ILE reads it through `_rvs_is_export_resample`.
+
+1. **`--extrinsic-proposal-output` breadcrumb** -- fitted the GMM proposal with `w` on top of a
+   `w`-proportional draw, so the proposal came out shaped like `w^2` and was then handed to the
+   NEXT iteration via `--extrinsic-proposal-breadcrumb`. The worst of the three, because the
+   truncation compounded across iterations. Now takes `ln_weights_for_posterior`.
+2. **`.dgrid`** -- same shape, one product. Now takes `ln_weights_for_posterior`.
+3. **`.dslice` reweight core** -- a *different* shape: it double-counts `pi_Omega/q_Omega` and
+   takes `N` from the resample, and cannot be corrected after the fact because the pre-draw
+   record is gone. Routed instead to the exact all-fresh path (K independent fixed-d
+   integrations), loudly, since that changes cost.
+
+`ln_weights_for_posterior` is the new single answer to "how should these rows be weighted to
+represent the posterior", as distinct from `ln_weights_from_rvs`, which answers "what is the
+importance weight of this record" and was always right about that.
+
+## Finding 3 -- pooled n_eff (FIXED)
+
+`_kish_neff_of_rvs` on the pooled record, which overwrites the reported `neff`. When the export
+is fair-drawn `_pool_replica_rvs` deliberately flattens each block, and the Kish n_eff of
+piecewise-constant weights is just the row count -- `K*min(n_max, 1.5*eff_samp, 1.5*neff)`, the
+size of the EXPORT. At the default `--fairdraw-extrinsic-output-n-max 5` that reports `n_eff = 5K`.
+
+Now computed one level up where the quantities are still meaningful -- Kish over the BLOCKS,
+
+    neff_pooled = (sum_k Z_k)^2 / sum_k (Z_k^2 / neff_k)
+
+which is exactly the property the original comment asked for: it reduces to `sum_k neff_k` when
+the replicas agree and falls below it when they disagree. The pooled Kish is still used when the
+export was NOT fair-drawn, where per-row weights are real and finer-grained.
+
+## Finding 5 -- two composition defects, from review (FIXED)
+
+Both are the same shape, and it is the shape worth remembering: **a fix that is correct in
+isolation and wrong once another code path runs after it.** The unit tests for Findings 1-3
+all passed with both bugs present, because each tested its helper rather than the composition.
+
+**The fair-draw marker survived pooling.** `_pool_replica_rvs` builds a record that is
+equal-weight *within* each block but weighted *between* blocks by exactly the replica
+evidences `Z_k/K`. Leaving the marker set made `ln_weights_for_posterior` return zeros, so
+`.dgrid` and the proposal breadcrumb would have mixed replicas by exported **row count**
+instead of by evidence -- silently discarding the disagreement the replicas exist to measure.
+The marker is now cleared after pooling, and only when pooling actually happened: every
+fallback in `_pool_replica_rvs` returns one of its *input* records, which is still the fair
+draw it arrived as, so the test is object identity rather than length.
+
+**A rejected warm rescue left its reserve behind.** The reject path restored `_rvs`, the
+estimate and `dict_return`, but not `_warm_seed_reserve` -- which still described the rejected
+warm pass. Latent until Finding 1 made the sequential warm start read the reserve, at which
+point the next intrinsic point would have been seeded from the very truncated cloud the
+evidence gate had just thrown away. Note the direction: **Finding 1's fix is what activated
+this**; before it, the capture read `_rvs`, which the reject path does restore. Snapshot and
+restore now travel through `_snapshot_pass_state` / `_restore_pass_state`, which carry the
+reserve, the fair-draw marker and the per-member reserves (`_warm_seed_reserve_for` falls
+through to `portfolio_realizations`, so restoring only the aggregate would leave that fallback
+pointing at the warm pass). Both restore sites -- the reject path and the exception handler --
+go through the one helper.
+
+A note on the tests, because it is a real limitation: `analyze_event` needs data, PSDs and a
+waveform, so the call sites cannot be exercised from a unit test. The behavioural tests pin
+the contracts the call sites depend on; the wiring is pinned at source level. Verified by
+reverting each fix -- only the wiring tests fail. If `analyze_event` ever becomes callable in
+pieces, promote them.
+
+## Finding 6 -- one flag was answering two questions (review round 2; FIXED)
+
+The Finding-5 fix cleared `_rvs_is_fairdraw` after pooling. That fixed the weighting question
+and broke two others, because the flag was carrying two distinct properties:
+
+| property | scope | true for a pooled record? |
+|---|---|---|
+| rows were drawn proportional to `w` | per **block** | **yes** |
+| the record is globally equal-weight | whole **record** | **no** |
+
+Clearing it made the `.dslice` all-fresh safeguard stop firing on a pooled record whose blocks
+*are* resampled, and made the new block-Kish `n_eff` branch **unreachable** -- it sat below the
+line that cleared the flag it tested, and is only ever reached when pooling happened.
+
+Now two predicates over two markers: `_rvs_is_export_resample` (rows resampled; survives
+pooling) and `_rvs_is_equal_weight` (`fairdraw and not pooled`). The block-Kish branch keys on
+neither -- it uses a local computed where pooling happens, since "did pooling flatten a block"
+is a fact about that step, not a property of the record.
+
+**And `already_resampled` was the CLI option, not what each pass did.** The draw is skipped per
+pass when it would not shrink that pass's record, so one global boolean either flattens a
+replica whose importance weights are genuine, or leaves a resampled replica double-weighted --
+and a run near the `n_extr` boundary produces a *mixture*, which a boolean cannot describe at
+all. `_pool_replica_rvs` now accepts a per-replica sequence and decides per block; the ILE
+captures each replica's marker beside the record it describes. While there, the empty-record
+filter was made lockstep: it used to drop from `rep_rvs` alone, shifting every later block
+against its own `lnZ`.
+
+The lesson is the same one as Finding 5, one level up: **a boolean that is true for two
+different reasons will eventually be read for the wrong one.**
+
+## Finding 7 -- the pooled marker outlived a FAILED event (review round 3; FIXED)
+
+`_rvs_is_pooled` was cleared on the normal return of `analyze_event`. But `_reject_if_collapsed`
+**raises** after pooling, the caller's `except Exception` swallows it and moves to the next
+event, and the marker survived. The next ordinary fair draw was then read as pooled,
+`_rvs_is_equal_weight` went False, and `.dgrid` and the extrinsic-proposal breadcrumb applied
+importance weights to rows that already carried them -- the `w^2` defect of Finding 2,
+resurrected on the event after any failure.
+
+Reset on ENTRY instead. Entry is reached on every call by construction, needs no restructuring
+of a 2000-line function, and is correct even for a caller that never returns normally. The
+end-of-function clear stays too, so a sampler handed elsewhere afterwards is not carrying a
+stale marker.
+
+**Fourth round, fourth defect in the provenance bookkeeping rather than in the physics.** The
+recurring shapes, for whoever touches this next:
+
+1. correct in isolation, wrong in composition (Finding 5);
+2. one flag answering two questions (Finding 6);
+3. the CLI option is not "what the pass actually did" (Finding 6);
+4. cleared only on the happy path (this one).
+
+All four are the same underlying problem: a boolean describing mutable shared state is a second
+source of truth that every site touching the first must maintain. That is the argument for the
+naming change in the Recommendation below, and the reason it is a separate draft rather than a
+rider on this PR.
+
+## Finding 4 -- the reject knob (MEASURED; default raised)
+
+See `L0_REJECT_DLNZ_MEASUREMENT.md`. Across 160 known-lnZ passes the gate caught **0 of 55**
+truncated warm passes at every threshold, while at the old 0.5 default it binned **25%** of good
+portfolio warm passes. Default raised to 3.0 -- strictly better, since there was no detection to
+trade away. The gate is documented as not being a truncation detector; support containment is
+the recommended replacement and is deliberately left as follow-up.
+
+## Recommendation: make the rebind unable to do this again
+
+Five defects -- now six -- of one shape in one attribute is an API problem.  Ranked by
+benefit per unit of blast radius:
+
+1. **Keep the retained set under its own name (recommended).**  `_warm_seed_reserve` already
+   is this, for two callers.  Generalize it: have `integrate_log` always leave
+   `self._retained` (or keep `_rvs` and expose `self._export`), and migrate consumers one at
+   a time.  Cheap, incremental, and each migration is independently testable.  It does not
+   *prevent* the mistake, but it gives every future author a correct thing to reach for.
+2. **Have the fair draw return a new object instead of mutating in place.**  The correct fix
+   in principle and the one that makes the error unrepresentable.  Blast radius is large:
+   `_rvs` is read at 307 sites, and every `bin/` consumer would need to be told which object
+   it wants. Worth doing behind the naming change above, not instead of it.
+3. **Keep `--check` in CI regardless.**  It is the only one of the three that catches the
+   *next* consumer rather than fixing the current ones, and it is already green.
+
+A cheaper partial: set a flag on the record (`_rvs['__fairdrawn__'] = True`) and have
+`ln_weights_from_rvs` warn when a caller weights a flagged record.  That would have caught all
+three Finding-2 sites at runtime, and it is a dozen lines.

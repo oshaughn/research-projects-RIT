@@ -56,6 +56,7 @@
 #       - again, this can be done with a DRIVER
 
 import argparse
+import shlex
 import sys
 import os
 import shutil
@@ -67,22 +68,29 @@ import functools
 import itertools
 import json
 
-from glue import pipeline # https://github.com/lscsoft/lalsuite-archive/blob/5a47239a877032e93b1ca34445640360d6c3c990/glue/glue/pipeline.py
+# Backend-neutral pipeline namespace (htcondor/glue/slurm) provided by dag_utils_generic
+from RIFT.misc.dag_utils_generic import pipeline
 
-import RIFT.misc.dag_utils as dag_utils
-from RIFT.misc.dag_utils import mkdir
-from RIFT.misc.dag_utils import which
+import RIFT.misc.dag_utils_generic as dag_utils
+from RIFT.misc.dag_utils_generic import mkdir
+from RIFT.misc.dag_utils_generic import which
 
 
-def add_batch_ILE_nodes_to_dag(my_dag,my_ile_job,my_parent_node, my_child_node, n_max, n_group, it, n_retries=3,it_start=0,convert_psd_node_list=[],node_list_dict={}):
+def add_batch_ILE_nodes_to_dag(my_dag,my_ile_job,my_parent_node, my_child_node, n_max, n_group, it, n_retries=3,it_start=0,convert_psd_node_list=[],node_list_dict={},extra_parent_nodes=None):
+    if extra_parent_nodes is None:
+        extra_parent_nodes = []
     for event in np.arange(n_max): 
         ile_node = pipeline.CondorDAGNode(my_ile_job)
         ile_node.set_retry(n_retries)
         ile_node.add_macro("macroevent", event*n_group)
         ile_node.add_macro("macrongroup", n_group)
         ile_node.add_macro("macroiteration", it)
+        ile_node.add_macro("macroiterationprev", it-1)   # Option C cal-pilot seed path
         if not(my_parent_node is None):
             ile_node.add_parent(my_parent_node)
+        for node in extra_parent_nodes:
+            if not(node is None):
+                ile_node.add_parent(node)
         if it == it_start:
             for node in convert_psd_node_list:  # for every PSD conversion job, make sure PSD is present before we run the first iteration!
                 ile_node.add_parent(node)
@@ -95,6 +103,19 @@ def add_batch_ILE_nodes_to_dag(my_dag,my_ile_job,my_parent_node, my_child_node, 
                 node_list_dict[it].append(ile_node)
 
 
+def parse_ile_args_flexible(my_arg_str):
+    """
+    Narrower-scope parser with flexible arguments, to target
+    """
+    import argparse
+    import shlex
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--n-eff",type=int)
+    parser.add_argument("--cache-file",type=str)
+    parser.add_argument('other', nargs=argparse.REMAINDER)
+    args  = parser.parse_args(shlex.split(my_arg_str))
+    return args
+
 def parse_ile_args_lazy(my_arg_str,key_target):
     str_split = my_arg_str.split('--')
     matches = [x for x in str_split if x.startswith(key_target)]
@@ -103,6 +124,9 @@ def parse_ile_args_lazy(my_arg_str,key_target):
 
                 
 def parse_ile_args_for_bw(my_arg_str):
+    """
+    this is HARD TO MAINTAIN since it needs to match ILE exactly
+    """
     # Copied verbatim from ILE
     from optparse import OptionParser, OptionGroup
     optp = OptionParser()
@@ -220,8 +244,21 @@ parser.add_argument("--cip-explode-jobs-subdag",action='store_true',help="If usi
 parser.add_argument("--cip-explode-jobs-flat",action='store_true',help="Pass to use the same arguments for all worker jobs. The main job will be /bin/true.")
 parser.add_argument("--puff-exe",default=None,help="util_ParameterPuffball.py")
 parser.add_argument("--puff-args",default=None,help="util_ParameterPuffball arguments.  If not specified, puffball will not be performed  ")
+parser.add_argument("--puff-args-list", default=None,
+                    help="Optional puff schedule paired line-for-line with --cip-args-list, using identical count/Z/G prefixes. Mutually exclusive with --puff-args. A Z subdag inherits its stage's single configuration.")
 parser.add_argument("--puff-cadence",default=None,type=int,help="Every n iterations (not including 0), the puffball code will be applied.  Puffball points will be done *in addition* to the usual results from the DAG.  (The puffball is based on perturbing points from that iteration, and this will roughly double that iteration in ILE job size).  Proposed value 2 (i.e., puff overlap-grid-2, ...-4, ...-6.  If not specified, puffball will not be performed ")
 parser.add_argument("--puff-max-it",default=-1,type=int,help="Maximum iteration number that puffball is applied.  If negative, puffball is not applied ")
+parser.add_argument("--search-reflected-sky-mode",action='store_true',help="LISA: at one iteration, reflect the CIP-proposed grid's sky to the secondary (reflected) sky mode (the LISA latitude is bimodal), so that iteration explores the reflected mode.")
+parser.add_argument("--search-reflected-sky-mode-iteration",default=None,type=int,help="Iteration at which to reflect the sky grid.  Default: n_iterations-2 (the primary mode is mapped by then).")
+parser.add_argument("--reflected-sky-mode-exe",default=None,help="convert_primary_sky_mode_to_secondary executable.")
+parser.add_argument("--lisa-reference-time",default=0.0,type=float,help="LISA coalescence time (for the reflected-sky transform).")
+parser.add_argument("--calmarg-pilot",action='store_true',help="Option C adaptive calibration: add per-iteration cal PILOT jobs (harvest top-lnL points from iteration N's composite, run ILE --calibration-dump-responsibilities, fit+consolidate a cal proposal that SEEDS wide_{N+1} via --calibration-proposal-breadcrumb).  Requires the wide ILE args to already carry the calibration envelope + (per-iteration) proposal-breadcrumb path.")
+parser.add_argument("--calmarg-pilot-cadence",default=1,type=int,help="Run a cal pilot every n iterations.  Default 1 (every iteration until the cap).")
+parser.add_argument("--calmarg-pilot-max-it",default=3,type=int,help="Stop launching cal pilots after this iteration (cal is boring -> freeze the proposal once learned).  Default 3.")
+parser.add_argument("--calmarg-pilot-top-fraction",default=0.05,type=float,help="Fraction of highest-lnL composite points the pilot harvests for full cal.")
+parser.add_argument("--calmarg-pilot-max-points",default=32,type=int,help="Cap on harvested pilot points per iteration.")
+parser.add_argument("--extrinsic-handoff",action='store_true',help="Extrinsic handoff (GMM sampler): each iteration's wide ILE jobs write a per-event extrinsic proposal (--extrinsic-proposal-output), a per-iteration LOCAL-universe consolidation job (util_ExtrinsicConsolidate.py) picks the most representative one -> extr_consolidated_<it>.npz, which SEEDS wide_{N+1} via --extrinsic-proposal-breadcrumb.  Requires the wide ILE args to already carry those flags (added by util_RIFT_pseudo_pipe.py --extrinsic-handoff).")
+parser.add_argument("--extrinsic-handoff-select",default="lnL",help="Metric the extrinsic consolidation ranks per-event proposals by (lnL|neff|n_samples). Default lnL (most peak-representative).")
 parser.add_argument("--first-iteration-jumpstart",action='store_true',help="No ILE jobs the first iteration.  Assumes you already have .composite files and want to get going. Particularly helpful for subdag systems")
 parser.add_argument("--last-iteration-extrinsic",action='store_true',help="Configure last iteration to extract *one* set of extrinsic parameters from each intrinsic point. [This is highly inefficient, but people like having one extrinsic point per intrinsic point.]  Requires --convert-args")
 parser.add_argument("--last-iteration-extrinsic-nsamples",default=3000,type=int,help="Construct this number of extrinsic samples")
@@ -229,7 +266,18 @@ parser.add_argument("--last-iteration-extrinsic-samples-per-ile",default=5,type=
 parser.add_argument("--last-iteration-extrinsic-samples-per-ile-internal",default=10,type=int,help="Draw this many samples from each ILE job")
 parser.add_argument("--last-iteration-extrinsic-batched-convert",action='store_true',help="Used batched converter for output of extrinsic samples")
 parser.add_argument("--last-iteration-extrinsic-time-resampling",action='store_true',help="Last iterations use time resampling (+ the fairdraw is done inside ILE itself), so different code path for final stages")
+parser.add_argument("--last-iteration-export-marginal-distance-grid", action='store_true', help="Add argument to ILE_extr")
+parser.add_argument("--last-iteration-export-distance-slices", default=0, type=int, help="If >0, the ILE_extr (extrinsic) stage exports K-row .dslice files: Plan-B fixed-distance extrinsic-marginalized likelihoods. Adds --export-distance-slices K (+ --internal-use-lnL) to ILE_extr and strips --distance-marginalization.")
+parser.add_argument("--last-iteration-export-distance-slices-n-core", default=0, type=int, help="Passthrough to ILE --n-distance-slice-core for the extrinsic-stage .dslice export (0 = ILE default).")
+parser.add_argument("--last-iteration-export-distance-slices-n-wing", default=0, type=int, help="Passthrough to ILE --n-distance-slice-wing for the extrinsic-stage .dslice export (0 = ILE default).")
+parser.add_argument("--last-iteration-export-distance-slices-all-fresh", action="store_true", default=False, help="Passthrough to ILE --distance-slice-all-fresh: all K slices are fresh fixed-d integrations, no importance-reweight core (honest at low n_eff).")
+parser.add_argument("--last-iteration-export-distance-slices-randomize", action="store_true", default=False, help="Passthrough to ILE --distance-slice-randomize: draw each intrinsic's fresh-slice d at random posterior quantiles (K=1 -> fair-draw of d per intrinsic).")
+parser.add_argument("--last-iteration-export-distance-slices-wing-neff", default=None, type=int, help="Passthrough to ILE --distance-slice-wing-neff (n_eff per fresh fixed-d slice).")
+parser.add_argument("--last-iteration-export-distance-slices-wing-nmax", default=None, type=int, help="Passthrough to ILE --distance-slice-wing-nmax (max samples per fresh fixed-d slice).")
+parser.add_argument("--last-iteration-export-distance-slices-wing-delta-lnL", default=None, type=float, help="Passthrough to ILE --distance-slice-wing-delta-lnL for the extrinsic-stage .dslice export.")
+parser.add_argument("--last-iteration-export-distance-slices-skip-threshold", default=None, type=float, help="Passthrough to ILE --distance-slice-skip-threshold for the extrinsic-stage .dslice export.")
 parser.add_argument("--ile-args",default=None,help="filename of args_ile.txt file  which holds ILE arguments.  Should NOT conflict with arguments auto-set by this DAG ... in particular, i/o arguments will be modified")
+parser.add_argument("--clean-ile-intrinsic-digits",default=5,type=int,help="Decimal places retained for intrinsic coordinates when util_CleanILE consolidates and unifies ILE rows (default: 5). Use 12 for narrow 3G BNS mass grids.")
 parser.add_argument("--ile-exe",default=None,help="filename of ILE or equivalent executable. Will default to `which integrate_likelihood_extrinsic` in low-level code")
 parser.add_argument("--ile-retries",default=0,type=int,help="Number of retry attempts for ILE jobs. (These can fail)")
 parser.add_argument("--ile-group-subdag",action='store_true',help="If true, ILE jobs are grouped in a subdag. Useful mainly to create iterative DAGs with random ILE jobs/etc")
@@ -242,10 +290,13 @@ parser.add_argument("--ile-request-disk",default="10M",type=str,help="Request di
 parser.add_argument("--cip-request-disk",default="10M",type=str,help="Request disk passed to condor for ILE. Must be done for all jobs now")
 parser.add_argument("--cal-request-disk",default="8G",type=str,help="Request disk passed to condor for ILE. Must be done for all jobs now")
 parser.add_argument("--ile-n-events-to-analyze",default=1,type=int,help="If >1, you are using ILE_batchmode.  Structures the DAG correctly to account for batch cadence")
+parser.add_argument("--ile-n-events-to-analyze-first",default=None,type=int,help="If provided, use a different number batch size for iteration 0. Can be helpful if initial grid is broad.")
 parser.add_argument("--ile-runtime-max-minutes",default=None,type=int,help="If not none, kills ILE jobs that take longer than the specified integer number of minutes. Do not use unless an expert")
 parser.add_argument("--cip-exe",default=None,help="filename of CIP or equivalent executable. Will default to `which util_ConstructIntrinsicPosterior_GenericCoordinates` in low-level code")
 parser.add_argument("--cip-post-exe",default=None,help="filename of script to execute with SCRIPT POST joblist scripname JOBID RETURN worklevel in the dag. This will be run after each CIP completes in the main dag. Objective is to enable larger-scale CIP queues which work efficiently to a target work level (e.g,, n_eff). Note this script is responsible for reading htcondor logs to identify the run directory!")
 parser.add_argument("--cip-exe-G",default=None,help="filename of CIP or equivalent executable, as ALTERNATE CIP used when a 'G' iteration is requested ")
+parser.add_argument("--use-EOB-parameters",default=False,action='store_true')
+parser.add_argument("--use-hyperbolic",default=False,action='store_true')
 parser.add_argument("--use-eccentricity",default=False,action='store_true')
 parser.add_argument("--use-meanPerAno",default=False,action='store_true')
 parser.add_argument("--use-eccentricity-squared-sampling",default=False,action='store_true')
@@ -274,12 +325,25 @@ parser.add_argument("--test-args",default=None,help="filename of args_test.txt, 
 parser.add_argument("--convert-args",default=None,help="filename of args_convert.txt, which holds arguments to the convert function. Needed if you plan to export tide informaton")
 parser.add_argument("--plot-args",default=None,help="filename of args_plot.txt, which holds plot arguments.  Note i/o arguments will be modified, so should NOT specify the samples files or the output file, just the test to be performed and any related arguments.  To create the posterior samples file, you probably need to run the convert job (e.g., via the tests)")
 parser.add_argument("--gridinit-args",default=None,help="arguments for grid creation or equivalent executable.  If empty, will attempt to use the --input-grid argument")
+parser.add_argument("--seed-climb-exe",default=None,help="Transverse-spin seed climb (util_TransverseSeedClimb.py) run as a DAG node BEFORE the iteration-0 ILE jobs.  It rewrites overlap-grid-0 with seed points appended.  Requires --seed-climb-args.")
+parser.add_argument("--seed-climb-args",default=None,help="Argument file for --seed-climb-exe (first token dropped, as for the other *-args files).  The builder adds --working-directory, --ile-args, --inj-file overlap-grid-0, --inj-file-out overlap-grid-0 and --append-to-input.")
+parser.add_argument("--seed-climb-n-max",default=1000,type=int,help="Most points the seed climb may add.  Iteration-0 ILE batches are sized at DAG-build time for (input grid + this many) points; ILE exits cleanly on indices past the end of the grid.")
+parser.add_argument("--seed-climb-request-gpu",action='store_true',help="Seed-climb node requests a GPU (JAX kernel on GPU).  Without it the node runs on CPU.")
+parser.add_argument("--seed-climb-request-memory",default=8192,type=int,help="request_memory (MB) for the seed-climb node")
+parser.add_argument("--seed-climb-condor-commands",default=None,help="File of condor commands for the seed-climb node, in the --ile-condor-commands format.  Default: the ILE condor commands.  Use it when the climb image needs different GPUs from the ILE image.")
+parser.add_argument("--seed-climb-singularity-image",default=None,help="Container image for the seed-climb node.  It needs JAX, which no RIFT ILE image carries, so with --use-singularity this is required.")
+parser.add_argument("--seed-climb-mode",default="prepend",choices=["prepend","parallel","composite"],help="prepend: the seed climb runs before the iteration-0 ILE jobs and appends to overlap-grid-0.  parallel: it runs alongside them, writes seed-0, and its own ILE_seed jobs feed the iteration-0 consolidation, so iteration 0 is not delayed.  composite: it runs after the iteration-0 unify, climbs from the best lines of all.net beside CIP 0, writes seed-1, and its ILE_seed jobs feed the iteration-1 consolidation.")
 parser.add_argument("--fetch-ext-grid-args",default=None,help="arguments for command  for fetching external grid. Don't over-specify the --output-file argument, which will be used by the pipeline")
 parser.add_argument("--ile-batch",action='store_true',help="Different workflow: the ILE job is assumed to create a .composite file directly in the current working directory. Designed for fake ILE sets and long-term batch workflow. NOT IMPLEMENTED ")
 parser.add_argument("--transfer-file-list",default=None,help="File containing list of *input* filenames to transfer, one name per file. Copied into transfer_files for condor directly.  If provided, also enables attempts to deduce files that need to be transferred for the pipeline to operate, as needed for OSG, etc")
 parser.add_argument("--request-memory-ILE",default=4096,type=int,help="Memory request for condor (in Mb) for ILE jobs.")
 parser.add_argument("--request-gpu-ILE",action='store_true',help="ILE will request a GPU. [Note: if you do this, your code will only run on GPU-enabled slots]")
+parser.add_argument("--ile-gpu-fanout",default=None,help="Multi-GPU ILE fan-out: split each ILE batch's intrinsic-grid range across N GPUs (one shard per GPU). Integer N (also requests N GPUs+CPUs) or 'auto'. Baked into ile_pre.sh; equivalent to RIFT_ILE_GPU_FANOUT. Requires --request-gpu-ILE.")
 parser.add_argument("--request-xpu-ILE",action='store_true',help="ILE will *prefer* a gpu, but not require it")
+parser.add_argument("--ile-deduplicate-grid",action='store_true',help="Build separate exact unique ordinary ILE XML grids; posterior/convergence samples retain their weights.")
+parser.add_argument("--cip-singularity-image",default=None,help="Independent CIP and nonworker builder runtime; preserve the ILE container.")
+parser.add_argument("--request-gpus-CIP",default=0,type=int,help="GPU devices per CIP fit producer and sampling worker.")
+parser.add_argument("--require-gpus-CIP",default=None,help="Condor RequireGPUs expression for CIP devices.")
 parser.add_argument("--request-memory-CIP",default=16384,type=int,help="Memory request for condor (in Mb) for fitting jobs.")
 parser.add_argument("--request-memory-CIP-flex",action='store_true',help="If true,memory request is flexible and will increment. Beware of possible runaway requests")
 parser.add_argument("--use-singularity",action='store_true',help="Attempts to use a singularity image in SINGULARITY_RIFT_IMAGE")
@@ -305,7 +369,21 @@ parser.add_argument("--workflow",default='single',help="[single|fit+posterior|fu
 parser.add_argument("--n-post-jobs",default=1,type=int,help="Number of posterior jobs. Used in posterior and fit+posterior workflows")
 parser.add_argument("--use-bw-psd",action='store_true',help="Use BW PSD, attempting to use fiducial arguments as in LI for placement (i.e., signal at seglen -2). Assumes LI style data convention.  Necessary BW will be parsed out of ile-args.txt (required)")
 parser.add_argument("--use-full-submit-paths",action='store_true',help="DAG created has full paths to submit files generated. Note this is implemented on a per-file/as-needed basis, mainly to facilitate using this dag as an external subdag")
+parser.add_argument("--auto-fit-config", default=None, help="Original production INI containing the optional [rift-auto-fit] terminal compression block")
 opts=  parser.parse_args()
+from RIFT.compression.workflow import preflight as auto_fit_preflight
+auto_fit_settings = auto_fit_preflight(opts.auto_fit_config, opts.working_directory,
+    extrinsic=opts.last_iteration_extrinsic, distance_reweighting=opts.comov_distance_reweighting)
+if auto_fit_settings is not None and opts.n_iterations < 1:
+    parser.error("auto-fit requires at least one CIP iteration")
+if not 0 <= opts.clean_ile_intrinsic_digits <= 15:
+    parser.error("--clean-ile-intrinsic-digits must be between 0 and 15")
+
+# Multi-GPU ILE fan-out: funnel --ile-gpu-fanout through RIFT_ILE_GPU_FANOUT, which
+# dag_utils reads at write_ILE_sub_simple time to size request_GPUs/CPUs and bake the
+# value into ile_pre.sh.  CLI value wins over any inherited environment value.
+if opts.ile_gpu_fanout is not None:
+    os.environ['RIFT_ILE_GPU_FANOUT'] = str(opts.ile_gpu_fanout)
 
 
 local_worker_universe="vanilla"
@@ -332,6 +410,49 @@ if not opts.cip_explode_jobs_last:  # set realistic default, if not specified
 working_dir_inside_local = working_dir_inside = opts.working_directory
 working_dir_inside_cip = working_dir_inside_local
 out_dir_inside_cip = working_dir_inside_local
+
+# ----------------------------------------------------------------------
+# Hyperpipeline ASCII format (opt-in via env var).  When set, every
+# inter-stage intrinsic-parameter file in the iterative pipeline
+# (overlap-grid, puffball, fetch, output-grid) is .dat instead of .xml.gz,
+# and ILE consumes them via --sim-grid instead of --sim-xml.  This
+# matches the file-naming convention already used by
+# create_eos_posterior_pipeline.  When unset, behaviour is identical to
+# the legacy pipeline.
+#
+# We define grid_suffix and sim_grid_flag once here and substitute via
+# .format() throughout the rest of the script, so the search-and-replace
+# surface area is the literal string "xml.gz" / "--sim-xml" -- nothing
+# more invasive than that.
+# ----------------------------------------------------------------------
+_use_hpip_pipeline = str(os.environ.get("RIFT_HYPERPIPELINE_FORMAT", "")).strip().lower() in ("1", "true", "yes", "on")
+grid_suffix = "dat" if _use_hpip_pipeline else "xml.gz"
+sim_grid_flag = "--sim-grid" if _use_hpip_pipeline else "--sim-xml"
+if _use_hpip_pipeline:
+    print(" === Hyperpipeline ASCII grid format active (RIFT_HYPERPIPELINE_FORMAT) ===")
+    print("     Inter-stage grids will be .{}, ILE will receive {}".format(grid_suffix, sim_grid_flag))
+
+def _add_hpip_condor_env(job):
+    if not _use_hpip_pipeline:
+        return
+    hpip_env = "RIFT_HYPERPIPELINE_FORMAT=1"
+    if hasattr(job, "get_condor_cmds"):
+        condor_cmds = job.get_condor_cmds()
+    else:
+        condor_cmds = getattr(job, "_CondorJob__condor_cmds", {})
+    env_cmd = condor_cmds.get("environment")
+    if not env_cmd:
+        job.add_condor_cmd("environment", '"{}"'.format(hpip_env))
+        return
+    if hpip_env in env_cmd:
+        return
+    env_cmd = env_cmd.strip()
+    if len(env_cmd) >= 2 and env_cmd[0] == env_cmd[-1] and env_cmd[0] in ("'", '"'):
+        env_cmd = env_cmd[:-1] + " " + hpip_env + env_cmd[-1]
+    else:
+        env_cmd = '"{} {}"'.format(env_cmd, hpip_env)
+    job.add_condor_cmd("environment", env_cmd)
+
 if opts.cip_explode_jobs:
     out_dir_inside_cip+= "/iteration_$(macroiteration)_cip/"
 os.chdir(opts.working_directory)
@@ -345,15 +466,13 @@ if opts.use_singularity or opts.use_osg:
 singularity_image = None
 if opts.use_singularity:
     print(" === USING SINGULARITY === ")
+    print(" === container MUST have lal_path2cache ")
     singularity_image = os.environ["SINGULARITY_RIFT_IMAGE"]  # must be present to use singularity
     # SINGULARITY IMAGES ARE ON CVMFS, SO WE CAN AVOID THE SINGULARITY EXEC CALL
     # hardcoding a fiducial copy of lalapps_path2cache; beware about the executable name change
-    os.environ['LALAPPS_PATH2CACHE'] = "/cvmfs/oasis.opensciencegrid.org/ligo/sw/conda/envs/igwn-py39/bin/lalapps_path2cache" #"singularity exec {singularity_image} lalapps_path2cache".format(singularity_image=singularity_image)
-    if os.environ.get('RIFT_CONTAINER_UNIVERSE') and ('SINGULARITY_BASE_EXE_DIR' in os.environ):
-        # Container universe deliberately does NOT set MY.SingularityBindCVMFS, so the
-        # hardcoded /cvmfs path above may not exist inside the image.  Use the copy the
-        # container itself ships (RIFT's own executables live in SINGULARITY_BASE_EXE_DIR).
-        os.environ['LALAPPS_PATH2CACHE'] = os.environ['SINGULARITY_BASE_EXE_DIR'].rstrip('/') + "/lal_path2cache"
+    #os.environ['LALAPPS_PATH2CACHE'] = "/cvmfs/oasis.opensciencegrid.org/ligo/sw/conda/envs/igwn-py39/bin/lal_path2cache" #"singularity exec {singularity_image} lalapps_path2cache".format(singularity_image=singularity_image)
+    # REQUIRE CONTAINER HAS THIS ROUTINE ! Watch out
+    os.environ['LALAPPS_PATH2CACHE'] = os.environ['SINGULARITY_BASE_EXE_DIR'] + "/lal_path2cache" #"singularity exec {singularity_image} lalapps_path2cache".format(singularity_image=singularity_image)
     print(singularity_image)
 
     # see https://computing.docs.ligo.org/guide/htcondor/credentials/
@@ -366,8 +485,8 @@ if opts.use_singularity:
         # INSIDE the manifest, so the 'osdf:' substring checks above miss them and the
         # transfer credential is never enabled -> the execute point cannot fetch the
         # selected container ("credential is required for osdf://... but was not
-        # discovered" -> all ILE/CIP jobs held).  Inspect the manifest's image URLs and
-        # pick the same credential the single-image path would have.
+        # discovered" -> all ILE/CIP/CALPILOT jobs held).  Inspect the manifest's image
+        # URLs and pick the same credential the single-image path would have.
         try:
             from RIFT.misc.container_manifest import is_container_manifest, load_container_manifest
             if is_container_manifest(singularity_image):
@@ -395,6 +514,9 @@ if not (opts.cip_args is None):
     cip_args=cip_args.rstrip()
     cip_args += ' --no-plots '  
     print("CIP", cip_args)
+
+cip_singularity_image = opts.cip_singularity_image or singularity_image
+nonworker_singularity_image = cip_singularity_image
 
 cip_args_lines = None
 cip_args_prefixes = []  # so it works correctly even in flat mode
@@ -434,11 +556,10 @@ if not (opts.cip_args_list is None):
 # Load args.txt. Remove first item.  Store
 with open(opts.ile_args) as f:
     ile_args_list = f.readlines()
-ile_args = ' '.join( [x.replace('\\','') for x in ile_args_list] )
+# One argument string: line breaks and trailing-backslash continuations separate tokens.
+ile_args = ' '.join(line.rstrip().rstrip('\\') for line in ile_args_list)
 ile_args = ' '.join(ile_args.split(' ')[1:])
-# Some argument protection for later
-ile_args = ile_args.replace('[', ' \'[')
-ile_args = ile_args.replace(']', ']\'')
+# Preserve quotes, backslashes, and nested waveform dictionaries verbatim.
 ile_args=ile_args.rstrip()
 if opts.request_gpu_ILE or opts.request_xpu_ILE:
     ile_args+=" --vectorized --gpu "  # append this
@@ -450,6 +571,30 @@ print("ILE", ile_args)
 puff_args=None
 puff_cadence = None
 puff_max_it = opts.puff_max_it
+if opts.puff_args_list and (opts.puff_args or not opts.cip_args_list or not opts.puff_cadence):
+    raise ValueError('--puff-args-list needs --cip-args-list and --puff-cadence; cannot combine with --puff-args')
+puff_stage_args = None
+puff_stage_files = None
+if opts.puff_args_list:
+    with open(opts.puff_args_list) as f:
+        puff_lines = f.readlines()
+    if len(puff_lines) != len(cip_args_prefixes):
+        raise ValueError('puff/CIP schedules must have the same number of lines')
+    puff_stage_args, puff_stage_files = [], []
+    for index, line in enumerate(puff_lines):
+        parts = line.strip().split(None, 1)
+        if len(parts) != 2 or parts[0] != cip_args_prefixes[index]:
+            raise ValueError('puff/CIP schedule prefixes must match on line {}'.format(index+1))
+        # Match legacy bracket protection, except already-quoted ranges must not
+        # be quoted a second time (the pseudo_pipe schedule uses shlex.join).
+        args = shlex.join(shlex.split(parts[1]))
+        puff_stage_args.append(args)
+        path = os.path.join(opts.working_directory, 'args_puff_stage_{}.txt'.format(index))
+        with open(path, 'w') as f:
+            f.write('X ' + parts[1] + '\n')
+        puff_stage_files.append(path)
+    puff_args = puff_stage_args[0]
+    puff_cadence = opts.puff_cadence
 if opts.puff_args and opts.puff_cadence:
     puff_cadence = opts.puff_cadence
     # Load args.txt. Remove first item.  Store
@@ -531,12 +676,25 @@ if opts.gridinit_args:
     print("GRIDINIT", gridinit_args)
 
 
-# Copy seed grid into place as overlap-grid-0.xml.gz
+# Copy seed grid into place as overlap-grid-0.{grid_suffix}
 it_start = opts.start_iteration
 n_initial = opts.n_samples_per_job
+_seed_grid_name = "overlap-grid-0." + grid_suffix
 if (it_start == 0) and not gridinit_args:
-    shutil.copyfile(opts.input_grid,"overlap-grid-0.xml.gz")  # put in working directory !
-    n_initial = len(lalsimutils.xml_to_ChooseWaveformParams_array("overlap-grid-0.xml.gz"))
+    shutil.copyfile(opts.input_grid, _seed_grid_name)  # put in working directory !
+    if _use_hpip_pipeline:
+        # Hyperpipeline files: count data rows = total lines minus comment lines.
+        with open(_seed_grid_name) as _f:
+            n_initial = sum(1 for _l in _f if _l.strip() and not _l.lstrip().startswith("#"))
+        if os.path.lexists("posterior_samples-0.dat"):
+            os.remove("posterior_samples-0.dat")
+        os.symlink(_seed_grid_name, "posterior_samples-0.dat")
+    else:
+        n_initial = len(lalsimutils.xml_to_ChooseWaveformParams_array(_seed_grid_name))
+if opts.seed_climb_exe and opts.seed_climb_args and it_start == 0 and not opts.first_iteration_jumpstart and opts.seed_climb_mode == 'prepend':
+    if _use_hpip_pipeline:
+        raise SystemExit("--seed-climb-exe writes sim_inspiral XML; incompatible with RIFT_HYPERPIPELINE_FORMAT")
+    n_initial += opts.seed_climb_n_max   # grid grows at run time; batches sized for the cap
 
 transfer_file_names = []
 if not (opts.transfer_file_list is None):
@@ -546,6 +704,10 @@ if not (opts.transfer_file_list is None):
         for  line in f.readlines():
             transfer_file_names.append(line.rstrip())
     print(" Input files to transfer to job working directory (note!)", transfer_file_names)
+# Clean snapshot of the transfer list (PSD + cal envelopes only) BEFORE the grid is
+# appended and BEFORE write_ILE_sub_simple mutates it in place (frames_dir, ile_pre.sh).
+# The CALPILOT job (built later) needs this clean set, not the wide-ILE-polluted one.
+transfer_file_names_pilot_base = list(transfer_file_names)
 
 ###
 ### Fiducial fit job (=sanity check that code will run)
@@ -572,7 +734,7 @@ if opts.ile_n_events_to_analyze:
     exe = dag_utils.which("integrate_likelihood_extrinsic_batchmode")
 cmd.write('#!/usr/bin/env bash\n')
 cmd.write('# (run me only in working directories)\n')
-cmd.write(exe + ' ' + arg_list + " --sim-xml overlap-grid-0.xml.gz")  # make it concrete, so I can test it
+cmd.write(exe + ' ' + arg_list + " {} overlap-grid-0.{}".format(sim_grid_flag, grid_suffix))  # make it concrete, so I can test it
 cmd.close()
 st = os.stat(cmdname)
 import stat
@@ -581,9 +743,13 @@ os.chmod(cmdname, st.st_mode | stat.S_IEXEC)
 #    identify overlap grid input
 #    identify output file names (?)
 ile_args_orig = ile_args  # provides ability to strip out the output and replace it with alternate
-ile_args+= ' --sim-xml ' + working_dir_inside + '/overlap-grid-$(macroiteration).xml.gz '
-ile_args_forpuff= ile_args_orig + ' --sim-xml ' + working_dir_inside + '/puffball-$(macroiteration).xml.gz '
-ile_args_forfetch= ile_args_orig + ' --sim-xml ' + working_dir_inside + '/fetch-$(macroiteration).xml.gz '
+if opts.ile_deduplicate_grid and _use_hpip_pipeline:
+    parser.error('--ile-deduplicate-grid currently requires native XML grids')
+ile_args_forposterior = ile_args_orig + ' {} '.format(sim_grid_flag) + working_dir_inside + '/overlap-grid-$(macroiteration).{} '.format(grid_suffix)
+ordinary_grid_base = 'likelihood-grid' if opts.ile_deduplicate_grid else 'overlap-grid'
+ile_args+= ' {} '.format(sim_grid_flag) + working_dir_inside + '/'+ordinary_grid_base+'-$(macroiteration).{} '.format(grid_suffix)
+ile_args_forpuff= ile_args_orig + ' {} '.format(sim_grid_flag) + working_dir_inside + '/puffball-$(macroiteration).{} '.format(grid_suffix)
+ile_args_forfetch= ile_args_orig + ' {} '.format(sim_grid_flag) + working_dir_inside + '/fetch-$(macroiteration).{} '.format(grid_suffix)
 
 
 ###
@@ -704,12 +870,14 @@ if (opts.ile_n_events_to_analyze > 1) and (exe is None):
     ile_exe = dag_utils.which("integrate_likelihood_extrinsic_batchmode")
 output_file_names = None
 request_disk=opts.ile_request_disk
+# Writers append frame/wrapper inputs in place; isolate every grid family.
+transfer_file_names_ile_base = tuple(transfer_file_names)
 if opts.use_singularity or opts.use_osg:
-    transfer_file_names.append("../overlap-grid-$(macroiteration).xml.gz")
+    transfer_file_names.append("../"+ordinary_grid_base+"-$(macroiteration).{}".format(grid_suffix))
     #request_disk=4
     #output_file_names = ','.join(["CME_out-$(macroevent)-$(cluster)-$(process).xml_{0}_.dat".format(x) for x in np.arange(opts.ile_n_events_to_analyze)])
     #print "OUTPUT FILES ", output_file_names
-ile_job, ile_job_name = dag_utils.write_ILE_sub_simple(tag='ILE',log_dir=None,arg_str=ile_args,output_file="CME_out.xml",ncopies=opts.n_copies,exe=ile_exe,transfer_files=transfer_file_names,transfer_output_files=output_file_names,request_memory=opts.request_memory_ILE,request_disk=request_disk,request_gpu=opts.request_gpu_ILE,request_cross_platform=opts.request_xpu_ILE,use_singularity=opts.use_singularity,singularity_image=singularity_image,use_osg=opts.use_osg,simple_osg_requirements=opts.use_osg_simple_requirements,frames_dir=opts.frames_dir,cache_file=opts.cache_file,use_cvmfs_frames=opts.use_cvmfs_frames,use_oauth_files=opts.use_oauth_files,max_runtime_minutes=opts.ile_runtime_max_minutes,condor_commands=ile_condor_commands)
+ile_job, ile_job_name = dag_utils.write_ILE_sub_simple(tag='ILE',log_dir=None,arg_str=ile_args,output_file="CME_out.xml",ncopies=opts.n_copies,exe=ile_exe,transfer_files=transfer_file_names,transfer_output_files=output_file_names,request_memory=opts.request_memory_ILE,request_disk=request_disk,request_gpu=opts.request_gpu_ILE,request_cross_platform=opts.request_xpu_ILE,use_singularity=opts.use_singularity,singularity_image=singularity_image,use_osg=opts.use_osg,simple_osg_requirements=opts.use_osg_simple_requirements,frames_dir=opts.frames_dir,cache_file=opts.cache_file,use_cvmfs_frames=opts.use_cvmfs_frames,use_oauth_files=opts.use_oauth_files,max_runtime_minutes=opts.ile_runtime_max_minutes,condor_commands=ile_condor_commands,ile_profiles=True)
 # Modify: create macro for iteration 
 #   - added on a per-node basis
 # Modify: add macro argument for overlap grid to be used (kept in top-level directory)
@@ -723,14 +891,15 @@ ile_job.set_stdout_file(opts.working_directory+"/iteration_$(macroiteration)_ile
 if opts.use_full_submit_paths:
     fname = opts.working_directory+"/"+ile_job.get_sub_file()
     ile_job.set_sub_file(fname)
+_add_hpip_condor_env(ile_job)
 ile_job.write_sub_file()
 
-if not (opts.puff_args is None):
-    transfer_file_names_puff = list(transfer_file_names[:-1])
-    transfer_file_names_puff.append(opts.working_directory+"/puffball-$(macroiteration).xml.gz") # could also use ../puffball, because relative is ok to initialdir
+if opts.puff_args or opts.puff_args_list:
+    transfer_file_names_puff = list(transfer_file_names_ile_base)
+    transfer_file_names_puff.append(opts.working_directory+"/puffball-$(macroiteration).{}".format(grid_suffix)) # could also use ../puffball, because relative is ok to initialdir
     # Write a version of the ILE job that uses puffball inputs ... IDENTICAL to code above for standard ILE case,just different argument for input
     # Yes, it would logically be simpler to make overlap-grid.xml.gz larger ... but I want to keep 'real samples' and 'puffed samples' seperate.
-    ilePuff_job, ilePuff_job_name = dag_utils.write_ILE_sub_simple(tag='ILE_puff',log_dir=None,arg_str=ile_args_forpuff,output_file="CME_puff_out.xml",ncopies=opts.n_copies,exe=ile_exe,transfer_files=transfer_file_names_puff,request_memory=opts.request_memory_ILE,request_disk=request_disk,request_gpu=opts.request_gpu_ILE,request_cross_platform=opts.request_xpu_ILE,use_singularity=opts.use_singularity,singularity_image=singularity_image,use_osg=opts.use_osg,simple_osg_requirements=opts.use_osg_simple_requirements,frames_dir=opts.frames_dir,cache_file=opts.cache_file,use_cvmfs_frames=opts.use_cvmfs_frames,use_oauth_files=opts.use_oauth_files,max_runtime_minutes=opts.ile_runtime_max_minutes,condor_commands=ile_condor_commands)
+    ilePuff_job, ilePuff_job_name = dag_utils.write_ILE_sub_simple(tag='ILE_puff',log_dir=None,arg_str=ile_args_forpuff,output_file="CME_puff_out.xml",ncopies=opts.n_copies,exe=ile_exe,transfer_files=transfer_file_names_puff,request_memory=opts.request_memory_ILE,request_disk=request_disk,request_gpu=opts.request_gpu_ILE,request_cross_platform=opts.request_xpu_ILE,use_singularity=opts.use_singularity,singularity_image=singularity_image,use_osg=opts.use_osg,simple_osg_requirements=opts.use_osg_simple_requirements,frames_dir=opts.frames_dir,cache_file=opts.cache_file,use_cvmfs_frames=opts.use_cvmfs_frames,use_oauth_files=opts.use_oauth_files,max_runtime_minutes=opts.ile_runtime_max_minutes,condor_commands=ile_condor_commands,ile_profiles=True)
     ilePuff_job.add_condor_cmd("initialdir",opts.working_directory+"/iteration_$(macroiteration)_ile")
     ilePuff_job.set_log_file(opts.working_directory+"/iteration_$(macroiteration)_ile/logs/ILE_puff-$(macroevent)-$(cluster)-$(process).log")
     ilePuff_job.set_stderr_file(opts.working_directory+"/iteration_$(macroiteration)_ile/logs/ILE_puff-$(macroevent)-$(cluster)-$(process).err")
@@ -738,14 +907,15 @@ if not (opts.puff_args is None):
     if opts.use_full_submit_paths:
         fname = opts.working_directory+"/"+ilePuff_job.get_sub_file()
         ilePuff_job.set_sub_file(fname)
+    _add_hpip_condor_env(ilePuff_job)
     ilePuff_job.write_sub_file()
 
 if not (fetch_args is None):
-    transfer_file_names_fetch = list(transfer_file_names[:-1])
-    transfer_file_names_fetch.append(opts.working_directory+"/fetch-$(macroiteration).xml.gz") # could also use ../puffball, because relative is ok to initialdir
+    transfer_file_names_fetch = list(transfer_file_names_ile_base)
+    transfer_file_names_fetch.append(opts.working_directory+"/fetch-$(macroiteration).{}".format(grid_suffix)) # could also use ../puffball, because relative is ok to initialdir
     # Write a version of the ILE job that uses puffball inputs ... IDENTICAL to code above for standard ILE case,just different argument for input
     # Yes, it would logically be simpler to make overlap-grid.xml.gz larger ... but I want to keep 'real samples' and 'puffed samples' seperate.
-    ileFetch_job, ileFetch_job_name = dag_utils.write_ILE_sub_simple(tag='ILE_fetch',log_dir=None,arg_str=ile_args_forfetch,output_file="CME_fetch_out.xml",ncopies=opts.n_copies,exe=ile_exe,transfer_files=transfer_file_names_fetch,request_memory=opts.request_memory_ILE,request_disk=request_disk,request_gpu=opts.request_gpu_ILE,request_cross_platform=opts.request_xpu_ILE,use_singularity=opts.use_singularity,singularity_image=singularity_image,use_osg=opts.use_osg,simple_osg_requirements=opts.use_osg_simple_requirements,frames_dir=opts.frames_dir,cache_file=opts.cache_file,use_cvmfs_frames=opts.use_cvmfs_frames,oauth_files=opts.use_oauth_files,max_runtime_minutes=opts.ile_runtime_max_minutes,condor_commands=ile_condor_commands)
+    ileFetch_job, ileFetch_job_name = dag_utils.write_ILE_sub_simple(tag='ILE_fetch',log_dir=None,arg_str=ile_args_forfetch,output_file="CME_fetch_out.xml",ncopies=opts.n_copies,exe=ile_exe,transfer_files=transfer_file_names_fetch,request_memory=opts.request_memory_ILE,request_disk=request_disk,request_gpu=opts.request_gpu_ILE,request_cross_platform=opts.request_xpu_ILE,use_singularity=opts.use_singularity,singularity_image=singularity_image,use_osg=opts.use_osg,simple_osg_requirements=opts.use_osg_simple_requirements,frames_dir=opts.frames_dir,cache_file=opts.cache_file,use_cvmfs_frames=opts.use_cvmfs_frames,use_oauth_files=opts.use_oauth_files,max_runtime_minutes=opts.ile_runtime_max_minutes,condor_commands=ile_condor_commands,ile_profiles=True)
     ileFetch_job.add_condor_cmd("initialdir",opts.working_directory+"/iteration_$(macroiteration)_ile")
     ileFetch_job.set_log_file(opts.working_directory+"/iteration_$(macroiteration)_ile/logs/ILE_fetch-$(macroevent)-$(cluster)-$(process).log")
     ileFetch_job.set_stderr_file(opts.working_directory+"/iteration_$(macroiteration)_ile/logs/ILE_fetch-$(macroevent)-$(cluster)-$(process).err")
@@ -753,8 +923,27 @@ if not (fetch_args is None):
     if opts.use_full_submit_paths:
         fname = opts.working_directory+"/"+ileFetch_job.get_sub_file()
         ileFetch_job.set_sub_file(fname)
+    _add_hpip_condor_env(ileFetch_job)
     ileFetch_job.write_sub_file()
 
+
+ileSeed_job = None
+if opts.seed_climb_exe and opts.seed_climb_args and opts.seed_climb_mode in ("parallel", "composite") and it_start == 0 and not opts.first_iteration_jumpstart:
+    if opts.seed_climb_mode == "composite" and opts.n_iterations < 2:
+        raise SystemExit("--seed-climb-mode composite feeds iteration 1; needs --n-iterations >= 2")
+    ile_args_forseed = ile_args_orig + ' {} '.format(sim_grid_flag) + working_dir_inside + '/seed-$(macroiteration).{} '.format(grid_suffix)
+    transfer_file_names_seed = list(transfer_file_names_ile_base)
+    transfer_file_names_seed.append(opts.working_directory+"/seed-$(macroiteration).{}".format(grid_suffix))
+    # same as ILE_fetch: a separate job so climbed points stay labelled apart from the grid
+    ileSeed_job, _ = dag_utils.write_ILE_sub_simple(tag='ILE_seed',log_dir=None,arg_str=ile_args_forseed,output_file="CME_seed_out.xml",ncopies=opts.n_copies,exe=ile_exe,transfer_files=transfer_file_names_seed,request_memory=opts.request_memory_ILE,request_disk=request_disk,request_gpu=opts.request_gpu_ILE,request_cross_platform=opts.request_xpu_ILE,use_singularity=opts.use_singularity,singularity_image=singularity_image,use_osg=opts.use_osg,simple_osg_requirements=opts.use_osg_simple_requirements,frames_dir=opts.frames_dir,cache_file=opts.cache_file,use_cvmfs_frames=opts.use_cvmfs_frames,use_oauth_files=opts.use_oauth_files,max_runtime_minutes=opts.ile_runtime_max_minutes,condor_commands=ile_condor_commands,ile_profiles=True)
+    ileSeed_job.add_condor_cmd("initialdir",opts.working_directory+"/iteration_$(macroiteration)_ile")
+    ileSeed_job.set_log_file(opts.working_directory+"/iteration_$(macroiteration)_ile/logs/ILE_seed-$(macroevent)-$(cluster)-$(process).log")
+    ileSeed_job.set_stderr_file(opts.working_directory+"/iteration_$(macroiteration)_ile/logs/ILE_seed-$(macroevent)-$(cluster)-$(process).err")
+    ileSeed_job.set_stdout_file(opts.working_directory+"/iteration_$(macroiteration)_ile/logs/ILE_seed-$(macroevent)-$(cluster)-$(process).out")
+    if opts.use_full_submit_paths:
+        ileSeed_job.set_sub_file(opts.working_directory+"/"+ileSeed_job.get_sub_file())
+    _add_hpip_condor_env(ileSeed_job)
+    ileSeed_job.write_sub_file()
 
 if  (opts.last_iteration_extrinsic):
     n_points_per_ILE = opts.last_iteration_extrinsic_samples_per_ile
@@ -763,16 +952,53 @@ if  (opts.last_iteration_extrinsic):
     n_eff_last = np.min([2*n_points_per_ILE,opts.last_iteration_extrinsic_samples_per_ile])  # make n_eff large enough to get all samples requested. Provide cap in case user requests very vew extrinsic workers.
     if isinstance(neff_orig,str):
         n_eff_last  = np.max([n_eff_last, int(neff_orig)]) 
-    # ILE job with modified output format
-    #  - note we *double* the memory request, because we need space to save samples
-    ile_args_extr = ile_args + " --save-P 0.01 --save-samples --n-eff  "  +str(n_eff_last)
+    # # ILE job with modified output format
+    # #  - note we *double* the memory request, because we need space to save samples
+    # #  - note
+    # opts_ile = parse_ile_args_flexible(ile_args_orig) # parse to get originally requested n_eff, cache-file
+    # n_eff_last = np.min([2*n_points_per_ILE,opts.last_iteration_extrinsic_samples_per_ile])  # make n_eff large enough to get all samples requested. Provide cap in case user requests very vew extrinsic workers.
+    # if hasattr(opts_ile, 'n_eff'):
+    #     n_eff_last  = np.max([n_eff_last, opts_ile.n_eff]) # NEVER USE FEWER n_eff THAN WAS USED FOR intrinsic run. Fallback to no change in case (never happens) not in arg list
+    ile_args_extr = ile_args_forposterior + " --save-P 0.01 --save-samples --n-eff  "  +str(n_eff_last)  # modify convergence criteria so output of reasonable size/matching needs of extrinsic output
     #  - note we *disable* --no-adapt-after-first (if present), so each point is independent (e.g., in sky location)
     ile_args_extr = ile_args_extr.replace('--no-adapt-after-first','')
+    if opts.last_iteration_export_marginal_distance_grid:
+        ile_args_extr += " --export-marginal-distance-grid "
+        ile_args_extr = ile_args_extr.replace("--distance-marginalization ", ' ')  # *currently* cannot use distance marginalization in the last step if we want distance grid output
+    if opts.last_iteration_export_distance_slices and opts.last_iteration_export_distance_slices > 0:
+        # Plan-B distance slices: K independent fixed-d extrinsic integrals per
+        # intrinsic point, emitted as a .dslice file. Requires lnL mode and no
+        # distance marginalization (same constraints as the grid export above).
+        ile_args_extr += " --export-distance-slices {} ".format(opts.last_iteration_export_distance_slices)
+        if opts.last_iteration_export_distance_slices_all_fresh:
+            ile_args_extr += " --distance-slice-all-fresh "
+        if opts.last_iteration_export_distance_slices_randomize:
+            ile_args_extr += " --distance-slice-randomize "
+        if opts.last_iteration_export_distance_slices_wing_neff is not None:
+            ile_args_extr += " --distance-slice-wing-neff {} ".format(opts.last_iteration_export_distance_slices_wing_neff)
+        if opts.last_iteration_export_distance_slices_wing_nmax is not None:
+            ile_args_extr += " --distance-slice-wing-nmax {} ".format(opts.last_iteration_export_distance_slices_wing_nmax)
+        if opts.last_iteration_export_distance_slices_n_core:
+            ile_args_extr += " --n-distance-slice-core {} ".format(opts.last_iteration_export_distance_slices_n_core)
+        if opts.last_iteration_export_distance_slices_n_wing:
+            ile_args_extr += " --n-distance-slice-wing {} ".format(opts.last_iteration_export_distance_slices_n_wing)
+        if opts.last_iteration_export_distance_slices_wing_delta_lnL is not None:
+            ile_args_extr += " --distance-slice-wing-delta-lnL {} ".format(opts.last_iteration_export_distance_slices_wing_delta_lnL)
+        if opts.last_iteration_export_distance_slices_skip_threshold is not None:
+            ile_args_extr += " --distance-slice-skip-threshold {} ".format(opts.last_iteration_export_distance_slices_skip_threshold)
+        if "--internal-use-lnL" not in ile_args_extr:
+            ile_args_extr += " --internal-use-lnL "
+        ile_args_extr = ile_args_extr.replace("--distance-marginalization ", ' ')
     if opts.last_iteration_extrinsic_time_resampling:
-        ile_args_extr += " --resample-time-marginalization --fairdraw-extrinsic-output "
+        ile_args_extr += " --resample-time-marginalization --fairdraw-extrinsic-output --fairdraw-extrinsic-output-n-max {} ".format(n_points_per_ILE)
         print(" Time resampling in extraction iteration: **DISABLING** distance marginalization if present ")
         ile_args_extr = ile_args_extr.replace("--distance-marginalization ", ' ')  # *currently* cannot use distance marginalization in the last step if we want fairdraw output.  Note the *unfairdraw* output can ignore this ...
-    ileExtr_job, ileExtr_job_name = dag_utils.write_ILE_sub_simple(tag='ILE_extr',log_dir=None,arg_str=ile_args_extr,output_file="EXTR_out.xml",simple_unique=True,ncopies=1,exe=ile_exe,transfer_files=transfer_file_names,request_memory=opts.request_memory_ILE*2,request_gpu=opts.request_gpu_ILE,request_cross_platform=opts.request_xpu_ILE,use_cvmfs_frames=opts.use_cvmfs_frames,request_disk=request_disk,use_singularity=opts.use_singularity,singularity_image=singularity_image,use_osg=opts.use_osg,simple_osg_requirements=opts.use_osg_simple_requirements,use_oauth_files=opts.use_oauth_files,frames_dir=opts.frames_dir,cache_file=opts.cache_file)
+    transfer_file_names_extr = list(transfer_file_names_ile_base)
+    if opts.use_singularity or opts.use_osg:
+        transfer_file_names_extr.append('../overlap-grid-$(macroiteration).{}'.format(grid_suffix))
+    if opts.use_singularity or opts.use_osg:
+        transfer_file_names_extr = [name.replace('../'+ordinary_grid_base+'-$(macroiteration).{}'.format(grid_suffix), '../overlap-grid-$(macroiteration).{}'.format(grid_suffix)) for name in transfer_file_names_extr]
+    ileExtr_job, ileExtr_job_name = dag_utils.write_ILE_sub_simple(tag='ILE_extr',log_dir=None,arg_str=ile_args_extr,output_file="EXTR_out.xml",simple_unique=True,ncopies=1,exe=ile_exe,transfer_files=transfer_file_names_extr,request_memory=opts.request_memory_ILE*2,request_gpu=opts.request_gpu_ILE,request_cross_platform=opts.request_xpu_ILE,use_cvmfs_frames=opts.use_cvmfs_frames,request_disk=request_disk,use_singularity=opts.use_singularity,singularity_image=singularity_image,use_osg=opts.use_osg,simple_osg_requirements=opts.use_osg_simple_requirements,use_oauth_files=opts.use_oauth_files,frames_dir=opts.frames_dir,cache_file=opts.cache_file)
     ileExtr_job.add_condor_cmd("initialdir",opts.working_directory+"/iteration_$(macroiteration)_ile")
     ileExtr_job.set_log_file(opts.working_directory+"/iteration_$(macroiteration)_ile/logs/ILEextr-$(macroevent)-$(cluster)-$(process).log")
     ileExtr_job.set_stderr_file(opts.working_directory+"/iteration_$(macroiteration)_ile/logs/ILEextr-$(macroevent)-$(cluster)-$(process).err")
@@ -784,26 +1010,48 @@ if  (opts.last_iteration_extrinsic):
     
     # Convert task 
     if opts.last_iteration_extrinsic_time_resampling:
-        # very simple: igwn_ligolw add on all final output, then a single convert
+        # JAX ILE exports fair draws as tabular sidecars, not XML rows.  Route
+        # that driver to its strict joiner; retain the historical XML path for
+        # conventional ILE.
+        jax_tabular_fairdraws = (
+            ile_exe is not None
+            and "integrate_likelihood_extrinsic_jax" in str(ile_exe)
+        )
+        if jax_tabular_fairdraws and convert_args is not None:
+            raise ValueError(
+                "JAX tabular fair-draw conversion does not support --convert-args; "
+                "remove it or use conventional ILE")
         convert_args_extr =  " --convention LI  --export-cosmology --use-interpolated-cosmology " 
         if not (convert_args is None):
             convert_args_extr += convert_args
         # batched convert shell script
         relevant_path = dag_utils.which('util_JoinExtrXML.py')
         relevant_path_2 = dag_utils.which('convert_output_format_ile2inference')
+        relevant_path_jax = dag_utils.which('util_ConvertJAXILEFairdraws.py')
         if opts.condor_local_nonworker_igwn_prefix:
             # we are in igwn environment
-            relevant_path = 'util_JoinExtrXML.py'  
+            relevant_path = 'util_JoinExtrXML.py'
             relevant_path_2 = 'convert_output_format_ile2inference'
+            relevant_path_jax = 'util_ConvertJAXILEFairdraws.py'
         # randomization: 'shuf' is preferred, but otherwise use ' sort -R'. Note performed locally, so local filesystem/os is fine.
         extra_shuffle_command = ' | cat'
         which_shuf = which('shuf'); which_sort = which('sort')
         if isinstance(which_shuf, str):
             extra_shuffle_command = ' | {} '.format(which_shuf)
-        elif isinstance(which_short,str):
+        elif isinstance(which_sort, str):
             extra_shuffle_command  = ' | {} -R '.format(which_sort)
         with open("allinone_convert.sh",'w') as f:
-            f.write(f"""#! /bin/bash
+            if jax_tabular_fairdraws:
+                f.write(f"""#! /bin/bash
+set -euo pipefail
+{extra_text}
+{relevant_path_jax} --directory ./iteration_$1_ile \
+  --draws-per-intrinsic {n_points_per_ILE} \
+  --expected-intrinsic {opts.last_iteration_extrinsic_nsamples} \
+  --output ./extrinsic_posterior_samples.dat
+""")
+            else:
+                f.write(f"""#! /bin/bash
 {extra_text}
 {relevant_path} ./iteration_$1_ile/'EXTR_out-*.xml_*_.xml.gz' --output ./tmp_converted.xml.gz
 {relevant_path_2} {convert_args_extr} ./tmp_converted.xml.gz  > ./tmp_converted.dat
@@ -888,16 +1136,65 @@ sed 1d ./tmp_converted.dat  {extra_shuffle_command} >> ./extrinsic_posterior_sam
         cat_job.set_sub_file(fname)
     cat_job.write_sub_file()
 
+    # Per-distance likelihood export: consolidate per-event .dgrid (Plan A)
+    # and/or .dslice (Plan B) files into a single table at the run root.  The
+    # consolidated file is the "net" intrinsic+distance grid downstream tools
+    # like util_ConstructEOSPosterior.py consume.  Each consolidation is
+    # gated on the corresponding --last-iteration-export-* flag so we never
+    # emit an empty sub for runs that did not request the export.
+    if opts.last_iteration_export_marginal_distance_grid:
+        dgrid_job, dgrid_job_name = dag_utils.write_consolidate_distance_grids_sub(
+            tag='consolidate_dgrid',
+            # Match the real per-event batched-extrinsic outputs
+            # EXTR_out-<event>.xml_<k>_.dgrid (note the leading-segment wildcard;
+            # 'EXTR_out.xml_*_.dgrid' has no '-<event>' infix and matches nothing).
+            input_glob='EXTR_out*.xml_*_.dgrid',
+            file_output=opts.working_directory + '/all_dgrid.dat',
+            # iteration_*_ile wildcard, NOT $(macroiteration): the consolidate driver
+            # is a shell script (no condor-macro substitution); the wildcard matches
+            # the final-iteration directory regardless of its number.
+            search_dir=opts.working_directory + '/iteration_*_ile',
+            log_dir=opts.working_directory + '/iteration_$(macroiteration)_ile/logs/',
+            universe=local_worker_universe, no_grid=no_worker_grid,
+        )
+        dgrid_job.add_condor_cmd("initialdir", opts.working_directory)
+        dgrid_job.add_condor_cmd('request_disk', opts.general_request_disk)
+        if opts.use_full_submit_paths:
+            fname = opts.working_directory + "/" + dgrid_job.get_sub_file()
+            dgrid_job.set_sub_file(fname)
+        dgrid_job.write_sub_file()
+    if opts.last_iteration_export_distance_slices and opts.last_iteration_export_distance_slices > 0:
+        dslice_job, dslice_job_name = dag_utils.write_consolidate_distance_grids_sub(
+            tag='consolidate_dslice',
+            input_glob='EXTR_out*.xml_*_.dslice',
+            file_output=opts.working_directory + '/all_dslice.dat',
+            search_dir=opts.working_directory + '/iteration_*_ile',
+            log_dir=opts.working_directory + '/iteration_$(macroiteration)_ile/logs/',
+            universe=local_worker_universe, no_grid=no_worker_grid,
+        )
+        dslice_job.add_condor_cmd("initialdir", opts.working_directory)
+        dslice_job.add_condor_cmd('request_disk', opts.general_request_disk)
+        if opts.use_full_submit_paths:
+            fname = opts.working_directory + "/" + dslice_job.get_sub_file()
+            dslice_job.set_sub_file(fname)
+        dslice_job.write_sub_file()
+
 
 ##   Consolidate job(s)
 #   - consolidate output of single previous job
 con_arg_str = ''
+if opts.use_EOB_parameters:
+    con_arg_str += " --a6c "
+if opts.use_hyperbolic:
+    con_arg_str += " --hyperbolic "
 if opts.use_eccentricity:
     con_arg_str += " --eccentricity "
     if opts.use_meanPerAno:
         con_arg_str += " --meanPerAno "
 if opts.use_tabular_eos_file:
     con_arg_str += " --tabular-eos-file "
+if opts.clean_ile_intrinsic_digits != 5:
+    con_arg_str += " --intrinsic-digits {} ".format(opts.clean_ile_intrinsic_digits)
 con_job, con_job_name = dag_utils.write_consolidate_sub_simple(tag='join',log_dir=None,arg_str=con_arg_str,base=opts.working_directory+"/iteration_$(macroiteration)_ile", target=opts.working_directory+'/consolidated_$(macroiteration)',universe=local_worker_universe,no_grid=no_worker_grid,extra_text=extra_text)
 # Modify: set 'initialdir' : should run in top-level direcory
 #con_job.add_condor_cmd("initialdir",opts.working_directory+"/iteration_$(macroiteration)_con")
@@ -910,18 +1207,25 @@ if opts.use_full_submit_paths:
     fname = opts.working_directory+"/"+con_job.get_sub_file()
     con_job.set_sub_file(fname)
 if opts.condor_containerize_nonworker and singularity_image:
-    con_job.add_condor_cmd("+SingularityImage", '"' + singularity_image + '"')
+    con_job.add_condor_cmd("+SingularityImage", '"' + nonworker_singularity_image + '"')
+_add_hpip_condor_env(con_job)
 con_job.write_sub_file()
 
 ##   Unify job
 #   - update 'all.net' to include all previous events
 unify_arg_str = ''
+if opts.use_EOB_parameters:
+    unify_arg_str += " --a6c "
+if opts.use_hyperbolic:
+    unify_arg_str += " --hyperbolic "
 if opts.use_eccentricity:
     unify_arg_str += " --eccentricity "
     if opts.use_meanPerAno:
         unify_arg_str += " --meanPerAno "
 if opts.use_tabular_eos_file:
     unify_arg_str += " --tabular-eos-file "
+if opts.clean_ile_intrinsic_digits != 5:
+    unify_arg_str += " --intrinsic-digits {} ".format(opts.clean_ile_intrinsic_digits)
 unify_job, unify_job_name = dag_utils.write_unify_sub_simple(tag='unify',log_dir='',arg_str=unify_arg_str, base=opts.working_directory, target=opts.working_directory+'/all.net',universe=local_worker_universe,no_grid=no_worker_grid,extra_text=extra_text)
 unify_job.add_condor_cmd("initialdir",opts.working_directory)
 unify_job.set_log_file(opts.working_directory+"/iteration_$(macroiteration)_con/logs/unify-$(cluster)-$(process).log")
@@ -932,13 +1236,17 @@ if opts.use_full_submit_paths:
     fname = opts.working_directory+"/"+unify_job.get_sub_file()
     unify_job.set_sub_file(fname)
 if opts.condor_containerize_nonworker and singularity_image:
-    unify_job.add_condor_cmd("+SingularityImage", '"' + singularity_image + '"')
+    unify_job.add_condor_cmd("+SingularityImage", '"' + nonworker_singularity_image + '"')
+_add_hpip_condor_env(unify_job)
 unify_job.write_sub_file()
 
 
 # Evidence job
 exe_evidence = which('util_CIPDirSummarizeEvidence.py')
-evidence_job, evidence_job_name = dag_utils.write_convert_sub(tag='evidence', exe=exe_evidence, log_dir='', file_input='',  arg_str=" --cip-dir iteration_$(macroiteration)_cip --output evidence_$(macroiteration) ",  universe=local_worker_universe, no_grid=no_worker_grid)
+evidence_source = " --cip-dir iteration_$(macroiteration)_cip"
+if opts.cip_explode_jobs is None:
+    evidence_source = " --cip-dir . --cip-prefix overlap-grid-$(macroiterationnext)"
+evidence_job, evidence_job_name = dag_utils.write_convert_sub(tag='evidence', exe=exe_evidence, log_dir='', file_input='',  arg_str=evidence_source+" --output evidence_$(macroiteration) ",  universe=local_worker_universe, no_grid=no_worker_grid)
 evidence_job.add_condor_cmd("initialdir",opts.working_directory)
 evidence_job.set_log_file(opts.working_directory+"/iteration_$(macroiteration)_con/logs/evidence-$(cluster)-$(process).log")
 evidence_job.set_stderr_file(opts.working_directory+"/iteration_$(macroiteration)_con/logs/evidence-$(cluster)-$(process).err")
@@ -948,8 +1256,42 @@ if opts.use_full_submit_paths:
     fname = opts.working_directory+"/"+evidence_job.get_sub_file()
     evidence_job.set_sub_file(fname)
 if opts.condor_containerize_nonworker and singularity_image:
-    evidence_job.add_condor_cmd("+SingularityImage", '"' + singularity_image + '"')
+    evidence_job.add_condor_cmd("+SingularityImage", '"' + nonworker_singularity_image + '"')
+_add_hpip_condor_env(evidence_job)
 evidence_job.write_sub_file()
+
+alias_grid_job = None
+if _use_hpip_pipeline:
+    alias_grid_script = opts.working_directory + "/alias_hyperpipeline_grid.sh"
+    with open(alias_grid_script, "w") as f:
+        f.write("""#!/usr/bin/env bash
+set -e
+iter="$1"
+target="overlap-grid-${iter}.dat"
+alias="posterior_samples-${iter}.dat"
+if [ ! -e "${target}" ]; then
+  echo "alias_hyperpipeline_grid.sh: missing ${target}" >&2
+  exit 1
+fi
+ln -sf "${target}" "${alias}"
+""")
+    os.chmod(alias_grid_script, os.stat(alias_grid_script).st_mode | stat.S_IEXEC)
+    alias_grid_job, alias_grid_job_name = dag_utils.write_convert_sub(
+        tag='alias_hpip_grid', exe=alias_grid_script, log_dir='',
+        file_input='$(macroiteration)', file_output='/dev/null',
+        arg_str='', out_dir=opts.working_directory, universe=local_worker_universe,
+        no_grid=no_worker_grid)
+    alias_grid_job.add_condor_cmd("initialdir", opts.working_directory)
+    alias_grid_job.set_log_file(opts.working_directory+"/iteration_$(macroiteration)_cip/logs/alias-hpip-grid-$(cluster)-$(process).log")
+    alias_grid_job.set_stderr_file(opts.working_directory+"/iteration_$(macroiteration)_cip/logs/alias-hpip-grid-$(cluster)-$(process).err")
+    alias_grid_job.add_condor_cmd('request_disk', opts.general_request_disk)
+    if opts.use_full_submit_paths:
+        fname = opts.working_directory+"/"+alias_grid_job.get_sub_file()
+        alias_grid_job.set_sub_file(fname)
+    if opts.condor_containerize_nonworker and singularity_image:
+        alias_grid_job.add_condor_cmd("+SingularityImage", '"' + nonworker_singularity_image + '"')
+    _add_hpip_condor_env(alias_grid_job)
+    alias_grid_job.write_sub_file()
 
 
 ##   Fit job: default case
@@ -965,15 +1307,20 @@ if opts.cip_exe:
 cip_no_grid = no_worker_grid
 if opts.use_osg_cip:
     cip_no_grid = False
+cip_initialdir = opts.working_directory
+cip_transfer_files = ['all.net']
+if opts.cip_explode_jobs:
+    cip_initialdir = opts.working_directory+"/iteration_$(macroiteration)_cip"
+    cip_transfer_files = ['../all.net']
 if (opts.cip_explode_jobs):
     if not opts.cip_explode_jobs_flat:
         cip_args_base += " --fit-save-gp " + out_dir_inside_cip + "/my_fit"
     else:
         cip_exe_master = "/bin/true"
 #    out_dir_base += "/iteration_$(macroiteration)_cip/"
-cip_job, cip_job_name = dag_utils.write_CIP_sub(tag='CIP',log_dir=None,arg_str=cip_args_base,request_memory=opts.request_memory_CIP,input_net=working_dir_inside_cip+'/all.net',output='overlap-grid-$(macroiterationnext)',out_dir=out_dir_inside_cip,exe=cip_exe_master,universe=local_worker_universe_cip,no_grid=cip_no_grid,use_osg=opts.use_osg_cip,use_singularity=opts.use_osg_cip and opts.use_singularity,singularity_image=singularity_image,use_simple_osg_requirements=opts.use_osg_cip,use_oauth_files=opts.use_oauth_files,transfer_files=['../all.net'])
+cip_job, cip_job_name = dag_utils.write_CIP_sub(tag='CIP',log_dir=None,arg_str=cip_args_base,request_memory=opts.request_memory_CIP,request_gpus=opts.request_gpus_CIP,require_gpus=opts.require_gpus_CIP,input_net=working_dir_inside_cip+'/all.net',output='overlap-grid-$(macroiterationnext)',out_dir=out_dir_inside_cip,exe=cip_exe_master,universe=local_worker_universe_cip,no_grid=cip_no_grid,use_osg=opts.use_osg_cip,use_singularity=opts.use_osg_cip and opts.use_singularity,singularity_image=cip_singularity_image,use_simple_osg_requirements=opts.use_osg_cip,use_oauth_files=opts.use_oauth_files,transfer_files=cip_transfer_files)
 # Modify: set 'initialdir'
-cip_job.add_condor_cmd("initialdir",opts.working_directory+"/iteration_$(macroiteration)_cip")
+cip_job.add_condor_cmd("initialdir",cip_initialdir)
 # Modify output argument: change logs and working directory to be subdirectory for the run
 cip_job.set_log_file(opts.working_directory+"/iteration_$(macroiteration)_cip/logs/cip-$(cluster)-$(process).log")
 cip_job.set_stderr_file(opts.working_directory+"/iteration_$(macroiteration)_cip/logs/cip-$(cluster)-$(process).err")
@@ -984,6 +1331,7 @@ if opts.cip_explode_jobs:
 if opts.use_full_submit_paths:
     fname = opts.working_directory+"/"+cip_job.get_sub_file()
     cip_job.set_sub_file(fname)
+_add_hpip_condor_env(cip_job)
 cip_job.write_sub_file()
 if opts.cip_explode_jobs:
     print(" Exploding stage 1, with  ",opts.cip_explode_jobs, " workers producing samples ")
@@ -995,9 +1343,9 @@ if opts.cip_explode_jobs:
         fname_out = 'overlap-grid-$(macroiterationnext)-$(cluster)'
     cip_args_base = cip_args_base.replace('my_fit', 'my_fit.pkl')  # yes, asymmetric arguments
     transfer_files_cip =['../all.net']
-    if opts.use_osg_cip and 'fit-method gp' in cip_args_base:
-        transfer_files_cip += ['my_fit.pkl']  # transfer current working directory fit
-    cip_job_worker, cip_job_worker_name = dag_utils.write_CIP_sub(tag='CIP_worker',log_dir=None,arg_str=cip_args_base,request_memory=opts.request_memory_CIP,request_memory_flex=opts.request_memory_CIP_flex,input_net=working_dir_inside_cip+'/all.net',output=fname_out,out_dir=out_dir_inside_cip,exe=cip_exe,ncopies=n_explode,universe=local_worker_universe_cip,no_grid=cip_no_grid,use_osg=opts.use_osg_cip,use_singularity=opts.use_osg_cip and opts.use_singularity,singularity_image=singularity_image,use_simple_osg_requirements=opts.use_osg_cip,use_oauth_files=opts.use_oauth_files,transfer_files=transfer_files_cip)
+    if opts.use_osg_cip and 'fit-method gp' in cip_args_base and not opts.cip_explode_jobs_flat:
+        transfer_files_cip += ['my_fit.pkl']  # transfer current working directory fit; flat mode has no shared fit to transfer
+    cip_job_worker, cip_job_worker_name = dag_utils.write_CIP_sub(tag='CIP_worker',log_dir=None,arg_str=cip_args_base,request_memory=opts.request_memory_CIP,request_memory_flex=opts.request_memory_CIP_flex,request_gpus=opts.request_gpus_CIP,require_gpus=opts.require_gpus_CIP,input_net=working_dir_inside_cip+'/all.net',output=fname_out,out_dir=out_dir_inside_cip,exe=cip_exe,ncopies=n_explode,universe=local_worker_universe_cip,no_grid=cip_no_grid,use_osg=opts.use_osg_cip,use_singularity=opts.use_osg_cip and opts.use_singularity,singularity_image=cip_singularity_image,use_simple_osg_requirements=opts.use_osg_cip,use_oauth_files=opts.use_oauth_files,transfer_files=transfer_files_cip)
     # Modify: set 'initialdir'
     cip_job_worker.add_condor_cmd("initialdir",opts.working_directory+"/iteration_$(macroiteration)_cip")
     # Modify output argument: change logs and working directory to be subdirectory for the run
@@ -1008,12 +1356,13 @@ if opts.cip_explode_jobs:
     if opts.use_full_submit_paths:
         fname = opts.working_directory+"/"+cip_job_worker.get_sub_file()
         cip_job_worker.set_sub_file(fname)
+    _add_hpip_condor_env(cip_job_worker)
     cip_job_worker.write_sub_file()
 
     # Create worker join job
     #   ... if we are using cip_explode_jobs_dag, we need a different script entirely
     #     filename to join : note *two* minus signs, because we don't want the non-worker job to match! It has tiny output. This can cause pathological behavior for the random join stage
-    join_cip_job,join_cip_job_name = dag_utils.write_joingrids_sub(input_pattern=opts.working_directory+"/iteration_$(macroiteration)_cip/output-grid-*-*.xml.gz",target_dir=opts.working_directory,output_base="overlap-grid-$(macroiterationnext)",n_explode=n_explode,log_dir=opts.working_directory+"/iteration_$(macroiteration)_cip/logs",universe=local_worker_universe,no_grid=no_worker_grid,extra_text=extra_text)
+    join_cip_job,join_cip_job_name = dag_utils.write_joingrids_sub(input_pattern=opts.working_directory+"/iteration_$(macroiteration)_cip/output-grid-*-*.{}".format(grid_suffix),target_dir=opts.working_directory,output_base="overlap-grid-$(macroiterationnext)",n_explode=n_explode,log_dir=opts.working_directory+"/iteration_$(macroiteration)_cip/logs",universe=local_worker_universe,no_grid=no_worker_grid,extra_text=extra_text)
     join_cip_job.add_condor_cmd("initialdir",opts.working_directory+"/iteration_$(macroiteration)_cip")
     # Modify output argument: change logs and working directory to be subdirectory for the run
     join_cip_job.set_log_file(opts.working_directory+"/iteration_$(macroiteration)_cip/logs/join-$(cluster)-$(process).log")
@@ -1024,31 +1373,110 @@ if opts.cip_explode_jobs:
         fname = opts.working_directory+"/"+join_cip_job.get_sub_file()
         join_cip_job.set_sub_file(fname)
     if opts.condor_containerize_nonworker and singularity_image:
-        join_cip_job.add_condor_cmd("+SingularityImage", '"' + singularity_image + '"')
+        join_cip_job.add_condor_cmd("+SingularityImage", '"' + nonworker_singularity_image + '"')
+    _add_hpip_condor_env(join_cip_job)
     join_cip_job.write_sub_file()
 
 ##   puffball job: default case
 if puff_args and puff_cadence:
-    puff_job, puff_job_name = dag_utils.write_puff_sub(tag='PUFF',log_dir=None,arg_str=puff_args,request_memory=opts.request_memory_ILE,input_net=opts.working_directory+'/overlap-grid-$(macroiterationnext).xml.gz',output=opts.working_directory+'/puffball-$(macroiterationnext)',out_dir=opts.working_directory,exe=opts.puff_exe,universe=local_worker_universe,no_grid=no_worker_grid,extra_text=extra_text)
-    # Modify: set 'initialdir' to CIP WORKING DIR 
-    puff_job.add_condor_cmd("initialdir",opts.working_directory+"/iteration_$(macroiteration)_cip")
-    # Modify output argument: change logs and working directory to be subdirectory for the run
-    puff_job.set_log_file(opts.working_directory+"/iteration_$(macroiteration)_cip/logs/puff-$(cluster)-$(process).log")
-    puff_job.set_stderr_file(opts.working_directory+"/iteration_$(macroiteration)_cip/logs/puff-$(cluster)-$(process).err")
-    puff_job.set_stdout_file(opts.working_directory+"/iteration_$(macroiteration)_cip/logs/puff-$(cluster)-$(process).out")
-    puff_job.add_condor_cmd('request_disk',opts.general_request_disk)
+    puff_jobs = []
+    for stage, stage_args in enumerate(puff_stage_args or [puff_args]):
+        puff_job, puff_job_name = dag_utils.write_puff_sub(tag=('PUFF_{}'.format(stage) if puff_stage_args else 'PUFF'),log_dir=None,arg_str=stage_args,request_memory=opts.request_memory_ILE,input_net=opts.working_directory+'/overlap-grid-$(macroiterationnext).{}'.format(grid_suffix),output=opts.working_directory+'/puffball-$(macroiterationnext)',out_dir=opts.working_directory,exe=opts.puff_exe,universe=local_worker_universe,no_grid=no_worker_grid,extra_text=extra_text)
+        # Modify: set 'initialdir' to CIP WORKING DIR
+        puff_job.add_condor_cmd("initialdir",opts.working_directory+"/iteration_$(macroiteration)_cip")
+        # Modify output argument: change logs and working directory to be subdirectory for the run
+        puff_job.set_log_file(opts.working_directory+"/iteration_$(macroiteration)_cip/logs/puff-$(cluster)-$(process).log")
+        puff_job.set_stderr_file(opts.working_directory+"/iteration_$(macroiteration)_cip/logs/puff-$(cluster)-$(process).err")
+        puff_job.set_stdout_file(opts.working_directory+"/iteration_$(macroiteration)_cip/logs/puff-$(cluster)-$(process).out")
+        puff_job.add_condor_cmd('request_disk',opts.general_request_disk)
+        if opts.use_full_submit_paths:
+            fname = opts.working_directory+"/"+puff_job.get_sub_file()
+            puff_job.set_sub_file(fname)
+        if opts.condor_containerize_nonworker and singularity_image:
+            puff_job.add_condor_cmd("+SingularityImage", '"' + nonworker_singularity_image + '"')
+        _add_hpip_condor_env(puff_job)
+        puff_job.write_sub_file()
+        puff_jobs.append(puff_job)
+
+# LISA reflected-sky-mode: a per-iteration node that reflects the CIP-proposed
+# grid's sky to the secondary mode (convert_primary_sky_mode_to_secondary),
+# overwriting overlap-grid-(it+1) in place so the NEXT iteration's ILE explores
+# the reflected mode.  arg_str ends with "--fname " so write_convert_sub's
+# add_arg(file_input) becomes --fname <grid>.
+reflected_mode_job = None
+reflected_mode_iter = None
+if opts.search_reflected_sky_mode and int(opts.n_iterations) > 1:
+    reflect_exe = opts.reflected_sky_mode_exe or dag_utils.which("convert_primary_sky_mode_to_secondary")
+    reflected_mode_iter = opts.search_reflected_sky_mode_iteration
+    if reflected_mode_iter is None:
+        reflected_mode_iter = int(opts.n_iterations) - 2
+    if reflected_mode_iter <= 0:
+        reflected_mode_iter = int(opts.n_iterations) - 1
+    reflected_mode_job, reflected_mode_job_name = dag_utils.write_convert_sub(
+        tag='reflected_sky_mode', log_dir=None,
+        arg_str="--lisa-reference-time {} --fname ".format(opts.lisa_reference_time),
+        file_input=opts.working_directory+'/overlap-grid-$(macroiterationnext).{}'.format(grid_suffix),
+        file_output=opts.working_directory+'/iteration_$(macroiteration)_cip/logs/reflected-sky-$(cluster)-$(process).out',
+        out_dir=opts.working_directory, exe=reflect_exe,
+        universe=local_worker_universe, no_grid=no_worker_grid)
+    reflected_mode_job.add_condor_cmd("initialdir", opts.working_directory+"/iteration_$(macroiteration)_cip")
+    reflected_mode_job.set_log_file(opts.working_directory+"/iteration_$(macroiteration)_cip/logs/reflected-sky-$(cluster)-$(process).log")
+    reflected_mode_job.set_stderr_file(opts.working_directory+"/iteration_$(macroiteration)_cip/logs/reflected-sky-$(cluster)-$(process).err")
+    reflected_mode_job.add_condor_cmd('request_disk', opts.general_request_disk)
     if opts.use_full_submit_paths:
-        fname = opts.working_directory+"/"+puff_job.get_sub_file()
-        puff_job.set_sub_file(fname)
+        reflected_mode_job.set_sub_file(opts.working_directory+"/"+reflected_mode_job.get_sub_file())
     if opts.condor_containerize_nonworker and singularity_image:
-        puff_job.add_condor_cmd("+SingularityImage", '"' + singularity_image + '"')
-    puff_job.write_sub_file()
+        reflected_mode_job.add_condor_cmd("+SingularityImage", '"' + nonworker_singularity_image + '"')
+    _add_hpip_condor_env(reflected_mode_job)
+    reflected_mode_job.write_sub_file()
+
+
+##   calibration PILOT job (Option C adaptive cal; see RIFT/calmarg/DESIGN_adaptive_driver.md)
+calpilot_job = None
+calpilot_node_per_iteration = {}
+if opts.calmarg_pilot:
+    calpilot_log_dir = opts.working_directory + "/iteration_$(macroiteration)_cip/logs/"
+    # On OSG the CALPILOT job runs ILE internally, so it needs the same container + input
+    # transfer set as the wide ILE jobs (PSD + cal envelopes + frames), plus the composite.
+    # transfer_file_names[:-1] = the helper transfer list WITHOUT the wide grid (the pilot
+    # harvests its own grid from the transferred composite).
+    calpilot_job, calpilot_job_name = dag_utils.write_calpilot_sub(
+        tag='CALPILOT', log_dir=calpilot_log_dir, working_directory=opts.working_directory,
+        ile_args_file=opts.working_directory + "/args_ile.txt",
+        top_fraction=opts.calmarg_pilot_top_fraction, max_points=opts.calmarg_pilot_max_points,
+        request_memory=opts.request_memory_ILE, request_gpu=opts.request_gpu_ILE,
+        universe="vanilla",
+        singularity_image=(singularity_image if (opts.use_singularity or opts.use_osg or opts.condor_containerize_nonworker) else None),
+        use_osg=opts.use_osg, use_singularity=opts.use_singularity, frames_dir=opts.frames_dir,
+        use_oauth_files=opts.use_oauth_files,
+        transfer_files=(list(transfer_file_names_pilot_base) if opts.use_osg else None))
+    calpilot_job.add_condor_cmd("initialdir", opts.working_directory)
+    calpilot_job.add_condor_cmd('request_disk',opts.general_request_disk)
+    if opts.use_full_submit_paths:
+        calpilot_job.set_sub_file(opts.working_directory + "/" + calpilot_job.get_sub_file())
+    calpilot_job.write_sub_file()
+
+
+##   EXTRINSIC handoff consolidation job (see RIFT/calmarg/DESIGN_extrinsic_handoff.md).
+##   Pure-python LOCAL-universe job: picks the most representative per-event extrinsic
+##   proposal of iteration $(macroiteration) -> extr_consolidated_<it>.npz, seeding wide_{N+1}.
+extrconsolidate_job = None
+extrconsolidate_node_per_iteration = {}
+if opts.extrinsic_handoff:
+    extrconsolidate_log_dir = opts.working_directory + "/iteration_$(macroiteration)_ile/logs/"
+    extrconsolidate_job, extrconsolidate_job_name = dag_utils.write_extrconsolidate_sub(
+        tag='EXTRCONSOLIDATE', log_dir=extrconsolidate_log_dir,
+        working_directory=opts.working_directory, select=opts.extrinsic_handoff_select)
+    extrconsolidate_job.add_condor_cmd("initialdir", opts.working_directory)
+    if opts.use_full_submit_paths:
+        extrconsolidate_job.set_sub_file(opts.working_directory + "/" + extrconsolidate_job.get_sub_file())
+    extrconsolidate_job.write_sub_file()
 
 
 ##   fetch job.  Fetch is before CURRENT iteration, so it is just-in-time and can be used at iteration 0
 if fetch_args:
-    fetch_job, fetch_job_name = dag_utils.write_puff_sub(tag='FETCH',log_dir=None,arg_str=fetch_args,request_memory=opts.request_memory_ILE,input_net=None,output=opts.working_directory+'/fetch-$(macroiteration).xml.gz',out_dir=opts.working_directory,exe=opts.fetch_ext_grid_exe,universe=local_worker_universe,no_grid=no_worker_grid,extra_text=extra_text)
-    # Modify: set 'initialdir' to CIP WORKING DIR 
+    fetch_job, fetch_job_name = dag_utils.write_puff_sub(tag='FETCH',log_dir=None,arg_str=fetch_args,request_memory=opts.request_memory_ILE,input_net=None,output=opts.working_directory+'/fetch-$(macroiteration).{}'.format(grid_suffix),out_dir=opts.working_directory,exe=opts.fetch_ext_grid_exe,universe=local_worker_universe,no_grid=no_worker_grid,extra_text=extra_text)
+    # Modify: set 'initialdir' to CIP WORKING DIR
     fetch_job.add_condor_cmd("initialdir",opts.working_directory+"/iteration_$(macroiteration)_cip")
     # Modify output argument: change logs and working directory to be subdirectory for the run
     fetch_job.set_log_file(opts.working_directory+"/iteration_$(macroiteration)_cip/logs/fetch-$(cluster)-$(process).log")
@@ -1059,12 +1487,15 @@ if fetch_args:
         fname = opts.working_directory+"/"+fetch_job.get_sub_file()
         fetch_job.set_sub_file(fname)
     if opts.condor_containerize_nonworker and singularity_image:
-        fetch_job.add_condor_cmd("+SingularityImage", '"' + singularity_image + '"')
+        fetch_job.add_condor_cmd("+SingularityImage", '"' + nonworker_singularity_image + '"')
+    _add_hpip_condor_env(fetch_job)
     fetch_job.write_sub_file()
 
 
 
 cip_job_list = None
+cip_args_for_iteration = []
+cip_stage_for_iteration = []
 if  (cip_args_lines is None):
     # Write the default cip_job into cip_job_list n times
     # add some redundancy in case this happens : we're hitting a problem with having too few copies of this/fencepost error later
@@ -1072,6 +1503,8 @@ if  (cip_args_lines is None):
         cip_job_list =(opts.n_iterations)* [cip_job ]
     else:
         cip_job_list =(opts.n_iterations)* [ [cip_job, cip_job_worker] ]
+    cip_args_for_iteration = opts.n_iterations * [cip_args]
+    cip_stage_for_iteration = opts.n_iterations * [0]
 else:  
     # we have different cip jobs for different iteration numbers
     cip_job_list = []
@@ -1087,19 +1520,20 @@ else:
             cip_exe_here_master = " {} ".format(cip_exe_master)
         if indx in creating_G_list:
             cip_exe_here = opts.cip_exe_G
+            cip_exe_here_master = opts.cip_exe_G  # master sub must also use the G exe: it is the only CIP without --cip-explode-jobs
         if opts.cip_explode_jobs:
             if not opts.cip_explode_jobs_flat:
                 cip_args_extra += " --fit-save-gp " + out_dir_inside_cip+"/my_fit"
-            # else:
-            #     cip_exe_here_master = "/bin/true"
+            else:
+                cip_exe_here_master = "/bin/true"  # flat mode: no shared fit, master is a no-op (must override any G-group exe; matches the non-list-branch behavior above)
 #            out_dir_base += "/iteration_$(macroiteration)_cip/"
             # set n_eff for primary job to be small. ONLY used for the primary non-worker job
             cip_args_truncate = " --n-eff 5 --n-max 10000 --n-output-samples 1 "  # cap n_eff, number of iterations, and *output samples* for non-worker jobs, to avoid contamination
         # Write the appropriate CIP jobs. [note only one CIP per iteration, so unique
 #        cip_exe_here =cip_exe
-        cip_job, cip_job_name = dag_utils.write_CIP_sub(tag='CIP_'+str(indx),log_dir=None,arg_str=cip_args_lines[indx]+cip_args_extra+cip_args_truncate,request_memory=opts.request_memory_CIP,request_memory_flex=opts.request_memory_CIP_flex,input_net=working_dir_inside_cip+'/all.net',output='overlap-grid-$(macroiterationnext)',out_dir=out_dir_inside_cip,exe=cip_exe_here_master,universe=local_worker_universe_cip,no_grid=cip_no_grid,use_osg=opts.use_osg_cip,use_singularity=opts.use_osg_cip and opts.use_singularity,singularity_image=singularity_image,use_simple_osg_requirements=opts.use_osg_cip,use_oauth_files=opts.use_oauth_files,transfer_files=['../all.net'])
+        cip_job, cip_job_name = dag_utils.write_CIP_sub(tag='CIP_'+str(indx),log_dir=None,arg_str=cip_args_lines[indx]+cip_args_extra+cip_args_truncate,request_memory=opts.request_memory_CIP,request_memory_flex=opts.request_memory_CIP_flex,request_gpus=opts.request_gpus_CIP,require_gpus=opts.require_gpus_CIP,input_net=working_dir_inside_cip+'/all.net',output='overlap-grid-$(macroiterationnext)',out_dir=out_dir_inside_cip,exe=cip_exe_here_master,universe=local_worker_universe_cip,no_grid=cip_no_grid,use_osg=opts.use_osg_cip,use_singularity=opts.use_osg_cip and opts.use_singularity,singularity_image=cip_singularity_image,use_simple_osg_requirements=opts.use_osg_cip,use_oauth_files=opts.use_oauth_files,transfer_files=cip_transfer_files)
         # Modify: set 'initialdir'
-        cip_job.add_condor_cmd("initialdir",opts.working_directory+"/iteration_$(macroiteration)_cip")
+        cip_job.add_condor_cmd("initialdir",cip_initialdir)
         # Modify output argument: change logs and working directory to be subdirectory for the run
         cip_job.set_log_file(opts.working_directory+"/iteration_$(macroiteration)_cip/logs/cip-$(cluster)-$(process).log")
         cip_job.set_stderr_file(opts.working_directory+"/iteration_$(macroiteration)_cip/logs/cip-$(cluster)-$(process).err")
@@ -1110,6 +1544,7 @@ else:
         if opts.use_full_submit_paths:
             fname = opts.working_directory+"/"+cip_job.get_sub_file()
             cip_job.set_sub_file(fname)
+        _add_hpip_condor_env(cip_job)
         cip_job.write_sub_file()
 
 
@@ -1125,13 +1560,30 @@ else:
            # if the last set of workers, we are making extrinsic samples, so change the output samples  
            if indx == len(cip_args_lines) -1 and opts.last_iteration_extrinsic: # on last iteration, doing extrinsic phase
                n_samples_per_job = int(opts.last_iteration_extrinsic_nsamples/(1.0*opts.cip_explode_jobs_last))
-               cip_args_extra +=" --n-eff {} --n-output-samples {} ".format(n_samples_per_job,n_samples_per_job)
+               # Keep a declared Kish worker integration target independent of
+               # the final extrinsic export quota (resampling can repeat rows).
+               final_target = n_samples_per_job
+               final_line = cip_args_lines[indx]+cip_args_extra
+               if '--av-stop-metric' in final_line:  # opt-in only; default lines are never tokenized
+                   try:
+                       final_tokens = [x for tok in shlex.split(final_line)
+                                       for x in (tok.split('=',1) if tok.startswith(('--av-stop-metric=','--n-eff=')) else [tok])]
+                   except ValueError as exc:
+                       print(" WARNING: cannot tokenize final CIP line ({}); using the export quota as --n-eff ".format(exc))
+                       final_tokens = []
+                   final_values = {final_tokens[k]:final_tokens[k+1] for k in range(len(final_tokens)-1)
+                                   if final_tokens[k] in ('--av-stop-metric','--n-eff')}
+                   if final_values.get('--av-stop-metric') == 'kish':
+                       # CIP permits a Kish stage with no explicit --n-eff; fall back to the
+                       # CIP default (3e3) so the declared target is still the worker's target
+                       final_target = float(final_values.get('--n-eff', 3e3))
+               cip_args_extra +=" --n-eff {} --n-output-samples {} ".format(final_target,n_samples_per_job)
                if not (opts.use_eccentricity_squared_sampling):
                    cip_args_lines[indx] = cip_args_lines[indx].replace(' --parameter eccentricity_squared ',' --parameter-implied eccentricity_squared --parameter-nofit eccentricity ')
            transfer_files_cip=['../all.net']
-           if opts.use_osg_cip and 'fit-method gp' in cip_args_base:
-               transfer_files_cip += ['my_fit.pkl']  # transfer current working directory fit
-           cip_job_worker, cip_job_worker_name = dag_utils.write_CIP_sub(tag='CIP_worker'+str(indx),log_dir=None,arg_str=cip_args_lines[indx]+cip_args_extra,request_memory=opts.request_memory_CIP,request_memory_flex=opts.request_memory_CIP_flex,input_net=working_dir_inside_cip+'/all.net',output=fname_out,out_dir=out_dir_inside_cip,exe=cip_exe_here,ncopies=n_explode,universe=local_worker_universe_cip,no_grid=cip_no_grid,use_osg=opts.use_osg_cip,use_singularity=opts.use_osg_cip and opts.use_singularity,singularity_image=singularity_image,use_simple_osg_requirements=opts.use_osg_cip,use_oauth_files=opts.use_oauth_files,transfer_files=transfer_files_cip)
+           if opts.use_osg_cip and 'fit-method gp' in cip_args_base and not opts.cip_explode_jobs_flat:
+               transfer_files_cip += ['my_fit.pkl']  # transfer current working directory fit; flat mode has no shared fit to transfer
+           cip_job_worker, cip_job_worker_name = dag_utils.write_CIP_sub(tag='CIP_worker'+str(indx),log_dir=None,arg_str=cip_args_lines[indx]+cip_args_extra,request_memory=opts.request_memory_CIP,request_memory_flex=opts.request_memory_CIP_flex,request_gpus=opts.request_gpus_CIP,require_gpus=opts.require_gpus_CIP,input_net=working_dir_inside_cip+'/all.net',output=fname_out,out_dir=out_dir_inside_cip,exe=cip_exe_here,ncopies=n_explode,universe=local_worker_universe_cip,no_grid=cip_no_grid,use_osg=opts.use_osg_cip,use_singularity=opts.use_osg_cip and opts.use_singularity,singularity_image=cip_singularity_image,use_simple_osg_requirements=opts.use_osg_cip,use_oauth_files=opts.use_oauth_files,transfer_files=transfer_files_cip)
            # Modify: set 'initialdir'
            cip_job_worker.add_condor_cmd("initialdir",opts.working_directory+"/iteration_$(macroiteration)_cip")
            # Modify output argument: change logs and working directory to be subdirectory for the run
@@ -1142,6 +1594,7 @@ else:
            if opts.use_full_submit_paths:
                fname = opts.working_directory+"/"+cip_job_worker.get_sub_file()
                cip_job_worker.set_sub_file(fname)
+           _add_hpip_condor_env(cip_job_worker)
            cip_job_worker.write_sub_file()
 
 
@@ -1156,28 +1609,97 @@ else:
             else:
                 print(" Exploding stage 3 ")
                 cip_job_list = cip_job_list + n_to_add*[[cip_job,cip_job_worker]]
+            # Retain the unmodified science arguments for the independent
+            # terminal L=1 run.  Fit-save/load and worker-output controls are
+            # pipeline mechanics, not part of the configured prior.
+            cip_args_for_iteration += n_to_add * [cip_args_lines[indx]]
+            cip_stage_for_iteration += n_to_add * [int(indx)]
         else:
             print(" Indefinite subdag-to-convergence requested for group ", indx)
             cip_job_list += ["Subdag"]
+            # The recursively generated subdag schedules its own terminal
+            # prior/evidence pair, so the outer DAG must not duplicate it.
+            cip_args_for_iteration += [None]
+            cip_stage_for_iteration += [int(indx)]
 print(" ===> Iteration size ", len(cip_job_list), opts.n_iterations)
+
+# Dedicated terminal prior-normalization job.  It reuses the final iteration's
+# physical CIP arguments but runs independently with L=1.  Only the terminal
+# node is scheduled below; intermediate evidence summaries remain unchanged.
+prior_job = None
+final_evidence_job = None
+if opts.n_iterations > 0 and cip_args_for_iteration[opts.n_iterations-1] is not None:
+    prior_args = cip_args_for_iteration[opts.n_iterations-1]
+    prior_args += " --integrate-prior --n-output-samples 1 --no-plots "
+    prior_job, prior_job_name = dag_utils.write_CIP_sub(
+        tag='CIP_prior', log_dir=None, arg_str=prior_args,
+        request_memory=opts.request_memory_CIP,
+        input_net=opts.working_directory+'/all.net',
+        output='prior-integral-$(macroiteration)',
+        out_dir=opts.working_directory, exe=cip_exe,
+        universe=local_worker_universe, no_grid=True)
+    prior_job.add_condor_cmd("initialdir", opts.working_directory)
+    prior_job.set_log_file(opts.working_directory+"/iteration_$(macroiteration)_cip/logs/prior-$(cluster)-$(process).log")
+    prior_job.set_stderr_file(opts.working_directory+"/iteration_$(macroiteration)_cip/logs/prior-$(cluster)-$(process).err")
+    prior_job.set_stdout_file(opts.working_directory+"/iteration_$(macroiteration)_cip/logs/prior-$(cluster)-$(process).out")
+    prior_job.add_condor_cmd('request_disk', opts.general_request_disk)
+    if opts.use_full_submit_paths:
+        prior_job.set_sub_file(opts.working_directory+"/"+prior_job.get_sub_file())
+    if opts.condor_containerize_nonworker and singularity_image:
+        prior_job.add_condor_cmd("+SingularityImage", '"' + nonworker_singularity_image + '"')
+    _add_hpip_condor_env(prior_job)
+    prior_job.write_sub_file()
+
+    final_evidence_source = " --cip-dir iteration_$(macroiteration)_cip"
+    if opts.cip_explode_jobs is None:
+        final_evidence_source = " --cip-dir . --cip-prefix overlap-grid-$(macroiterationnext)"
+    final_evidence_args = (
+        final_evidence_source +
+        " --output evidence_$(macroiteration) --strict"
+        " --prior-integral prior-integral-$(macroiteration)_withpriorchange+annotation.dat"
+        " --normalized-output evidence_$(macroiteration)_normalized "
+    )
+    final_evidence_job, final_evidence_job_name = dag_utils.write_convert_sub(
+        tag='evidence_final', exe=exe_evidence, log_dir='', file_input='',
+        arg_str=final_evidence_args, universe=local_worker_universe,
+        no_grid=no_worker_grid)
+    final_evidence_job.add_condor_cmd("initialdir", opts.working_directory)
+    final_evidence_job.set_log_file(opts.working_directory+"/iteration_$(macroiteration)_con/logs/evidence-final-$(cluster)-$(process).log")
+    final_evidence_job.set_stderr_file(opts.working_directory+"/iteration_$(macroiteration)_con/logs/evidence-final-$(cluster)-$(process).err")
+    final_evidence_job.set_stdout_file(opts.working_directory+"/iteration_$(macroiteration)_con/logs/evidence-final-$(cluster)-$(process).out")
+    final_evidence_job.add_condor_cmd('request_disk', opts.general_request_disk)
+    if opts.use_full_submit_paths:
+        final_evidence_job.set_sub_file(opts.working_directory+"/"+final_evidence_job.get_sub_file())
+    if opts.condor_containerize_nonworker and singularity_image:
+        final_evidence_job.add_condor_cmd("+SingularityImage", '"' + nonworker_singularity_image + '"')
+    _add_hpip_condor_env(final_evidence_job)
+    final_evidence_job.write_sub_file()
 ##   Test job (terminate, convergence
 if opts.test_args:
     test_node_list = []
     ##  Convert job : make results accessible after every iteration.  (Only performed if the tests are active, to make my life easier)
-    convert_job, convert_job_name =dag_utils.write_convert_sub(tag='convert',log_dir=None,arg_str=convert_args,file_input=opts.working_directory+'/overlap-grid-$(macroiteration).xml.gz', file_output=opts.working_directory+'/posterior_samples-$(macroiteration).dat' ,out_dir=opts.working_directory,exe=opts.test_exe,universe=local_worker_universe,no_grid=no_worker_grid)
-    convert_job.add_condor_cmd("initialdir",opts.working_directory)
-    convert_job.set_log_file(opts.working_directory+"/iteration_$(macroiterationlast)_test/logs/convert-$(cluster)-$(process).log")
-    convert_job.set_stderr_file(opts.working_directory+"/iteration_$(macroiterationlast)_test/logs/convert-$(cluster)-$(process).err")
-    convert_job.add_condor_cmd('request_disk',opts.general_request_disk)
-    if opts.use_full_submit_paths:
-        fname = opts.working_directory+"/"+convert_job.get_sub_file()
-        convert_job.set_sub_file(fname)
-    if opts.condor_containerize_nonworker and singularity_image:
-        convert_job.add_condor_cmd("+SingularityImage", '"' + singularity_image + '"')
-    convert_job.write_sub_file()
+    # Hyperpipeline mode: the input grid is already .dat (hyperpipeline
+    # format), while this convert step targets LI posterior_samples.dat,
+    # which is a different schema (mass_1, spin1x, ...).  Skip emitting the
+    # convert job and point the convergence test directly at the grid files.
+    if not _use_hpip_pipeline:
+        convert_job, convert_job_name =dag_utils.write_convert_sub(tag='convert',log_dir=None,arg_str=convert_args,file_input=opts.working_directory+'/overlap-grid-$(macroiteration).xml.gz', file_output=opts.working_directory+'/posterior_samples-$(macroiteration).dat' ,out_dir=opts.working_directory,exe=opts.test_exe,universe=local_worker_universe,no_grid=no_worker_grid)
+        convert_job.add_condor_cmd("initialdir",opts.working_directory)
+        convert_job.set_log_file(opts.working_directory+"/iteration_$(macroiterationlast)_test/logs/convert-$(cluster)-$(process).log")
+        convert_job.set_stderr_file(opts.working_directory+"/iteration_$(macroiterationlast)_test/logs/convert-$(cluster)-$(process).err")
+        convert_job.add_condor_cmd('request_disk',opts.general_request_disk)
+        if opts.use_full_submit_paths:
+            fname = opts.working_directory+"/"+convert_job.get_sub_file()
+            convert_job.set_sub_file(fname)
+        if opts.condor_containerize_nonworker and singularity_image:
+            convert_job.add_condor_cmd("+SingularityImage", '"' + nonworker_singularity_image + '"')
+        convert_job.write_sub_file()
 
 
-    test_job, test_job_name = dag_utils.write_test_sub(tag='test',log_dir=None,arg_str=test_args,samples_files=[ opts.working_directory+'/posterior_samples-$(macroiteration).dat', opts.working_directory+'/posterior_samples-$(macroiterationlast).dat'] ,out_dir=opts.working_directory,exe=opts.test_exe,universe=local_worker_universe,no_grid=no_worker_grid)
+    _test_samples_files = [
+        opts.working_directory+'/posterior_samples-$(macroiteration).dat',
+        opts.working_directory+'/posterior_samples-$(macroiterationlast).dat']
+    test_job, test_job_name = dag_utils.write_test_sub(tag='test',log_dir=None,arg_str=test_args,samples_files=_test_samples_files ,out_dir=opts.working_directory,exe=opts.test_exe,universe=local_worker_universe,no_grid=no_worker_grid)
     # Modify: set 'initialdir'
     test_job.add_condor_cmd("initialdir",opts.working_directory+"/iteration_$(macroiteration)_test")
     # Modify output argument: change logs and working directory to be subdirectory for the run
@@ -1189,7 +1711,8 @@ if opts.test_args:
         fname = opts.working_directory+"/"+test_job.get_sub_file()
         test_job.set_sub_file(fname)
     if opts.condor_containerize_nonworker and singularity_image:
-        test_job.add_condor_cmd("+SingularityImage", '"' + singularity_image + '"')
+        test_job.add_condor_cmd("+SingularityImage", '"' + nonworker_singularity_image + '"')
+    _add_hpip_condor_env(test_job)
     test_job.write_sub_file()
 
 
@@ -1223,6 +1746,46 @@ if opts.gridinit_args:
         fname = opts.working_directory+"/"+gridinit_job.get_sub_file()
         gridinit_job.set_sub_file(fname)
     gridinit_job.write_sub_file()
+
+seed_climb_job = None
+if opts.seed_climb_exe and opts.seed_climb_args and it_start == 0 and not opts.first_iteration_jumpstart:
+    if opts.use_singularity and not opts.seed_climb_singularity_image:
+        raise SystemExit("--seed-climb-exe with --use-singularity needs --seed-climb-singularity-image: the ILE image has no JAX")
+    with open(opts.seed_climb_args) as f:
+        _sc_args = ' '.join(x.replace('\\', '') for x in f.readlines())
+    _sc_args = ' '.join(_sc_args.split(' ')[1:]).strip()
+    _grid0 = opts.working_directory + "/overlap-grid-0.xml.gz"
+    if opts.seed_climb_mode in ("parallel", "composite") and _use_hpip_pipeline:
+        raise SystemExit("--seed-climb-exe writes sim_inspiral XML; incompatible with RIFT_HYPERPIPELINE_FORMAT")
+    if opts.seed_climb_mode == "composite":
+        # all.net is rewritten only by the iteration-1 unify, which waits on the seed ILE jobs
+        _sc_args += " --working-directory {wd} --ile-args {ile} --start-composite {wd}/all.net --inj-file-out {wd}/seed-1.xml.gz --n-max-output {n} --output-json {wd}/seed_climb.json --output-dat {wd}/seed_climb_history.dat".format(
+            wd=opts.working_directory, ile=opts.ile_args, n=opts.seed_climb_n_max)
+    elif opts.seed_climb_mode == "parallel":
+        _sc_args += " --working-directory {wd} --ile-args {ile} --inj-file {g} --inj-file-out {wd}/seed-0.xml.gz --n-max-output {n} --output-json {wd}/seed_climb.json --output-dat {wd}/seed_climb_history.dat".format(
+            wd=opts.working_directory, ile=opts.ile_args, g=_grid0, n=opts.seed_climb_n_max)
+    else:
+        _sc_args += " --working-directory {wd} --ile-args {ile} --inj-file {g} --inj-file-out {g} --append-to-input --output-json {wd}/seed_climb.json --output-dat {wd}/seed_climb_history.dat".format(
+            wd=opts.working_directory, ile=opts.ile_args, g=_grid0)
+        if opts.n_samples_per_job and not gridinit_args:
+            _sc_args += " --n-max-output {}".format(n_initial)
+    _sc_condor_commands = ile_condor_commands   # a GPU worker job: ILE's device requirements by default
+    if opts.seed_climb_condor_commands:
+        _sc_condor_commands = {}
+        with open(opts.seed_climb_condor_commands) as f:
+            for line in f:
+                if line.strip():
+                    key, value = line.split(" ", 1)
+                    _sc_condor_commands[key] = value.strip()
+    seed_climb_job, _ = dag_utils.write_seed_climb_sub(
+        tag='seed_climb', exe=opts.seed_climb_exe, arg_str=_sc_args,
+        out_dir=opts.working_directory, request_memory=opts.seed_climb_request_memory,
+        request_gpus=1 if opts.seed_climb_request_gpu else 0,
+        use_singularity=opts.use_singularity, singularity_image=opts.seed_climb_singularity_image,
+        condor_commands=_sc_condor_commands)
+    if opts.use_full_submit_paths:
+        seed_climb_job.set_sub_file(opts.working_directory + "/" + seed_climb_job.get_sub_file())
+    seed_climb_job.write_sub_file()
 
 if opts.frame_rotation:
     # Wriite command to do the conversion
@@ -1294,8 +1857,7 @@ if opts.calibration_reweighting:
     if opts.calibration_reweighting_initial_extra_args:
         # properly handle quoted extra arguments, such as dictionaries of waveform arguments
         add_str = opts.calibration_reweighting_initial_extra_args
-        if '"' in add_str:
-            add_str = dag_utils.safely_quote_arg_str(add_str)
+        add_str = dag_utils.quote_arguments(shlex.split(add_str))
         calibration_job.add_arg(add_str)
     if not(opts.calibration_reweighting_batchsize): # single run
         calibration_job.set_log_file(opts.working_directory+"/calmarg/logs/calibration-$(cluster)-$(process).log")
@@ -1399,12 +1961,26 @@ if opts.comov_distance_reweighting:
 #    
 
 parent_fit_node = None
+# The grid available before any new fit (also covers zero-loop resumption).
+final_fit_grid_iteration = it_start
+final_evidence_parent_node = None
+final_test_node = None
+last_puff_node = None
 last_node=None
 
 if opts.gridinit_args:
    grid_node = pipeline.CondorDAGNode(gridinit_job) 
    dag.add_node(grid_node)
    parent_fit_node = grid_node  # this must happen before the first ILE jobs
+
+seed_climb_node = None
+if seed_climb_job is not None and opts.seed_climb_mode != "composite":   # composite: made after the iteration-0 unify
+   seed_climb_node = pipeline.CondorDAGNode(seed_climb_job)
+   if parent_fit_node: seed_climb_node.add_parent(parent_fit_node)
+   seed_climb_node.set_retry(opts.general_retries)
+   dag.add_node(seed_climb_node)
+   if opts.seed_climb_mode == "prepend":
+       parent_fit_node = seed_climb_node   # iteration-0 ILE reads the grid it rewrites
 
 convert_psd_node_list = []
 if opts.use_bw_psd:
@@ -1447,7 +2023,11 @@ if opts.use_bw_psd:
         convert_psd_node_list.append(convert_psd_node)
 
 n_group = opts.ile_n_events_to_analyze
+n_group_first = opts.ile_n_events_to_analyze
+if opts.ile_n_events_to_analyze_first:
+    n_group_first= opts.ile_n_events_to_analyze_first
 
+con_node_list = []
 unify_node_list = []
 ile_node_list_per_iteration={}
 ile_target_worklevel_per_iteration={}
@@ -1462,11 +2042,18 @@ for it in np.arange(it_start,opts.n_iterations):
     con_node = pipeline.CondorDAGNode(con_job)
     con_node.add_macro("macroiteration",it)
     con_node.set_retry(opts.general_retries)
+    con_node_list.append(con_node)
     # Create unify job
     unify_node = pipeline.CondorDAGNode(unify_job)
     unify_node.add_macro("macroiteration",it)
     unify_node.add_parent(con_node)
     unify_node.set_retry(opts.general_retries)
+    if seed_climb_job is not None and opts.seed_climb_mode == "composite" and it == it_start:
+        # climbs from this iteration's all.net, beside CIP; feeds the next consolidation
+        seed_climb_node = pipeline.CondorDAGNode(seed_climb_job)
+        seed_climb_node.add_parent(unify_node)
+        seed_climb_node.set_retry(opts.general_retries)
+        dag.add_node(seed_climb_node)
     if not(it ==0) and not(opts.first_iteration_jumpstart):  # don't require first composite to be nonempty if we are running a jumpstart!
         unify_node_list.append(unify_node)
         
@@ -1474,24 +2061,52 @@ for it in np.arange(it_start,opts.n_iterations):
     # It is also *backward looking*
     evidence_node = pipeline.CondorDAGNode(evidence_job)
     evidence_node.add_macro("macroiteration",it-1)  # LAST ITERATION being analyzed, not this one
+    evidence_node.add_macro("macroiterationnext",it)
     evidence_node.set_retry(opts.general_retries)
     if it > it_start:
         evidence_node.add_parent(parent_fit_node)  # run evidence after previous iteration, on previous
         dag.add_node(evidence_node)
 
+    n_group_here = n_group
+    if it ==0 and n_group_first:
+        n_group_here=n_group_first
+        
     # Create one node per job
     n_jobs_this_time = opts.n_samples_per_job
     if it ==it_start:
         n_jobs_this_time = n_initial
-    indx_max = int((1.0*n_jobs_this_time)/n_group)
-    if indx_max*n_jobs_this_time < n_group:
-        indx_max+=1
+    ordinary_ile_parent = parent_fit_node
+    if opts.ile_deduplicate_grid and not(it==it_start and opts.first_iteration_jumpstart):
+        grid_exe = which('util_DeduplicateIntrinsicGrid.py')
+        if grid_exe is None:
+            raise RuntimeError('Missing util_DeduplicateIntrinsicGrid.py for unique ILE grid')
+        grid_args = " --input-xml {w}/overlap-grid-{i}.xml.gz --output-file {w}/likelihood-grid-{i} --min-points {n} --receipt {w}/likelihood-grid-{i}.json ".format(w=opts.working_directory,i=it,n=n_jobs_this_time)
+        grid_job, _ = dag_utils.write_convert_sub(tag='ile_grid_'+str(it),exe=grid_exe,
+            file_input='',arg_str=grid_args,out_dir=opts.working_directory,
+            universe=local_worker_universe,no_grid=no_worker_grid)
+        grid_job.add_condor_cmd('initialdir',opts.working_directory)
+        grid_job.add_condor_cmd('request_memory','2048M')
+        grid_job.set_log_file(opts.working_directory+'/ile-grid-'+str(it)+'-$(cluster).log')
+        grid_job.set_stdout_file(opts.working_directory+'/ile-grid-'+str(it)+'-$(cluster).out')
+        grid_job.set_stderr_file(opts.working_directory+'/ile-grid-'+str(it)+'-$(cluster).err')
+        if opts.condor_containerize_nonworker and singularity_image:
+            grid_job.add_condor_cmd('+SingularityImage','"'+nonworker_singularity_image+'"')
+        _add_hpip_condor_env(grid_job)
+        grid_job.write_sub_file()
+        grid_node = pipeline.CondorDAGNode(grid_job)
+        if parent_fit_node: grid_node.add_parent(parent_fit_node)
+        grid_node.set_retry(opts.general_retries)
+        dag.add_node(grid_node)
+        ordinary_ile_parent = grid_node
+    # Keep the trailing partial batch, including when the grid is smaller
+    # than one batch.  Multiplying by the point count here drops that tail.
+    indx_max = (n_jobs_this_time + n_group_here - 1) // n_group_here
     if not(it==it_start and opts.first_iteration_jumpstart):   # if on first iteration ,don't do this for jumpstart
         if opts.ile_group_subdag:
             # Write the subdag
             my_ile_subdag_name = subdag_dir + "/subdag_ILE_{}".format(it)
             my_ile_subdag = pipeline.CondorDAG(log=os.getcwd())
-            add_batch_ILE_nodes_to_dag(my_ile_subdag, ile_job, None, None, indx_max, n_group, it, n_retries=opts.ile_retries,it_start=-1)
+            add_batch_ILE_nodes_to_dag(my_ile_subdag, ile_job, None, None, indx_max, n_group_here, it, n_retries=opts.ile_retries,it_start=-1)
             my_ile_subdag.set_dag_file(my_ile_subdag_name)
             my_ile_subdag.write_concrete_dag()
             my_ile_subdag_name += ".dag"
@@ -1500,19 +2115,35 @@ for it in np.arange(it_start,opts.n_iterations):
             main_subdag =  pipeline.CondorDAGManJob(my_ile_subdag_name)
             main_analysis_node = main_subdag.create_node()
             main_analysis_node.set_retry(0)  # currently low-level RETRY takes care of things ... beware RETRY will re do all nodes!
-            if parent_fit_node:
-                main_analysis_node.add_parent(parent_fit_node)
+            if ordinary_ile_parent:
+                main_analysis_node.add_parent(ordinary_ile_parent)
             con_node.add_parent(main_analysis_node)
             dag.add_node(main_analysis_node)
         else:
-            add_batch_ILE_nodes_to_dag(dag, ile_job, parent_fit_node, con_node, indx_max, n_group, it, n_retries=opts.ile_retries,it_start=it_start,convert_psd_node_list=convert_psd_node_list,node_list_dict=ile_node_list_per_iteration)
+            add_batch_ILE_nodes_to_dag(dag, ile_job, ordinary_ile_parent, con_node, indx_max, n_group_here, it, n_retries=opts.ile_retries,it_start=it_start,convert_psd_node_list=convert_psd_node_list,node_list_dict=ile_node_list_per_iteration)
+            # Option C: the wide ILE jobs of iteration `it` are SEEDED from the cal proposal
+            # learned by the PREVIOUS iteration's pilot -> make them depend on calpilot_{it-1}
+            # so cal_consolidated_{it-1}.npz exists (the seed barrier).  The ILE args carry
+            # --calibration-proposal-breadcrumb .../cal_consolidated_$(macroiterationprev).npz;
+            # a missing file (early iterations) falls back to the prior inside ILE.
+            if calpilot_job and ((it-1) in calpilot_node_per_iteration):
+                for _ile_node in ile_node_list_per_iteration[it]:
+                    _ile_node.add_parent(calpilot_node_per_iteration[it-1])
+            # Extrinsic handoff: the wide ILE jobs of iteration `it` are SEEDED from the
+            # extrinsic proposal consolidated from the PREVIOUS iteration -> depend on
+            # extrconsolidate_{it-1} so extr_consolidated_{it-1}.npz exists (the seed barrier).
+            # The ILE args carry --extrinsic-proposal-breadcrumb .../extr_consolidated_$(macroiterationprev).npz;
+            # a missing/empty file (early iterations) falls back to the cold default inside ILE.
+            if extrconsolidate_job and ((it-1) in extrconsolidate_node_per_iteration):
+                for _ile_node in ile_node_list_per_iteration[it]:
+                    _ile_node.add_parent(extrconsolidate_node_per_iteration[it-1])
 #       for event in np.arange(indx_max): #np.arange(n_jobs_this_time):
 #         # Add task per ILE operation
 #         ile_node = pipeline.CondorDAGNode(ile_job)
 # #        ile_node.set_priority(JOB_PRIORITIES["ILE"])
 #         ile_node.set_retry(opts.ile_retries)
-#         ile_node.add_macro("macroevent", event*n_group)
-#         ile_node.add_macro("macrongroup", n_group)
+#         ile_node.add_macro("macroevent", event*n_group_here)
+#         ile_node.add_macro("macrongroup", n_group_here)
 #         ile_node.add_macro("macroiteration", it)
 #         if not(parent_fit_node is None):
 #             ile_node.add_parent(parent_fit_node)
@@ -1526,12 +2157,24 @@ for it in np.arange(it_start,opts.n_iterations):
     if puff_args and puff_cadence:
      if it>it_start and it <= puff_max_it  and (it-1)%puff_cadence ==0:  # we made a puffball last iteration, so run it through ILE now
         print(" ILE jobs for puffball on iteration ", it)
-        add_batch_ILE_nodes_to_dag(dag, ilePuff_job, parent_fit_node, con_node, indx_max, n_group, it, n_retries=opts.ile_retries,node_list_dict=ile_node_list_per_iteration)
+        # The puffball ILE jobs run with the SAME args_ile as the normal wide ILE, so they read
+        # the same iteration-(it-1) seed breadcrumb (--calibration/--extrinsic-proposal-breadcrumb).
+        # The normal-ILE seed barriers (above) were applied via ile_node_list_per_iteration BEFORE
+        # these jobs existed, so thread the same barriers here via extra_parent_nodes: the puffball
+        # ILE must also wait for last_puff_node (the puff side path) AND, when pilots/handoff are
+        # active, for the it-1 consolidation that PRODUCES the seed file (else the puff jobs race
+        # it and silently fall back to the prior).
+        _puff_extra = [last_puff_node]
+        if calpilot_job and ((it-1) in calpilot_node_per_iteration):
+            _puff_extra.append(calpilot_node_per_iteration[it-1])
+        if extrconsolidate_job and ((it-1) in extrconsolidate_node_per_iteration):
+            _puff_extra.append(extrconsolidate_node_per_iteration[it-1])
+        add_batch_ILE_nodes_to_dag(dag, ilePuff_job, parent_fit_node, con_node, indx_max, n_group_here, it, n_retries=opts.ile_retries,node_list_dict=ile_node_list_per_iteration,extra_parent_nodes=_puff_extra)
         # for event in np.arange(indx_max):
         #     ile_node = pipeline.CondorDAGNode(ilePuff_job)  # only difference is here: uses puffball, which by construction is the same size/ perturbed points
         #     ile_node.set_retry(opts.ile_retries)
-        #     ile_node.add_macro("macroevent", event*n_group)
-        #     ile_node.add_macro("macrongroup", n_group)
+        #     ile_node.add_macro("macroevent", event*n_group_here)
+        #     ile_node.add_macro("macrongroup", n_group_here)
         #     ile_node.add_macro("macroiteration", it)
         #     if not(parent_fit_node is None):
         #         ile_node.add_parent(parent_fit_node)
@@ -1551,12 +2194,12 @@ for it in np.arange(it_start,opts.n_iterations):
         dag.add_node(fetch_node)
 
         print(" ILE jobs for fetch on iteration ", it)
-        add_batch_ILE_nodes_to_dag(dag, ileFetch_job, parent_fit_node, con_node, indx_max, n_group, it, n_retries=opts.ile_retries,node_list_dict=ile_node_list_per_iteration)
+        add_batch_ILE_nodes_to_dag(dag, ileFetch_job, parent_fit_node, con_node, indx_max, n_group_here, it, n_retries=opts.ile_retries,node_list_dict=ile_node_list_per_iteration)
         # for event in np.arange(indx_max):
         #     ile_node = pipeline.CondorDAGNode(ileFetch_job)  # only difference is here: uses fetch. ASSUME it is the same size (!!) -- should make this controllable
         #     ile_node.set_retry(opts.ile_retries)
-        #     ile_node.add_macro("macroevent", event*n_group)
-        #     ile_node.add_macro("macrongroup", n_group)
+        #     ile_node.add_macro("macroevent", event*n_group_here)
+        #     ile_node.add_macro("macrongroup", n_group_here)
         #     ile_node.add_macro("macroiteration", it)
         #     if not(parent_fit_node is None):
         #         ile_node.add_parent(parent_fit_node)
@@ -1564,6 +2207,17 @@ for it in np.arange(it_start,opts.n_iterations):
         #     dag.add_node(ile_node)
         #     ile_node_list_per_iteration[it].append(ile_node)
             
+    if ileSeed_job is not None and it == it_start + (1 if opts.seed_climb_mode == "composite" else 0):
+        n_seed_jobs = (opts.seed_climb_n_max + n_group_here - 1) // n_group_here
+        print(" ILE jobs for the parallel seed climb on iteration ", it, n_seed_jobs)
+        # at it > it_start the seed ILE reads the same iteration-(it-1) breadcrumbs as the puff ILE
+        _seed_extra = []
+        if it > it_start and calpilot_job and ((it-1) in calpilot_node_per_iteration):
+            _seed_extra.append(calpilot_node_per_iteration[it-1])
+        if it > it_start and extrconsolidate_job and ((it-1) in extrconsolidate_node_per_iteration):
+            _seed_extra.append(extrconsolidate_node_per_iteration[it-1])
+        add_batch_ILE_nodes_to_dag(dag, ileSeed_job, seed_climb_node, con_node, n_seed_jobs, n_group_here, it, n_retries=opts.ile_retries, node_list_dict=ile_node_list_per_iteration, extra_parent_nodes=_seed_extra or None)
+
     # add con job
     dag.add_node(con_node)
     dag.add_node(unify_node)
@@ -1589,7 +2243,7 @@ for it in np.arange(it_start,opts.n_iterations):
         # Create dag inside directory, as usual,  pointing to existing run (note grid size issue problem)
         cmd = "create_event_parameter_pipeline_BasicIteration --use-full-submit-paths --first-iteration-jumpstart "  # we don't use overlap-grid-0.xml.gz !
         # note we will use subdags, and do this actively.  The 0th iteration needs a SPECIFIC grid though!
-        cmd += " --ile-n-events-to-analyze {} --input-grid {} --ile-exe {} --ile-args {} ".format(opts.ile_n_events_to_analyze,opts.working_directory+"/overlap-grid-0.xml.gz".format(it),opts.ile_exe, opts.ile_args)
+        cmd += " --ile-n-events-to-analyze {} --input-grid {} --ile-exe {} --ile-args {} ".format(opts.ile_n_events_to_analyze,opts.working_directory+"/overlap-grid-0.{}".format(grid_suffix),opts.ile_exe, opts.ile_args)
         cmd += " --cip-args {}/iteration_{}_cip/args_cip.txt ".format(opts.working_directory,it)
         if opts.convert_args:
             cmd += "  --convert-args {} ".format(opts.convert_args) # passthrough, important for tides
@@ -1597,6 +2251,18 @@ for it in np.arange(it_start,opts.n_iterations):
         cmd += " --neff-threshold {} ".format(opts.neff_threshold)
         cmd += " --general-request-disk {} --ile-request-disk {} --cip-request-disk {} ".format(opts.general_request_disk,opts.ile_request_disk,opts.cip_request_disk)
         cmd += " --request-memory-ILE {} --request-memory-CIP {} ".format(opts.request_memory_ILE,opts.request_memory_CIP)
+        if opts.cip_singularity_image:
+            cmd += " --cip-singularity-image {} ".format(shlex.quote(opts.cip_singularity_image))
+        if opts.ile_deduplicate_grid:
+            cmd += " --ile-deduplicate-grid "
+        if opts.request_gpus_CIP:
+            cmd += " --request-gpus-CIP {} ".format(opts.request_gpus_CIP)
+        if opts.require_gpus_CIP:
+            cmd += " --require-gpus-CIP {} ".format(shlex.quote(opts.require_gpus_CIP))
+        if opts.use_EOB_parameters:
+            cmd += " --use-EOB-parameters "
+        if opts.use_hyperbolic:
+            cmd += " --use-hyperbolic "
         if opts.use_eccentricity:
             cmd += " --use-eccentricity "
             if opts.use_meanPerAno:
@@ -1651,9 +2317,11 @@ for it in np.arange(it_start,opts.n_iterations):
             test_args_optin = re.sub('--iteration-threshold [1-9] ', '', test_args_optin)
         else:
             test_args_optin = "X  --parameter m1 --method lame "
-        if opts.puff_args and opts.puff_cadence:
+        if (opts.puff_args or opts.puff_args_list) and opts.puff_cadence:
             # always puff in the final stage, it can be dangerous not to.  ALL iterations
-            cmd += " --puff-exe {} --puff-args {} --puff-cadence {} --puff-max-it {}  ".format(opts.puff_exe, opts.puff_args, opts.puff_cadence,opts.n_iterations_subdag_max) 
+            subdag_puff_file = puff_stage_files[cip_stage_for_iteration[it]] if puff_stage_files else opts.puff_args
+            cmd += " --puff-exe {} --puff-args {} --puff-cadence {} --puff-max-it {}  ".format(
+                opts.puff_exe, shlex.quote(subdag_puff_file), opts.puff_cadence, opts.n_iterations_subdag_max)
         fname_subdag_test_args = opts.working_directory+"/iteration_{}_cip/args_test.txt".format(it)
         with open(fname_subdag_test_args,'w') as f:
             f.write(test_args_optin)
@@ -1664,7 +2332,7 @@ for it in np.arange(it_start,opts.n_iterations):
         print(" SUBDAG COMMAND : ", cmd)
         os.system(cmd)
         # link the *input* grid in, overwriting the (temporary, placeholder) grid used to create the workflow
-        cmd = "ln -sf {}/overlap-grid-{}.xml.gz iteration_{}_cip/overlap-grid-0.xml.gz".format(opts.working_directory,it,it)
+        cmd = "ln -sf {}/overlap-grid-{}.{suf} iteration_{}_cip/overlap-grid-0.{suf}".format(opts.working_directory,it,it, suf=grid_suffix)
         os.system(cmd)
 
         main_subdag =  pipeline.CondorDAGManJob("{}/iteration_{}_cip/marginalize_intrinsic_parameters_BasicIterationWorkflow.dag".format(opts.working_directory,it))  # assumes subdag is created
@@ -1680,9 +2348,9 @@ for it in np.arange(it_start,opts.n_iterations):
         my_dict = {"method":"native", "source":opts.working_directory+"/iteration_{}_cip".format(it),"n_max":3000}
         with open(fname_fetch,'w') as f:
             json.dump(my_dict,f)
-        fetch_subdag_args =" --inj-file-out overlap-grid-{}.xml.gz ".format(it+1)
+        fetch_subdag_args =" --inj-file-out overlap-grid-{}.{} ".format(it+1, grid_suffix)
         fetch_subdag_args += " --input-json {} ".format(fname_fetch)
-        fetch_subdag_job, fetch_subdag_job_name = dag_utils.write_puff_sub(tag='FETCH_{}_subdag'.format(it),log_dir=opts.working_directory+"/"+"iteration_{}_cip/logs/".format(it),arg_str=fetch_subdag_args,request_memory=opts.request_memory_ILE,input_net=None,output=opts.working_directory+'/overlap-grid-$(macroiterationnext).xml.gz',out_dir=opts.working_directory,exe=dag_utils.which("util_FetchExternalGrid.py"),universe=local_worker_universe,no_grid=no_worker_grid)
+        fetch_subdag_job, fetch_subdag_job_name = dag_utils.write_puff_sub(tag='FETCH_{}_subdag'.format(it),log_dir=opts.working_directory+"/"+"iteration_{}_cip/logs/".format(it),arg_str=fetch_subdag_args,request_memory=opts.request_memory_ILE,input_net=None,output=opts.working_directory+'/overlap-grid-$(macroiterationnext).{}'.format(grid_suffix),out_dir=opts.working_directory,exe=dag_utils.which("util_FetchExternalGrid.py"),universe=local_worker_universe,no_grid=no_worker_grid)
         fetch_subdag_job.add_condor_cmd('request_disk',opts.general_request_disk)
         fetch_subdag_job.write_sub_file()
 
@@ -1724,9 +2392,12 @@ for it in np.arange(it_start,opts.n_iterations):
     fit_node.set_category("CIP")
     fit_node.add_parent(unify_node)  # only fit if we have results from the previous iteration
     fit_node.set_retry(opts.general_retries)
-    dag.add_node(fit_node) 
-    parent_fit_node = fit_node
-
+    # skip CIP node creation if we have worker nodes! Note this will BREAK GP, so also use it for GP
+    if (opts.cip_explode_jobs is None) or (last_cip_subdag) or ('fit-method gp' in cip_args_base):
+        dag.add_node(fit_node) 
+        parent_fit_node = fit_node
+    else:
+        parent_fit_node = unify_node
     if not(opts.cip_explode_jobs is None) and not(last_cip_subdag): # don't explode if we just made a subdag!
         print(" Exploding workers out ")
         # Create job to consolidate worker outputs
@@ -1782,25 +2453,86 @@ for it in np.arange(it_start,opts.n_iterations):
         dag.add_node(join_node)
         parent_fit_node=join_node
 
+    # All fit paths above produce overlap-grid-(it+1), including subdag fetch.
+    final_fit_grid_iteration = int(it) + 1
+
     # Check if puffball being created, and if so create it *immediately* after CIP job creates the overlap-grid file
     if puff_args and puff_cadence:
       if it > -1 and it <= puff_max_it and it%puff_cadence ==0:
         print(" Puffball for iteration ", it)
-        puff_node = pipeline.CondorDAGNode(puff_job)
+        puff_node = pipeline.CondorDAGNode(puff_jobs[cip_stage_for_iteration[it]] if puff_stage_args else puff_job)
         puff_node.add_macro("macroiteration", it)
         puff_node.add_macro("macroiterationnext", it+1)
         puff_node.set_category("PUFF")
         puff_node.set_retry(opts.general_retries)
         if not (parent_fit_node is None):
             puff_node.add_parent(parent_fit_node)  # only fit if we have results from the previous iteration
-        dag.add_node(puff_node) 
-        
-        parent_fit_node = puff_node
+        dag.add_node(puff_node)
+        # PUFF FIX (c4c1455e): the puffball node is a barrier for the NEXT iteration's PUFFBALL
+        # ILE jobs ONLY -- it must NOT be folded into parent_fit_node (the normal fit chain), or
+        # the next iteration's NORMAL ILE jobs would wait on the puff side path and the pipeline
+        # halts at the PUFF stage.  Keep parent_fit_node = the fit chain; carry the puff barrier
+        # separately in last_puff_node, applied to ilePuff jobs via extra_parent_nodes.
+        last_puff_node = puff_node
 
-        
+    # LISA reflected-sky-mode: at the chosen iteration, reflect the grid CIP just
+    # produced (overlap-grid-(it+1)) BEFORE the next iteration's ILE reads it.
+    # Unlike puffball this MUST gate the next ILE (it rewrites the grid in place),
+    # so fold it into parent_fit_node.
+    if (reflected_mode_job is not None) and (it == reflected_mode_iter):
+        print(" Reflected-sky-mode for iteration ", it)
+        reflect_node = pipeline.CondorDAGNode(reflected_mode_job)
+        reflect_node.add_macro("macroiteration", it)
+        reflect_node.add_macro("macroiterationnext", it+1)
+        reflect_node.set_category("CONVERT")
+        reflect_node.set_retry(opts.general_retries)
+        if not (parent_fit_node is None):
+            reflect_node.add_parent(parent_fit_node)
+        dag.add_node(reflect_node)
+        parent_fit_node = reflect_node
 
-    # Create convert node, which depends on fit node, *if* tests are being performed
-    if opts.test_args:
+    # Calibration PILOT for this iteration (Option C).  Runs IN PARALLEL with CIP/puff --
+    # it does NOT gate them (parent_fit_node is left untouched) -- harvesting iteration
+    # it's composite (via unify_node, which guarantees a non-empty composite) and emitting
+    # cal_consolidated_<it>.npz, which SEEDS the wide ILE jobs of iteration it+1.
+    if calpilot_job and (it <= opts.calmarg_pilot_max_it) and (it % opts.calmarg_pilot_cadence == 0):
+        print(" Calibration pilot for iteration ", it)
+        calpilot_node = pipeline.CondorDAGNode(calpilot_job)
+        calpilot_node.add_macro("macroiteration", it)
+        calpilot_node.add_macro("macroiterationprev", it-1)
+        calpilot_node.set_category("CALPILOT")
+        calpilot_node.set_retry(opts.general_retries)
+        calpilot_node.add_parent(unify_node)   # need iteration it's (non-empty) composite
+        dag.add_node(calpilot_node)
+        calpilot_node_per_iteration[it] = calpilot_node
+
+    # Extrinsic handoff consolidation for this iteration.  Runs IN PARALLEL with CIP/puff
+    # (does NOT gate them) -- it depends on unify_node, which guarantees all of iteration
+    # it's ILE jobs finished (so the per-event extr_proposal_<it>_*.npz are present), and
+    # emits extr_consolidated_<it>.npz, which SEEDS the wide ILE jobs of iteration it+1.
+    if extrconsolidate_job:
+        extrconsolidate_node = pipeline.CondorDAGNode(extrconsolidate_job)
+        extrconsolidate_node.add_macro("macroiteration", it)
+        extrconsolidate_node.set_category("EXTRCONSOLIDATE")
+        extrconsolidate_node.set_retry(opts.general_retries)
+        extrconsolidate_node.add_parent(unify_node)   # all of iteration it's ILE jobs done
+        dag.add_node(extrconsolidate_node)
+        extrconsolidate_node_per_iteration[it] = extrconsolidate_node
+
+
+    if _use_hpip_pipeline:
+        alias_grid_node = pipeline.CondorDAGNode(alias_grid_job)
+        alias_grid_node.add_macro("macroiteration", it+1)
+        alias_grid_node.add_parent(parent_fit_node)
+        alias_grid_node.set_category("ALIAS")
+        alias_grid_node.set_retry(opts.general_retries)
+        dag.add_node(alias_grid_node)
+        parent_fit_node = alias_grid_node
+
+    # Create convert node, which depends on fit node, *if* tests are being performed.
+    # In hyperpipeline mode an alias node creates posterior_samples-*.dat
+    # symlinks to the header-bearing overlap-grid-*.dat files instead.
+    if opts.test_args and not _use_hpip_pipeline:
         convert_node=pipeline.CondorDAGNode(convert_job)
         convert_node.add_macro("macroiteration", it+1)  # convert the NEWLY-PRODUCED iteration
         convert_node.add_macro("macroiterationlast", it)  # use log files in the previous directory
@@ -1813,6 +2545,11 @@ for it in np.arange(it_start,opts.n_iterations):
 
 
 
+    # Preserve the final physical-product barrier before adding the convergence
+    # node.  A converged test uses ABORT-DAG-ON, so terminal evidence must run
+    # before that test rather than as its child.
+    final_evidence_parent_node = parent_fit_node
+
     if opts.test_args and it>0:
         # Cannot run test on first iteration
         test_node = pipeline.CondorDAGNode(test_job)
@@ -1822,22 +2559,60 @@ for it in np.arange(it_start,opts.n_iterations):
         test_node.set_category("CONVERGE")
         dag.add_node(test_node)
         test_node_list.append(test_node)
+        if it == opts.n_iterations - 1:
+            final_test_node = test_node
 
         parent_fit_node=test_node
 
 
+# The in-loop evidence node is deliberately backward-looking, so without this
+# terminal pair iteration n_iterations-1 is never summarized.  The prior run
+# is independent of the likelihood workers and the strict final consolidator
+# waits for both products before reporting ln B_H.
+if final_evidence_job is not None and final_evidence_parent_node is not None:
+    final_iteration = opts.n_iterations - 1
+    prior_node = pipeline.CondorDAGNode(prior_job)
+    prior_node.add_macro("macroiteration", final_iteration)
+    prior_node.set_category("CIP_PRIOR")
+    prior_node.set_retry(opts.general_retries)
+    prior_node.add_parent(final_evidence_parent_node)
+    dag.add_node(prior_node)
+
+    final_evidence_node = pipeline.CondorDAGNode(final_evidence_job)
+    final_evidence_node.add_macro("macroiteration", final_iteration)
+    final_evidence_node.add_macro("macroiterationnext", final_iteration + 1)
+    final_evidence_node.set_category("EVIDENCE")
+    final_evidence_node.set_retry(opts.general_retries)
+    final_evidence_node.add_parent(final_evidence_parent_node)
+    final_evidence_node.add_parent(prior_node)
+    dag.add_node(final_evidence_node)
+    if final_test_node is not None:
+        final_test_node.add_parent(final_evidence_node)
+
+
 # Create export stages for extrinsic samples
+last_node= parent_fit_node # backstop
 if opts.last_iteration_extrinsic:
-    # Check if 'it' is defined : it will not always be, if done later
-    if not ('it' in globals()):
-        it = opts.n_iterations  # last iteration
-    elif it < opts.n_iterations and 'Z' in cip_args_prefixes:
-        it += 1   # deal with an offset/fencepost issue that can happen when using subdags for some reason
+    # Export the actual final fit product, rather than the last likelihood input.
+    it = final_fit_grid_iteration
     print(" Extrinsic information being pulled from iteration {} ".format(it))
 
     # Create nodes for followup tasks
     cat_node = pipeline.CondorDAGNode(cat_job)
     cat_node.add_macro("macroiteration", it)  # needed to identify log file location
+
+    # Per-distance likelihood export consolidation nodes (depend directly on
+    # ILE_extr, since .dgrid / .dslice are emitted by ILE itself with no
+    # convert/resample step in between).
+    dgrid_node = dslice_node = None
+    if opts.last_iteration_export_marginal_distance_grid:
+        dgrid_node = pipeline.CondorDAGNode(dgrid_job)
+        dgrid_node.add_macro("macroiteration", it)
+        dgrid_node.set_retry(opts.ile_retries)
+    if opts.last_iteration_export_distance_slices and opts.last_iteration_export_distance_slices > 0:
+        dslice_node = pipeline.CondorDAGNode(dslice_job)
+        dslice_node.add_macro("macroiteration", it)
+        dslice_node.set_retry(opts.ile_retries)
 
     # Perform final ILE run on all points, saving samples
     # Need to perform number of events CONSISTENT WITH TARGET SAMPLE SIZE
@@ -1859,10 +2634,25 @@ if opts.last_iteration_extrinsic:
         ile_node.add_macro("macroevent", event*n_group)
         ile_node.add_macro("macrongroup", n_group)
         ile_node.add_macro("macroiteration", it)
+        # Option C cal-pilot / extrinsic-handoff seed path.  The wide ILE args carry
+        # --calibration-proposal-breadcrumb .../cal_consolidated_$(macroiterationprev).npz
+        # (and the extrinsic-handoff analogue).  This last-iteration EXTRINSIC ILE node was
+        # missing macroiterationprev, so the macro expanded to blank -> the job requested the
+        # literal cal_consolidated_.npz, which never exists -> transfer hard-hold (OSG) or a
+        # silently-unseeded run (shared FS).  Set it just like the wide ILE node so the
+        # extrinsic stage seeds from the previous iteration's consolidated proposal.
+        ile_node.add_macro("macroiterationprev", it-1)
         if not(parent_fit_node is None):
             ile_node.add_parent(parent_fit_node)
         dag.add_node(ile_node)
 #        ile_node_list_per_iteration[it].append(ile_node)
+
+        # Distance-grid / -slice consolidation runs after EVERY ILE_extr
+        # finishes, since each ILE_extr emits one .dgrid / .dslice file.
+        if dgrid_node is not None:
+            dgrid_node.add_parent(ile_node)
+        if dslice_node is not None:
+            dslice_node.add_parent(ile_node)
 
         # Add convert and resample task *for each output file*
         if opts.last_iteration_extrinsic_time_resampling:
@@ -1907,6 +2697,10 @@ if opts.last_iteration_extrinsic:
     else:
         dag.add_node(convert_node)   # this is the time resampling task
         last_node=convert_node
+    if dgrid_node is not None:
+        dag.add_node(dgrid_node)
+    if dslice_node is not None:
+        dag.add_node(dslice_node)
 
 # Create rotation job (if extrinsic available)
 if opts.frame_rotation and opts.last_iteration_extrinsic:
@@ -1966,6 +2760,15 @@ if opts.comov_distance_reweighting:
     distance_node.add_parent(convert_ascii_node)
     last_node=distance_node
     dag.add_node(distance_node)
+if auto_fit_settings is not None:
+    from RIFT.compression.workflow import attach as attach_auto_fit
+    # Fit the joint extrinsic posterior, including its paired distances.
+    final_posterior = "extrinsic_posterior_samples.dat"
+    last_node = attach_auto_fit(dag, pipeline, opts.auto_fit_config,
+        opts.working_directory, last_node, final_posterior, runtime_prefix=extra_text,
+        final_cip_args=(cip_args_for_iteration[opts.n_iterations-1] or
+            cip_args_lines[cip_stage_for_iteration[opts.n_iterations-1]]))
+
 # Create final node for overall plots.  (Note: default setup is designed to enable plots of the last two iterations *at each step* but this seems like overkill)
 if plot_args:
         # Cannot run test on first iteration
@@ -1980,57 +2783,84 @@ dag_name="marginalize_intrinsic_parameters_BasicIterationWorkflow"
 dag.set_dag_file(dag_name)
 dag.write_concrete_dag()
 
-# if convergence tests are active, add the ABORT-DAG-ON operation to the dag we just wrote, and STOP THE DAG WITH SUCCESS if we test ok
+# Add control-logic overlays through the workflow abstraction.  The
+# active backend (htcondor / glue / slurm) translates these into its
+# native form: HTCondor and glue.pipeline emit DAGMan SCRIPT POST /
+# ABORT-DAG-ON / DOT directives unchanged; Slurm emits afterany-
+# dependency wrapper sbatch jobs and a graphviz file.
 # https://htcondor.readthedocs.io/en/latest/users-manual/dagman-workflows.html
 if opts.test_args:
-    my_names = [x._CondorDAGNode__md5name for x in test_node_list]
-    with open(dag_name+".dag",'a') as f:
-        for name in my_names:
-            f.write("ABORT-DAG-ON "+ name + " 1 RETURN 0 \n")
+    for node in test_node_list:
+        dag.add_abort_on(node, exit_code=1, return_value=0)
 
-my_names_unify = [x._CondorDAGNode__md5name for x in unify_node_list]
-indx =0
+indx = 0  # start with consolidated_0
+unify_nodes_to_post = list(unify_node_list)
+if opts.first_iteration_jumpstart:
+    unify_nodes_to_post = unify_nodes_to_post[1:]  # drop first element
+    indx = 1
 with open("confirm_exist.sh",'w') as f:
     f.write("""#! /bin/bash
 [ -s $1 ]
 """)
 st=os.stat("confirm_exist.sh"); os.chmod("confirm_exist.sh", st.st_mode | stat.S_IEXEC)
-with open(dag_name+".dag",'a') as f:
-    for name in my_names_unify:
-        f.write("SCRIPT POST "+ name + " {}/confirm_exist.sh {}/consolidated_{}.composite \n".format(opts.working_directory,opts.working_directory,indx))
-        indx+=1
-    # add dot file, for dag visualization
-    f.write('DOT my_dag_vis.dot \n')
+for indx_here, node in enumerate(con_node_list):
+    if indx_here >= indx:  # skip 0th entry if appropriate
+        dag.add_script_post(
+            node,
+            "{}/confirm_exist.sh".format(opts.working_directory),
+            "{}/consolidated_{}.composite".format(opts.working_directory, indx_here),
+        )
+for node in unify_nodes_to_post:
+    dag.add_script_post(
+        node,
+        "{}/confirm_exist.sh".format(opts.working_directory),
+        "{}/all.net".format(opts.working_directory),
+    )
+# add dot file, for dag visualization
+dag.set_dot_file('my_dag_vis.dot')
 
-    
 
 # CIP adaptive batch size per iteration.  BACKSTOP with 'default' script to check work by lilne-counting (dangerous!)
 if opts.cip_explode_jobs_subdag:
     if opts.cip_post_exe is None:
     # script to count lines in overlap-grid files. Note this does NOT check n_eff directly ... should count n_eff instead based on +annotation.dat files
         with open("cip_check_work.sh", 'w') as f:
-            f.write("""#! /bin/bash
+            if _use_hpip_pipeline:
+                # Hyperpipeline: count non-comment data rows across all
+                # overlap-grid-*.dat shards in the directory.  No
+                # igwn_ligolw_print dependency.
+                f.write("""#! /bin/bash
+LINES=`grep -hE -v '^#' $1/overlap-grid-*.dat 2>/dev/null | grep -cv '^[[:space:]]*$'`
+[ ${LINES} -ge $2 ]
+""")
+            else:
+                f.write("""#! /bin/bash
 LINES=`igwn_ligolw_print -c mass1 $1/overlap-grid*.xml.gz | wc -l `
 [ ${LINES} -ge $2 ]
 """)
         st=os.stat("cip_check_work.sh"); os.chmod("cip_check_work.sh", st.st_mode | stat.S_IEXEC)
         opts.cip_post_exe = opts.working_directory + "/cip_check_work.sh"
     # add POST SCRIPT to subdag. Note it will USUALLY FAIL and get retried A LARGE NUMBER OF TIMES, until we complete work!
-    with open(dag_name+".dag",'a') as f:
-        for it in cip_subdag_nodes:
-            node = cip_subdag_nodes[it]
-            f.write("SCRIPT POST " + node._CondorDAGNode__md5name +  " {} iteration_{}_cip {} \n".format(opts.cip_post_exe, it, cip_subdag_work_targets[it])) 
+    for it in cip_subdag_nodes:
+        node = cip_subdag_nodes[it]
+        dag.add_script_post(
+            node, opts.cip_post_exe,
+            "iteration_{}_cip".format(it),
+            cip_subdag_work_targets[it],
+        )
 
 # ILE adaptive batch size per iteration: If ile_post_exe exists, write the necessary items
 # WARNING: currently framed as a post script that is run after EVERY job
 if opts.ile_post_exe:
-    with open(dag_name+".dag",'a') as f:
-        for it in ile_node_list_per_iteration:
-            for node in ile_node_list_per_iteration[it]:
-                # write the script post line. Add in the worklevel target
-                n_target = n_initial
-                if opts.n_samples_per_job_threshold:
-                    n_target = opts.n_samples_per_job_threshold
-                f.write("SCRIPT POST " + node._CondorDAGNode__md5name + " $(JOBID) $(RETURN) " + str(it) + " " + str(n_target) + "\n")
+    for it in ile_node_list_per_iteration:
+        for node in ile_node_list_per_iteration[it]:
+            # write the script post line. Add in the worklevel target
+            n_target = n_initial
+            if opts.n_samples_per_job_threshold:
+                n_target = opts.n_samples_per_job_threshold
+            dag.add_script_post(
+                node, opts.ile_post_exe,
+                "$(JOBID)", "$(RETURN)", str(it), str(n_target),
+            )
             
         

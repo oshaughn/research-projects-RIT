@@ -1,0 +1,24 @@
+
+arch:
+   method: default
+   n-iterations: 3
+   n-samples-per-job: 1000
+   explode marg jobs: 5
+post:
+  coords-fit: "x y z"
+  coords-sample: "x:[-7,7] y:[-7,7] z:[-7,7]"
+marg-list:
+  - name: Gaussian
+    exe: example_gaussian.py
+    args: --outdir Gaussian_example --conforming-output-name
+    n-chunk: 100
+puff:
+  settings:
+      puff factor: 0.5
+init:
+  file: blind_gaussian_3d_xy_plus.dat
+general:
+  rundir: rundir_osg
+  use-osg: True
+  condor-local-nonworker: True
+  condor-local-nonworker-igwn-prefix: True

@@ -3,6 +3,69 @@
 import numpy as np
 import numpy
 
+# When True, use a summation order that does not depend on GPU thread
+# scheduling, so that a seeded run is bit-reproducible.  Off by default; set by
+# RIFT.integrators.seeding.seed_everything when the user asks for a seed, so
+# that reproducibility costs nothing on unseeded production runs.  See
+# _bincount_weighted below.
+DETERMINISTIC_REDUCTIONS = False
+
+
+def _bincount_weighted(indices, weights, n_bins, xpy):
+    """Weighted bincount, optionally with a run-to-run reproducible sum order.
+
+    cupy.bincount with weights accumulates through float atomicAdd, whose
+    ordering is set by GPU thread scheduling and therefore varies between
+    otherwise identical runs.  Measured on an RTX 2080 Ti, repeated calls on
+    byte-identical inputs disagree at ~2e-15 relative.  That is negligible as
+    an error, but it is not negligible as a *reproducibility* defect: this
+    histogram becomes the adapted sampling CDF, so the perturbation is injected
+    into every subsequent draw and a seeded GPU run cannot be reproduced bit
+    for bit.
+
+    The deterministic branch sorts by bin and takes differences of a prefix
+    sum, so the summation order is fixed by the data rather than by the
+    scheduler.  It costs ~1.2-1.5x the atomic version on calls that happen once
+    per parameter per adaptation, i.e. far off the likelihood hot path.
+
+    Accuracy tradeoff, measured against an exact rational reference: because a
+    bin total is the difference of two partial sums that are both of order the
+    grand total, the relative error in a bin is amplified by (total / bin), so
+    the deterministic branch is *less* accurate than per-bin atomic
+    accumulation when bin totals span decades.  Measured at n_bins=100:
+
+        weights           bin-total spread   deterministic   atomic
+        exponential            ~1               2e-14        7e-15
+        exp(lnL)-peaked        ~2e5             5e-11        3e-14
+
+    5e-11 is irrelevant here: this histogram is a *proposal* density, not an
+    estimator -- the importance weights correct for whatever the proposal
+    actually is, it is consumed as a 100-bin interpolated CDF, and
+    --adapt-floor-level mixes a uniform component in on top.  The atomic
+    branch's extra accuracy is in any case unusable, since it is not
+    reproducible.  If this is ever wanted somewhere the histogram *is* the
+    answer, use a per-bin segmented reduction instead.
+    """
+    if not DETERMINISTIC_REDUCTIONS:
+        return xpy.bincount(indices, minlength=n_bins, weights=weights)
+
+    # The unweighted caller passes a broadcast_to view: read-only and
+    # zero-stride, so it cannot be reordered.  Materialize it here rather than
+    # in the caller, so the default path keeps the old code's zero-copy weights.
+    weights = xpy.ascontiguousarray(weights)
+    order = xpy.argsort(indices)
+    idx_sorted = indices[order]
+    wts_sorted = weights[order]
+    # Prefix sum with a leading zero, so bin b is csum[end_b] - csum[start_b].
+    csum = xpy.concatenate(
+        (xpy.zeros(1, dtype=wts_sorted.dtype), xpy.cumsum(wts_sorted))
+    )
+    edges = xpy.searchsorted(
+        idx_sorted, xpy.arange(n_bins + 1, dtype=idx_sorted.dtype), side='left'
+    )
+    return csum[edges[1:]] - csum[edges[:-1]]
+
+
 def histogram(samples, n_bins, xpy=numpy,weights=None):
     """
     samples : data between [0,1]
@@ -27,10 +90,7 @@ def histogram(samples, n_bins, xpy=numpy,weights=None):
             )
     else:
         wts=weights
-    histogram_counts = xpy.bincount(
-        indices, minlength=n_bins,
-        weights=wts
-    )
+    histogram_counts = _bincount_weighted(indices, wts, n_bins, xpy)
     return histogram_counts[:n_bins]  # force target length, we should never have points in top bin if it occurs : scaled to [0,1)
 
 

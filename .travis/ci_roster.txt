@@ -1,0 +1,155 @@
+# CI roster -- every test file under MonteCarloMarginalizeCode/Code that is reachable from NO
+# CI job, and the reason it is not.  Enforced by .travis/test-ci-roster.py (job ci-roster-check).
+#
+# Format:   <repo-relative path>  <STATUS>  <reason>
+#
+# STATUS is one of:
+#   HANDRUN    a hand-run study or demo, not a pytest target.  Most of these have a __main__
+#              and argparse, assert internally, and collect ZERO items under pytest -- which
+#              exits 5, "no tests ran", and reads as a pass in a log skim.  Gating them as-is
+#              would buy a green tick over an empty run.
+#   LEGACY     imports pre-package flat module names (factored_likelihood, lalsimutils, ourio,
+#              ourparams, xmlutils, common_cl, statutils, effectiveFisher, spokes) that have not
+#              existed since RIFT was packaged into RIFT.*.  These cannot be IMPORTED, let alone
+#              run, in any current environment.
+#   OPTDEP     needs a dependency CI does not install.
+#   GPU        needs a GPU; the runners have none, so it would report as skipped.
+#   EXPENSIVE  opt-in behind an env var by design.
+#   BROKEN     collects but FAILS today.  A debt, recorded as one.
+#              `gate:<name>`, and the entry is legal only while that gate is absent -- when
+#              it lands, the census errors on the entry by name.  An earlier version was
+#              exempt from the staleness check unconditionally, which made it the one status
+#              nothing could ever force out.  No entries currently: the last one, for
+#              test_noloop_time_interp.py on gate:q-window-stencil, expired when #242 merged.
+#
+# Everything here was collected and run individually on CIT with the IGWN conda python
+# (3.11, numpy 1.26.4, lal 7.7.0) on 2026-09-03; the counts quoted are from that run.
+#
+# Adding a line here is a DECISION, not a way to silence the check.  If a file belongs in CI,
+# register it with a job instead -- then delete its line, which the check will demand anyway.
+
+# ---------------------------------------------------------------------------------------
+# LEGACY -- the pre-package driver suite.  28 files, none importable.
+#
+# These are the original hand-run RIFT test drivers from before the code became a package.
+# `pytest --collect-only` on each reports a collection ERROR, not zero tests: e.g.
+# test_likelihood.py -> ModuleNotFoundError: No module named 'factored_likelihood'.  They are
+# not a coverage gap, because there is no coverage to lose; they are a decision nobody has
+# made.  Recommendation, deliberately NOT taken in the PR that created this roster: delete
+# them, or move them under Code/old/ where test_regions.py already sits.  That is a judgment
+# call about historical value, and it belongs to a maintainer, not to a CI audit.
+MonteCarloMarginalizeCode/Code/old/test_regions.py                            LEGACY  imports lalsimutils; also raises IndexError at collection on current numpy
+MonteCarloMarginalizeCode/Code/test/factored_likelihood_test.py               LEGACY  imports factored_likelihood, lalsimutils
+MonteCarloMarginalizeCode/Code/test/test_SpokesRefine.py                      LEGACY  imports spokes
+MonteCarloMarginalizeCode/Code/test/test_data_vs_template.py                  LEGACY  imports factored_likelihood, lalsimutils, ourio, ourparams
+MonteCarloMarginalizeCode/Code/test/test_effectiveFisher.py                   LEGACY  imports effectiveFisher, lalsimutils
+MonteCarloMarginalizeCode/Code/test/test_hlm.py                               LEGACY  imports factored_likelihood
+MonteCarloMarginalizeCode/Code/test/test_interpolation.py                     LEGACY  imports factored_likelihood
+MonteCarloMarginalizeCode/Code/test/test_like_and_samp.py                     LEGACY  imports common_cl, factored_likelihood, lalsimutils, ourio, ourparams, xmlutils
+MonteCarloMarginalizeCode/Code/test/test_like_and_samp_margPsi.py             LEGACY  imports factored_likelihood, lalsimutils, ourio
+MonteCarloMarginalizeCode/Code/test/test_like_and_samp_noisydata.py           LEGACY  imports factored_likelihood, lalsimutils, ourio
+MonteCarloMarginalizeCode/Code/test/test_like_and_samp_noisydata_margPsi.py   LEGACY  imports factored_likelihood, lalsimutils, ourio
+MonteCarloMarginalizeCode/Code/test/test_like_and_samp_simplified.py          LEGACY  imports common_cl, factored_likelihood, lalsimutils, ourio, ourparams, xmlutils
+MonteCarloMarginalizeCode/Code/test/test_like_and_samp_singleifo.py           LEGACY  imports factored_likelihood, lalsimutils, ourio
+MonteCarloMarginalizeCode/Code/test/test_like_singletemplate_emcee.py         LEGACY  imports factored_likelihood, lalsimutils, ourio
+MonteCarloMarginalizeCode/Code/test/test_like_singletemplate_emcee_pt.py      LEGACY  imports factored_likelihood, lalsimutils, ourio
+MonteCarloMarginalizeCode/Code/test/test_likelihood.py                        LEGACY  imports factored_likelihood
+MonteCarloMarginalizeCode/Code/test/test_precompute.py                        LEGACY  imports factored_likelihood, lalsimutils
+MonteCarloMarginalizeCode/Code/test/test_precompute_noisydata.py              LEGACY  imports factored_likelihood
+MonteCarloMarginalizeCode/Code/test/test_precompute_singleifo.py              LEGACY  imports factored_likelihood
+MonteCarloMarginalizeCode/Code/test/test_profile_components.py                LEGACY  imports factored_likelihood, lalsimutils, ourparams
+MonteCarloMarginalizeCode/Code/test/test_psd_xml_io.py                        LEGACY  imports factored_likelihood, lalsimutils
+MonteCarloMarginalizeCode/Code/test/test_response_functions_Q.py              LEGACY  imports factored_likelihood, lalsimutils, ourio, ourparams, xmlutils
+MonteCarloMarginalizeCode/Code/test/test_rhotimeseries.py                     LEGACY  imports factored_likelihood
+MonteCarloMarginalizeCode/Code/test/test_runvar.py                            LEGACY  imports statutils
+MonteCarloMarginalizeCode/Code/test/test_sampler_visualization.py             LEGACY  imports lalsimutils
+MonteCarloMarginalizeCode/Code/test/integrators/test_mcsamp.py                LEGACY  imports statutils and mpl_toolkits.basemap
+MonteCarloMarginalizeCode/Code/test/integrators/test_mcsamp_pinned.py         LEGACY  imports statutils
+
+# ---------------------------------------------------------------------------------------
+# HANDRUN -- scripts that are not pytest targets.  All collect ZERO items, so pytest exits 5
+# ("no tests ran") on each, which reads as a pass; that is why they are recorded here rather
+# than pointed at a job.
+#
+# THE FIVE STUDIES BELOW ARE NOW RUN IN CI ANYWAY.  test/integrators/test_integrator_studies.py
+# invokes each as a subprocess and requires exit 0, and core-unit-check gates that wrapper.  They
+# still belong in this file because they remain non-collectable themselves.
+#
+# The earlier version of this entry called them "expensive" and proposed hiding them behind
+# RIFT_RUN_EXPENSIVE.  That was asserted, not measured, and it was wrong: on CIT (ldas-grid) with
+# the IGWN python (OMP_NUM_THREADS=1) they take 7, 4, 20, 64 and 6 seconds -- 101 s for all five.
+# Each ends in `raise SystemExit(1)` on failure, and all five now seed through
+# RIFT.integrators.seeding.seed_everything, which covers the cupy backend the samplers draw through
+# (a bare numpy.random.seed is inert there).  The decoy study also replicates itself over nine child
+# processes, which is why it is the slow one.
+#
+# THE WRAPPER PASSES --as-test, AND THAT IS LOAD-BEARING.  Every one of these keeps its
+# scientific comparisons AND its SystemExit(1) behind `if args.as_test`, so without the flag
+# a biased result still prints and exits 0.  The first version of the wrapper omitted it and
+# therefore gated only crashes -- an inert guard, caught in review of #251, and not by the
+# three clean runs I had cited as evidence: those were guaranteed to pass.  The timings here
+# are WITH the flag, and are larger than without it precisely because the gates then run.
+MonteCarloMarginalizeCode/Code/test/integrators/test_AV_bootstrap.py                 HANDRUN  AV warm-start bias/efficiency gate; 0 collected, run by test_integrator_studies.py --as-test (8 s)
+MonteCarloMarginalizeCode/Code/test/integrators/test_AV_warmstart_safety.py          HANDRUN  anti-bias guard for reusing a proposal across problems; 0 collected, run by test_integrator_studies.py --as-test (4 s)
+MonteCarloMarginalizeCode/Code/test/integrators/test_portfolio_adaptive_alloc.py     HANDRUN  portfolio draw-allocation vs standalone AV; 0 collected, run by test_integrator_studies.py --as-test (19 s)
+MonteCarloMarginalizeCode/Code/test/integrators/test_portfolio_balance_heuristic.py  HANDRUN  portfolio safety under a decoy member; 0 collected, run by test_integrator_studies.py --as-test (64 s, nine replicates)
+MonteCarloMarginalizeCode/Code/test/integrators/test_portfolio_oracle.py             HANDRUN  needle-target oracle study; 0 collected, run by test_integrator_studies.py --as-test (5 s)
+MonteCarloMarginalizeCode/Code/demo/rift/export_likelihoods/head_to_head/run_test.py HANDRUN  GP-vs-RF figure driver for a demo; --stage picks a stage; 0 collected, exit 5
+
+# ---------------------------------------------------------------------------------------
+# OPTDEP / GPU -- would run, but not in the environment CI builds.
+#
+# The two jax_gp files are the strongest candidates for promotion: jax-ile-check already
+# installs a CPU jax stack, so adding them there costs only optax and a raised EXPECTED_TESTS.
+# Not done here because that job's counts are pinned and this PR does not own them.
+MonteCarloMarginalizeCode/Code/RIFT/interpolators/jax_gp/test_coordinates.py   OPTDEP  needs:jax -- skips cleanly without it, 2 tests pass with it; belongs in jax-ile-check, which already installs a CPU jax stack
+# test_interpolators.py was rostered OPTDEP claiming "10 tests where both are installed".
+# That was never run.  With jax 0.9.2 + optax 0.2.8 (~/.cache/jaxci_venv on CIT, taskset -c 0-7,
+# JAX_ENABLE_X64=1) it collects 12 and FAILS 2 on accuracy: exact rmse 0.7696 vs tol 0.05, svgp
+# 0.9087 vs tol 0.3.  Not under-training -- exact plateaus at 0.7697 for n_opt_steps 150/600/2000
+# while rff reaches 0.0045 on the identical target, so it is converged and wrong.  Both backends
+# are user-selectable as CIP --fit-method gp-jax-exact / gp-jax-svgp.  Reported, not fixed here.
+MonteCarloMarginalizeCode/Code/RIFT/interpolators/jax_gp/test_interpolators.py BROKEN  needs jax+optax, and with them 2 of 12 fail on accuracy (exact, svgp) -- see the note above
+# The two cupy parity legs are NOT listed here.  PR #242 landed, and its
+# .travis/test-q-window-stencil.sh names both in an EXCLUDED array -- with the same reason,
+# and with its own fail-closed check that an EXCLUDED path still exists and does not carry
+# the marker.  That is a better home than this file: the decision sits beside the gate it
+# belongs to.  Their roster lines were deleted when #242 merged, exactly as the census
+# demanded ("listed as GPU but IS now reachable -- delete it").
+# GPU forest predictor and GPU ExtraTrees grower for util_ConstructEOSPosterior --fit-device gpu.
+# Module-level skip without cupy and a device. Run by hand on a GPU node (pcdev13, 2026-10-05: 18 pass).
+MonteCarloMarginalizeCode/Code/test/interpolators/test_cupy_forest.py           GPU  cupy device predictor vs sklearn; skips without a device
+MonteCarloMarginalizeCode/Code/test/interpolators/test_cupy_extratrees.py       GPU  cupy ExtraTrees vs numpy reference and sklearn; skips without a device
+# Multirate cupy legs (PR #436): cupy vs numpy precompute and device templates. The numpy legs run in
+# core-unit-check. RIFT_CI_REQUIRE_GPU=1 turns the skip into a failure; run on pcdev13 by hand.
+MonteCarloMarginalizeCode/Code/test/test_multirate_cupy.py                      GPU  cupy vs numpy multirate precompute and xp templates; skips without a device
+MonteCarloMarginalizeCode/Code/test/hyperpipe/tests/test_hydra_integration.py  OPTDEP  needs:hydra,omegaconf -- skips cleanly without them
+MonteCarloMarginalizeCode/Code/test/test_gwsignal_teob_mode_sign.py            OPTDEP  needs:EOBRun_module -- the gwsignal TEOB route; 2 collected, 1 passes and 1 skips without it
+MonteCarloMarginalizeCode/Code/test/test_gwsignal_teob_near_aligned.py         OPTDEP  needs:EOBRun_module -- 1 collected, skips without it
+# test_rimsky_integration.py is the worked example of why OPTDEP entries must DECLARE their
+# dependencies rather than describe them.  Its old reason was prose ("belongs in the
+# rimsky-integration job"), test-roster-verify.py rightly refused it, and I resolved that by
+# gating the file -- which was wrong: it collects 15 on CIT and 0 on a runner, because CIT's
+# IGWN environment happens to carry asimov.  core-unit-check's per-file collection floor caught
+# it.  With the deps named, the same check now keys off their real presence and stays quiet
+# here while remaining meaningful on a runner.  Its proper home is a job that installs asimov
+# (rimsky-integration already runs test_rimsky_end_to_end.py); that move needs a collection
+# floor there so a skip cannot pass silently, and is not attempted in this PR.
+MonteCarloMarginalizeCode/Code/test/test_rimsky_integration.py                OPTDEP  needs:asimov,liquid -- 15 collected where asimov is installed, 0 without it
+MonteCarloMarginalizeCode/Code/test/integrators/test_NF_reuse.py               OPTDEP  needs:nflows -- the normalizing-flow store; collection errors without it
+MonteCarloMarginalizeCode/Code/test/integrators/test_mcsamp_vegas.py           OPTDEP  needs:vegas -- commented out of requirements.txt; NameError at import without it
+MonteCarloMarginalizeCode/Code/test/test_eosmanager_misc.py                    OPTDEP  needs:env:LALSIMULATION_DATADIR -- raises KeyError at import without it
+MonteCarloMarginalizeCode/Code/test/test_skysamp.py                            LEGACY  imports lalinference.bayestar.fits, removed upstream; cannot be imported
+
+# ---------------------------------------------------------------------------------------
+# EXPENSIVE -- correctly gated already, by an env var rather than by CI membership.
+MonteCarloMarginalizeCode/Code/test/expensive_before_merging/integrators/test_shape_recovery.py          EXPENSIVE  10 collected, all skip unless RIFT_RUN_EXPENSIVE=1
+MonteCarloMarginalizeCode/Code/test/expensive_before_merging/integrators/test_escaped_mass_diagnostic.py EXPENSIVE  5 collected, all skip unless RIFT_RUN_EXPENSIVE=1
+MonteCarloMarginalizeCode/Code/test/test_lalsim_eos_reviewed_integration.py                                 EXPENSIVE  3 collected, all skip unless RIFT_REVIEWED_LALSIM_MANIFEST names a build-generated manifest
+MonteCarloMarginalizeCode/Code/test/test_gpytorch_wrapper.py                  OPTDEP  needs:torch,gpytorch -- importorskip on both; the CUDA case also needs a GPU
+
+# Actual pipeline/subdag/frame CLI regressions use the native HTCondor runtime;
+# measured on the IGWN test runtime (43 tests) and accompanied by Condor dry-run
+# and dirty-source package-install receipts. Ordinary CI does not install htcondor.
+MonteCarloMarginalizeCode/Code/test/pipeline_deployment/test_deployment_cli.py OPTDEP needs:htcondor -- actual HTCondor backend, native condor_submit dry-run, GWPy GWF IO; real CIT suite, no inference jobs
+MonteCarloMarginalizeCode/Code/test/pipeline_deployment/test_mock_workflow.py OPTDEP needs:htcondor -- native-parsed emitted DAG mock execution, real dynamic subdag builders and partial-batch CLI coverage; no inference jobs

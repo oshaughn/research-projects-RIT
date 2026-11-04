@@ -1,0 +1,237 @@
+# Flexible (data-driven) GMM component allocation for the extrinsic integrator
+
+Status: prototype, benchmarked on S250114ax (SNR~82, real H1L1). See the
+measured results and the honest tradeoffs at the bottom -- the headline is that
+**this fixed the GMM's hard-coding and two warm-start bugs, but pure GMM
+importance sampling is still not the right tool for this particular event**; the
+flexible GMM belongs in the portfolio (with AV) or on milder problems.
+
+## The problem being fixed
+
+`bin/integrate_likelihood_extrinsic_batchmode` built the GMM (`mcsamplerEnsemble`)
+proposal with a **hard-coded** per-group component layout:
+
+```
+gmm_dict  = {(ra,dec):None, (distance,inclination):None, (psi,phi_orb):wide-frozen}
+comp_dict = {(ra,dec):4,     (distance,inclination):2,     (psi,phi_orb):4}
+```
+
+That pairing (large sky ring = 4 components; a single distance-inclination lobe = 2;
+a wide frozen phase-polarization component) targets **quadrupole-dominated,
+poorly-localized** binaries. It does not adapt to the actual posterior, and a
+product of per-group GMMs cannot represent cross-group correlations. `--internal-
+gmm-correlate-all` switches to a single full-dim group but still with a **fixed**
+component count. Choosing that count by hand is exactly the "horrible hacky
+hard-coding" this work removes.
+
+## What the extrinsic posterior actually looks like (S250114ax)
+
+Not a 10^-11 needle -- a **broad, correlated/degenerate 6-D blob** (see
+`BREADCRUMB_av_neff_reproduction.md`). Sky is tight; **distance and inclination
+are broad and coupled** (the classic distance-inclination degeneracy -- a curved
+arc); phase and polarization are similarly degenerate. The prior is huge (all-
+sky/all-distance/all-inclination), so the peak is a tiny *fraction* of the prior
+even though it is not narrow in absolute terms.
+
+## Design
+
+Three orthogonal knobs, prototyped in order of leverage:
+
+### 1. Scalable component matching (enabling; committed separately)
+`gmm._match_components` enumerated all **k! permutations** to align old->new
+mixture components in `update()`. Fine for k<=6, impossible for k>=10 (12!~5e8,
+16!~2e13). The objective is additive over matched pairs, so it is a linear
+assignment problem: `scipy.optimize.linear_sum_assignment` gives the **same
+optimum in O(k^3)**. Verified identical to the permutation optimum for k=2..6;
+k=16 now matches in ~6 ms. Without this, "wrap the arc with many small Gaussians"
+is not even runnable.
+
+### 2. Warm-start survival (bug fix; high leverage)
+`bootstrap_from_samples` fits proposal models and stores them on
+`self.integrator`, but `MCSampler.integrate()` **rebuilt a fresh integrator** from
+the passed `gmm_dict` (values `None`) and never looked at `self.integrator` -- so
+the warm fit was **silently discarded** and a "warm" run started cold (measured:
+first chunk n_eff=1.0 despite a `[GMM warm-start] fitted ...` log line).
+`integrate()` now transfers any fitted model whose dim-group key matches into the
+new integrator (key mismatch -> cold, never biases).
+
+### 3. Data-driven component count (the flexible allocation)
+`fit_gmm_adaptive(samples, bounds, log_weights, k_max, ...)`:
+  * fit k over a ladder `[1,2,3,4,6,8,...] <= k_max`,
+  * score each by a **weighted BIC**  `-2*wLL + p*ln(N_eff)`  (p = free params of
+    a k-component d-dim mixture, N_eff = Kish effective sample size of the fit
+    weights),
+  * keep the best k, then **prune** components whose weight < floor.
+
+BIC allocates more components only where the importance-weighted cloud is
+genuinely non-Gaussian, and stays at k=1 for a single blob; the ln(N_eff) penalty
+makes it self-limiting, so it avoids the instability of a fixed over-allocated k.
+
+**Init-only, then stable merge.** A group with `gmm_adaptive[group]=k_max` picks
+its k by BIC at *initialization*, then hands off to the existing, proven-stable
+merge adaptation (`model.update()`). A per-chunk BIC refit-fresh was tried and
+**rejected**: it makes the proposal wander (n_eff peaks then collapses) because
+each fit sees a different elite cloud; the incremental merge smooths that out.
+
+**Defensive tail coverage (optional, `add_defensive_component`).** A broad box-
+covering component with weight `defensive_frac` bounds the importance weights so a
+tight fit to the elite cloud cannot blow up n_eff on the broad/degenerate
+directions (the AV sampler gets the same guarantee from its cover-fraction floor).
+Kept as an option; see the caveat below.
+
+### Safety: opt-in, and a floor at the stress-tested layout
+The flexible allocation is a **refinement layer, never a replacement**:
+  * It is **opt-in** (`--internal-gmm-adaptive-components`, default OFF).  With
+    the flag off the driver builds the exact hard-coded `gmm_dict`/`comp_dict`/
+    `gmm_adapt` as before -- byte-identical behavior for the primary ILE use case.
+  * When on, BIC chooses k in **[k_min, k_max]** with `k_min` = the group's
+    stress-tested hard-coded count, and pruning never drops below `k_min`.  So
+    adaptive can only ADD components where the data earns them; it can never
+    allocate fewer than the validated layout.  This protects broad multi-modal
+    posteriors (e.g. a multi-modal sky keeps its default components even if the
+    *initial* elite cloud -- fit before the proposal has explored every mode --
+    looks single-peaked; the spare capacity lets the merge adaptation grow into
+    the other modes as they appear).
+
+### Portfolio
+`--internal-gmm-adaptive-components` also works with `--sampler-method portfolio`.
+Invoke the members with the flag REPEATED (it is `append`, not comma-split):
+`--sampler-portfolio AV --sampler-portfolio GMM` (NOT `"AV,GMM"`, which becomes
+one bogus member).  When `GMM` is a member the driver sets `sampler_method='GMM'`,
+so the full GMM config section runs for the member: it gets the stress-tested
+pairing `{sky:4, dist-incl:2, phase:frozen}` AND, with the flag on, the per-group
+adaptive allocation on the ADAPTING groups only -- e.g. `gmm_adaptive={(4,5):8,
+(3,2):8}` (sky, dist-incl), floored at 4/2, phase excluded.  The GMM member honors
+this in `update_sampling_prior` (the path the portfolio drives).  Default OFF ->
+the portfolio's stress-tested GMM member config is unchanged.  This is the intended
+way to use the flexible GMM: AV carries convergence, the GMM member contributes a
+hands-free correlated proposal instead of a hand-tuned component layout.
+
+**Status (2026-07-21).** After the AV/portfolio fixes on the base branch
+(`d44fe486` member setup, `edf775c7` AV empty-selection, `f2d51de0` freeze grace +
+revive + NaN-weight guard) the AV+GMM portfolio runs to completion on S250114ax and
+the default-vs-adaptive comparison is measurable.  Warm, GPU, 4 M cap,
+`--sampler-portfolio AV --sampler-portfolio GMM`:
+
+| warm portfolio, GMM member   | peak n_eff (grace=25, default) | peak n_eff (freeze-exempt) |
+|------------------------------|-------------------------------:|---------------------------:|
+| default (hard-coded pairing) | 3.01                           | 1.66                       |
+| **adaptive (BIC, cap 8)**    | **18.2**                       | 4.16                       |
+
+**The flexible allocation clearly helps the portfolio: the adaptive GMM member
+gives ~6x the peak n_eff of the hard-coded member (18.2 vs 3.01)** at the default
+grace(25).  This is the headline portfolio result -- a hands-free GMM member that
+outperforms the hand-tuned layout inside the mix.
+
+**AV is still not contributing, and freeze-exemption does NOT fix it (a separate
+balance-heuristic issue, PR #26 territory).**  AV's mixture weight stays pinned at
+~0.0099 (= 1/101, a weight floor) for the ENTIRE run whether it is frozen or not --
+so the earlier "freeze-out" was a symptom, not the cause: the balance heuristic
+simply never assigns AV meaningful weight when a warm GMM member is present, so the
+portfolio always rides the GMM member.  Making AV freeze-exempt (grace spanning the
+whole run) is actually *worse* (adaptive 4.16 vs 18.2): AV then keeps drawing its
+~1% share unproductively (with `nan`s) and dilutes the estimate, instead of being
+frozen out of the way.  So the open question for the AV/portfolio side is why the
+balance heuristic floors AV's weight at 1/101 here -- not the freezing per se.  The
+GMM-member allocation result above stands regardless.
+
+### Driver flags
+```
+--internal-gmm-adaptive-components         # enable BIC allocation (opt-in; OFF by default)
+--internal-gmm-max-components N   (def 8)  # per-group cap (floor = the hard-coded count)
+--internal-gmm-defensive-frac F   (def 0)  # opt-in defensive tail component
+--internal-gmm-inflate X          (def 1)  # covariance (std) inflation
+```
+
+## Measured results
+
+### Synthetic (data-free, moderate SNR -- where importance sampling is viable)
+6-D target: a curved **banana ridge** in 2 dims (distance-inclination analogue),
+a strongly-correlated Gaussian pair (phase-pol analogue), a tight blob (sky).
+`test/integrators/synth`-style harness, n_eff vs N (cumulative samples):
+
+| proposal                     | n_eff>=100 at N | final n_eff | lnI    |
+|------------------------------|-----------------|-------------|--------|
+| correlate-all, fixed k=1     | 76 k            | ~50         | 3.06   |
+| correlate-all, fixed k=2     | **28 k**        | **312**     | 3.05   |
+| correlate-all, fixed k=4     | 752 k           | ~96         | 3.06   |
+| **flexible (BIC, k<=8)**     | 220 k           | 135         | 3.03   |
+
+Flexible is **robust and unbiased**: it beats k=1, avoids the k=4 over-allocation
+collapse, and lands the same integral -- without any hand-tuning. It does not beat
+the *oracle-best* fixed k=2, which is the expected price of a hands-free allocator.
+Note fixed k=4 being far worse than k=2 is exactly the "a wrong hard-coded count
+hurts" failure the flexible allocation exists to avoid.
+
+### S250114ax (real, SNR~82) -- n_eff vs N, `--n-max 4e6 --n-eff 100`
+Same worker, byte-identical data, only the proposal/config varies:
+
+| sampler / config                                   | warm | peak n_eff (<=4 M) |
+|----------------------------------------------------|------|--------------------|
+| **AV (VARAHA), warm (reference)**                  | yes  | **~89 (->100 @~3.4 M)** |
+| hard-coded pairing, cold                           | no   | 1.29 |
+| correlate-all k=2, warm (warm-start now survives)  | yes  | 5.7 |
+| correlate-all k=8 / k=16, warm + --adapt-adapt     | yes  | ~1.0 |
+| **flexible (BIC k<=8), warm + --adapt-adapt**      | yes  | 1.03 |
+| flexible (BIC k<=8), cold + --adapt-adapt          | no   | 1.00 |
+| (independent) prior pure-GMM logs gmm*/cold*       | --   | 1.3 - 3.2 |
+
+**Pure GMM importance sampling stalls at n_eff ~ 1-7 on this event, regardless of
+component allocation (fixed k=2..16, BIC-adaptive), warm start, defensive coverage
+(0.05), or covariance inflation (2x-5x).** This is corroborated by five pre-
+existing pure-GMM logs in the pipeline (peak 1.3-3.2). The runs that reached ~100
+in that directory are **AV / portfolio** runs, not pure GMM.
+
+## Why GMM stalls here (and AV does not)
+
+At SNR~82 the likelihood spans exp(~1210). The honest per-chunk effective sample
+size `ESS(lnL + ln p - ln q)` is **exactly 1** every chunk: within any chunk of
+proposal draws, the single sample nearest the sharp peak carries ~100+ nats more
+log-weight than the rest, so it dominates. For n_eff to exceed 1, the proposal
+would have to match `exp(lnL)*prior` to within O(1) *across* the peak -- i.e. be
+almost the posterior already. A moving Gaussian-mixture importance proposal does
+not get there from a broad start:
+  * the beta-tempered refit drives the exponent to ~0.005 (nearly flat) to keep
+    its own ESS up, so it barely uses the likelihood and never concentrates;
+  * the rank-elite (cross-entropy) refit fits the top-k by lnL, but those elites
+    are spread along the curved degeneracy ridge, so the fit is a broad Gaussian
+    over the ridge -- more components do not help because the ESS-1 domination is
+    set by the *narrow* constrained directions, not the ridge.
+AV (VARAHA) is not importance sampling: it contracts an axis-aligned live volume
+against a likelihood threshold with a coverage floor, which is the right structure
+for a sharply-peaked target (at the cost of not wrapping the diagonal arc, hence
+its own ~3e-5 efficiency ceiling).
+
+## Recommendation / tradeoffs
+
+* **Keep** the three fixes -- they are correct and independently valuable:
+  O(k^3) matching, warm-start survival, and BIC allocation remove the hard-coding
+  and make a warm GMM actually warm. The synthetic shows the allocation is robust
+  and unbiased.
+* **Do not** expect pure GMM to beat AV on high-SNR, strongly-degenerate events.
+  Use the flexible GMM **inside the portfolio** (`--sampler-method portfolio`),
+  where the balance-heuristic mixture density keeps a weak member from biasing --
+  with a **hands-free** GMM member instead of a hand-tuned component layout.  This
+  is now wired and MEASURED (see Portfolio Status): the adaptive GMM member gives
+  ~6x the portfolio peak n_eff of the hard-coded member on S250114ax.  The one
+  remaining item is on the AV/portfolio side (PR #26): the balance heuristic floors
+  the AV member's weight at ~1/101 on this event, so AV never contributes (and
+  freeze-exemption does not fix it) -- once AV pulls its weight, the portfolio
+  should combine AV's convergence with the flexible GMM's correlated proposal.
+* **Future levers** for making GMM itself competitive here would be *coordinate*
+  changes that de-curve the arc (a distance-inclination reparametrization,
+  rotate-phase for phase<->pol) so a low-k axis-aligned mixture fits -- i.e.
+  attack the correlation in coordinates, then let BIC pick k. See the breadcrumb's
+  "real levers" section.
+
+## Code map
+* `RIFT/integrators/gaussian_mixture_model.py`: `_match_components` (Hungarian),
+  `fit_gmm_adaptive`, `gmm.prune_components`, `gmm.num_free_params`,
+  `add_defensive_component`, `_mixture_log_density_normalized`.
+* `RIFT/integrators/MonteCarloEnsemble.py`: `integrator.gmm_adaptive/
+  gmm_defensive_frac/gmm_inflate`; BIC-at-init in `_train`.
+* `RIFT/integrators/mcsamplerEnsemble.py`: warm-start transfer in `integrate()`;
+  `gmm_adaptive` threading in `integrate()`/`setup()`.
+* `bin/integrate_likelihood_extrinsic_batchmode`: the four flags + `gmm_adaptive`
+  dict construction in the GMM section.
+* `test/integrators/test_gmm_adaptive.py`: unit tests (5/5).

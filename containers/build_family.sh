@@ -87,6 +87,7 @@ for row in "${MATRIX[@]}"; do
     sed -e "s#@@BASE_IMAGE@@#${base}#g" \
         -e "s#@@CUPY_PKG@@#${cupy}#g" \
         -e "s#@@REQFILE@@#${HERE}/requirements-container.txt#g" \
+        -e "s#@@BUILD_CONSTRAINT@@#${HERE}/constraints-container-build.txt#g" \
         "${TEMPLATE}" > "${rendered}"
 
     {

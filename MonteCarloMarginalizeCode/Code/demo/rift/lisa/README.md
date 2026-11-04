@@ -1,0 +1,124 @@
+# LISA zero-likelihood CEPP demo
+
+This directory contains the first checked-in LISA/RIFT workflow scaffold.  It is
+intended to be small enough for CI contract testing while still looking like the
+shape of a real LISA pipeline run.
+
+The demo uses `helper_LISA_Events.py` to write the files consumed by
+`create_event_parameter_pipeline_BasicIteration`:
+
+- `proposed-grid.dat`
+- `args_ile.txt`
+- `args_cip_list.txt`
+- `args_test.txt`
+- `helper_transfer_files.txt`
+- `command-cepp-lisa.sh`
+
+The default path uses `--zero-likelihood`, so it validates file formats,
+hyperpipeline sky columns, executable handoffs, and DAG rendering without
+requiring real Sangria frames or PSD products.
+
+## Run
+
+From a checkout with the normal RIFT runtime available:
+
+```bash
+./MonteCarloMarginalizeCode/Code/demo/rift/lisa/run_lisa_zero_likelihood_cepp.sh
+```
+
+Useful environment overrides:
+
+- `RIFT_LISA_PYTHON`: Python executable to use.
+- `RIFT_LISA_WORKDIR`: output directory; defaults under `/tmp`.
+- `RIFT_LISA_RENDER_CEPP=0`: only write the helper bundle; do not render CEPP.
+
+Additional arguments are passed through to `helper_LISA_Events.py`, for example:
+
+```bash
+RIFT_LISA_WORKDIR=/tmp/rift-lisa-demo \
+  ./MonteCarloMarginalizeCode/Code/demo/rift/lisa/run_lisa_zero_likelihood_cepp.sh \
+  --mass1 120000 --mass2 90000 --ecliptic-longitude 1.4
+```
+
+Expected output is a helper bundle and, unless `RIFT_LISA_RENDER_CEPP=0`, CEPP
+submit/DAG files in the work directory.  This script does not submit the DAG.
+
+## Synthetic ILE surface
+
+The companion script builds tiny synthetic A/E/T inputs and runs the standalone
+LISA ILE against them:
+
+```bash
+./MonteCarloMarginalizeCode/Code/demo/rift/lisa/run_lisa_synthetic_ile.sh
+```
+
+It writes frequency-domain HDF5 frames, a `lisa.cache`, flat XML PSDs, helper
+contract files, and `lisa_ile_0_.dat`.  The run pins most extrinsic parameters
+but leaves polarization open, so it exercises a nonzero LISA likelihood integral
+without becoming a full PE run.
+
+This surface currently still uses XML PSDs because that is what the ILE path
+loads today.  The synthetic input builder keeps PSD generation local and
+mechanical, making it a good target for a future ASCII-PSD path once the LISA
+workflow no longer needs `lal.series` XML PSD documents.
+
+## Analytic PSD products
+
+For a closer analogue of the toy `generate_iligo_psd` examples, this directory
+also provides:
+
+```bash
+./MonteCarloMarginalizeCode/Code/demo/rift/lisa/make_lisa_psds.py \
+  --output-directory /tmp/rift-lisa-psds --write-ascii
+```
+
+It writes analytic LISA A/E/T XML PSDs and, optionally, `LISA_psd.txt`.  The
+PP-style LISA surface in `MonteCarloMarginalizeCode/Code/test/pp_lisa` uses
+this generator together with the synthetic frame builder and
+`util_RIFT_pseudo_pipe.py --lisa-known-sky`.
+
+## Heavyweight end-to-end demo
+
+For a local end-to-end LISA exercise that uses synthetic data, analytic PSDs,
+`pseudo_pipe`, CEPP rendering, a real direct ILE likelihood evaluation, and the
+LISA run diagnostic:
+
+```bash
+./MonteCarloMarginalizeCode/Code/demo/rift/lisa/run_lisa_end_to_end.sh
+```
+
+Useful environment overrides:
+
+- `RIFT_LISA_WORKDIR`: output directory; defaults under `/tmp`.
+- `RIFT_LISA_RUN_ILE=0`: render inputs and CEPP files only.
+- `RIFT_LISA_VARY_SKY=1`: render the `pseudo_pipe` surface with sky left as an
+  intrinsic hyperpipeline parameter.  The direct ILE check remains fixed-sky so
+  the heavyweight demo has a stable, fast likelihood evaluation.
+
+Expected heavyweight outputs include `event_0/` synthetic data products,
+`analysis_event_0/` CEPP files, `lisa_end_to_end_0_.dat`, and
+`lisa_end_to_end_summary.json`.
+
+## Production-ini path
+
+The same known-sky workflow can be driven from an `.ini` file through the
+production entry point, instead of `--lisa-*` CLI flags:
+
+```bash
+util_RIFT_pseudo_pipe.py --use-ini BBH_lisa_demo.ini --use-rundir <RUNDIR>
+```
+
+`BBH_lisa_demo.ini` is a toy template (IMRPhenomD, vary-sky + reflected-sky).
+Per-channel data products are read from the conventional `[data]` (`channels`)
+and `[lalinference]` (`psds`) sections; every other option flows through the
+generic `[rift-pseudo-pipe]` parser by CLI-arg name.  ConfigParser does no path
+interpolation, so substitute the `__BUNDLE_DIR__` placeholder for the absolute
+bundle path.  The convenience script does the build + substitute + render:
+
+```bash
+./MonteCarloMarginalizeCode/Code/demo/rift/lisa/run_lisa_ini_demo.sh
+```
+
+The ini path is a thin front-end over the validated CLI machinery: it renders a
+byte-identical workflow (see `test/test_lisa_ini_contract.py`), so it does not
+submit and stays a drop-in alternative to the CLI form.

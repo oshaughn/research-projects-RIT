@@ -5,8 +5,10 @@
 # substituting the @@PLACEHOLDERS@@ below, then runs `apptainer build`.
 #
 # Placeholders:
-#   @@BASE_IMAGE@@  - docker base image (e.g. nvidia/cuda:11.8.0-runtime-ubuntu22.04)
-#   @@CUPY_PKG@@    - cupy wheel matched to the base CUDA version (cupy-cuda11x / cupy-cuda12x)
+#   @@BASE_IMAGE@@       - docker base image (e.g. nvidia/cuda:11.8.0-runtime-ubuntu22.04)
+#   @@CUPY_PKG@@         - cupy wheel matched to the base CUDA version (cupy-cuda11x / cupy-cuda12x)
+#   @@REQFILE@@          - host path to the runtime requirement file
+#   @@BUILD_CONSTRAINT@@ - host path to the isolated-build constraint file
 #
 # The top-level rift_container.def is left in place as the default single build;
 # this template + build_family.sh is the multi-target path.
@@ -14,11 +16,13 @@ Bootstrap: docker
 From: @@BASE_IMAGE@@
 
 %files
-   # Stage the shared dependency list from the HOST build tree into the image,
+   # Stage the shared dependency and build-constraint lists from the HOST build
+   # tree into the image,
    # so the build does NOT depend on the cloned RIFT branch carrying this file
    # (the clone below may be a branch/release that predates it). build_family.sh
    # fills in the absolute host path of containers/requirements-container.txt.
    @@REQFILE@@ /opt/requirements-container.txt
+   @@BUILD_CONSTRAINT@@ /opt/constraints-container-build.txt
 
 %post
    # Update the system and install essential libraries
@@ -53,6 +57,10 @@ From: @@BASE_IMAGE@@
    cd research-projects-RIT
    #git checkout rift_O4c
    pip3 install --upgrade pip
+   # pip >=25.3 applies this only inside PEP 517 isolated build environments.
+   # In particular, keep pygsl_lite 0.1.8 away from setuptools 84 while still
+   # resolving the container's runtime dependency set at latest versions.
+   export PIP_BUILD_CONSTRAINT=/opt/constraints-container-build.txt
    pip3 install --upgrade setuptools --break-system-packages
    pip3 install -e .
 

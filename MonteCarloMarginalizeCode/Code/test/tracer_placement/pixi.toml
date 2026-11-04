@@ -1,0 +1,76 @@
+# Pixi project for the RIFT.misc.tracer_placement test suite.
+#
+# Location: $RIFT_ROOT/MonteCarloMarginalizeCode/Code/test/tracer_placement/
+# Suite:    $RIFT_ROOT/MonteCarloMarginalizeCode/Code/test/test_tracer_placement_gp.py
+#
+# Deliberately LIGHT. Unlike test/hyperpipe/, this environment has NO lalsuite:
+# the tracer placement engine is pure numpy (plus sklearn for the `rf` fit and
+# scipy for `rbf`), and the test suite loads `tracer_placement` directly off
+# RIFT/misc rather than importing the RIFT package, whose __init__ would drag in
+# lalsimutils and the whole LAL chain. Keeping it out makes `pixi install` a
+# ~1-minute job instead of a multi-GB solve, which is the point: there should be
+# no excuse for shipping this engine untested.
+#
+# The consequence is that the two tracer CLI tools are covered asymmetrically:
+# util_HyperparameterTracerUpdate.py (.dat I/O, numpy-only) is exercised
+# end-to-end, while util_ParameterTracerUpdate.py (XML I/O via lalsimutils) is
+# checked by static parser inspection. Use the hyperpipe/root env if you need to
+# run the event-level tool for real.
+#
+# Tasks
+# -----
+#   pixi run test           # full pytest suite
+#   pixi run test-minimal   # pytest-free run (the file has its own __main__)
+#   pixi run demo           # print the extrapolation table that motivates gp_linmean
+#   pixi run which-suite    # confirm the paths resolved correctly
+#
+# First-time setup
+# ----------------
+#   curl -fsSL https://pixi.sh/install.sh | bash      # one-time
+#   cd $RIFT_ROOT/MonteCarloMarginalizeCode/Code/test/tracer_placement
+#   pixi run test
+#
+# pixi.lock is NOT tracked here -- this is a disposable test environment that
+# runs in CI and on assorted machines, so let pixi re-solve. See ./.gitignore.
+
+[workspace]
+name = "rift-tracer-placement-test"
+version = "0.1.0"
+description = "Test environment for RIFT.misc.tracer_placement (fits + samplers)."
+authors = ["RIFT developers"]
+channels = ["conda-forge"]
+platforms = ["linux-64", "osx-64", "osx-arm64"]
+
+[dependencies]
+python = ">=3.11"
+# The engine core is numpy-only by design; these two are what the optional
+# fits need. sklearn -> fits/_rf.py, scipy -> fits/_rbf.py.
+numpy = "*"
+scikit-learn = "*"
+scipy = "*"
+pytest = "*"
+
+# Resolve paths relative to this pixi.toml so the project works from any RIFT
+# clone (no hardcoded user path). The layout is:
+#
+#   $RIFT_ROOT/MonteCarloMarginalizeCode/Code/test/tracer_placement/pixi.toml
+#                                                  ^^^^^^^^^^^^^^^^
+#                                                  PIXI_PROJECT_ROOT
+#
+# so going up four levels lands at $RIFT_ROOT.
+#
+# NOTE: PYTHONPATH is deliberately NOT set to $RIFT_PY. Putting it there would
+# let a stray `import RIFT.<anything>` succeed at collection time and then fail
+# on lalsuite, which is absent here on purpose. The suite resolves
+# RIFT/misc/tracer_placement from its own __file__ instead.
+[activation.env]
+RIFT_ROOT = "$PIXI_PROJECT_ROOT/../../../.."
+RIFT_PY   = "$PIXI_PROJECT_ROOT/../.."
+RIFT_BIN  = "$PIXI_PROJECT_ROOT/../../bin"
+RIFT_TEST = "$PIXI_PROJECT_ROOT/.."
+
+[tasks]
+test         = "pytest -v $RIFT_TEST/test_tracer_placement_gp.py"
+test-minimal = "python $RIFT_TEST/test_tracer_placement_gp.py"
+demo         = "python $RIFT_TEST/test_tracer_placement_gp.py"
+which-suite  = "echo RIFT_ROOT=$RIFT_ROOT && ls -la $RIFT_PY/RIFT/misc/tracer_placement/fits/ && ls -la $RIFT_TEST/test_tracer_placement_gp.py"

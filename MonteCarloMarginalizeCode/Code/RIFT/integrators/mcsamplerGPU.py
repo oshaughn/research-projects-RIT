@@ -11,6 +11,7 @@ from collections import defaultdict
 
 import numpy
 np=numpy #import numpy as np
+from RIFT.precision import RiftFloat  # platform-portable replacement for np.float128
 from scipy import integrate, interpolate, special
 import itertools
 import functools
@@ -19,7 +20,7 @@ import os
 
 try:
   import cupy
-  import cupyx   # needed for logsumexp
+  import cupyx.scipy.special   # needed for logsumexp
   xpy_default=cupy
   try:
     xpy_special_default = cupyx.scipy.special
@@ -33,7 +34,11 @@ try:
   identity_convert_togpu = cupy.asarray
   junk_to_check_installed = cupy.array(5)  # this will fail if GPU not installed correctly
   cupy_ok = True
-  cupy_pi = cupy.array(np.pi)
+  # Keep pi a plain Python float (NOT a device scalar): the prior helpers below divide/add it to
+  # arrays that may be host (numpy) -- e.g. AV's prior_prod evaluates them on a CPU copy -- and
+  # `numpy_array / cupy_scalar` re-dispatches to cupy and raises "Unsupported type numpy.ndarray".
+  # A float works for both backends (cupy_array / float stays on device).
+  cupy_pi = np.pi
 
   from RIFT.interpolators.interp_gpu import interp
 
@@ -60,6 +65,9 @@ except:
   cupy_ok = False
   cupy_pi = np.pi
 
+from RIFT.integrators.rvs_record import RvsRecord, SamplerOutputMixin   # see DESIGN_rvs_naming.md
+from RIFT.integrators.mcsampler import infer_array_module
+
 def set_xpy_to_numpy():
    xpy_default=numpy
    identity_convert = lambda x: x  # trivial return itself
@@ -78,7 +86,7 @@ if not( 'RIFT_LOWLATENCY'  in os.environ):
  except:
     print(" - No healpy - ")
 
-from ..integrators.statutils import  update,finalize, init_log,update_log,finalize_log
+from ..integrators.statutils import  update,finalize, init_log,update_log,finalize_log, pareto_khat_from_log, ess_from_log_weights, block_scatter_sigma, bootstrap_lnZ_quantiles
 
 #from multiprocessing import Pool
 
@@ -88,16 +96,30 @@ __author__ = "Chris Pankow <pankow@gravity.phys.uwm.edu>, Dan Wysocki, R. O'Shau
 
 rosDebugMessages = True
 
+# Minimum uniform-mixture fraction applied to every adapted histogram (see
+# compute_hist): guarantees no bin has exactly zero sampling probability, since a
+# zero bin can never be re-drawn (absorbing state) and silently truncates the
+# integration domain.  Override at module level for controlled experiments.
+HIST_FLOOR_LEVEL_MIN = 1e-2
+
 class NanOrInf(Exception):
     def __init__(self, value):
         self.value = value
     def __str__(self):
         return repr(self.value)
 
-class MCSampler(object):
+class MCSampler(SamplerOutputMixin, object):
     """
     Class to define a set of parameter names, limits, and probability densities.
     """
+
+    # PORTFOLIO MEMBER CONTRACT.  draw_simplified() reports joint_p_s as the product of
+    # pdf[p](x)/_pdf_norm[p], which is the density the inverse-CDF draws actually come from, so
+    # a portfolio may pool it through the legacy stratified denominator.  Declared rather than
+    # assumed: mcsamplerPortfolio refuses that fallback for any member that does not say so,
+    # because a member reporting some other scale biases the pooled evidence silently.
+    joint_p_s_is_normalized_density = True
+
 
     @staticmethod
     def match_params_from_args(args, params):
@@ -139,6 +161,7 @@ class MCSampler(object):
         # If the pdfs aren't normalized, this will hold the normalization 
         # constant
         self._pdf_norm = defaultdict(lambda: 1)
+        self._pdf_norm_initial = defaultdict(lambda: 1)
         # Cache for the sampling points
         self._rvs = {}
         # parameter -> cdf^{-1} function object
@@ -171,6 +194,7 @@ class MCSampler(object):
         self.params_ordered = []
         self.pdf = {}
         self._pdf_norm = defaultdict(lambda: 1.0)
+        self._pdf_norm_initial = defaultdict(lambda: 1.0)
         self._rvs = {}
         self._hist = {}
         self.cdf = {}
@@ -215,6 +239,10 @@ class MCSampler(object):
           self.cdf_inv[params] =  self.cdf_inverse(params)
         self.pdf_initial[params] = pdf
         self.cdf_inv_initial[params] = self.cdf_inv[params]
+        # cdf_inverse() above sets _pdf_norm[params] to the mass of an UNNORMALIZED pdf.
+        # Keep that value: the adaptive path below overwrites _pdf_norm with 1 (the histogram
+        # proposal is already a density), and reset_sampling has to be able to put it back.
+        self._pdf_norm_initial[params] = self._pdf_norm[params]
         if not isinstance(params, tuple):
 #            self.cdf[params] =  self.cdf_function(params)
             if prior_pdf is None:
@@ -227,9 +255,35 @@ class MCSampler(object):
             print("   Adapting ", params)
             self.adaptive.append(params)
 
+    def _trim_rvs_to_record(self, record_key):
+        """Drop parameter rows that the integrand record of THIS pass does not describe.
+
+        _rvs[p] survives an integrate() call, while the integrand record restarts, so a
+        sampler reused for a second pass carries the earlier pass's draws in _rvs[p] and
+        only this pass's in _rvs[record_key].  The cleanup below indexes EVERY key with
+        one index list built from the integrand length, which on a longer _rvs[p] selects
+        its first rows: the parameter values then belong to different draws than the
+        likelihoods beside them.  Nothing downstream can see that, because the lengths
+        agree afterwards.
+
+        Trimming to the tail keeps the rows the record actually describes.  A no-op
+        whenever the two already agree, which is every single-pass call.
+        """
+        n_rec = len(self._rvs[record_key])
+        for key in list(self._rvs.keys()):
+            val = self._rvs[key]
+            if isinstance(key, tuple):
+                if val.shape[-1] > n_rec:
+                    self._rvs[key] = val[:, -n_rec:]
+            elif len(val) > n_rec:
+                self._rvs[key] = val[-n_rec:]
+
     def reset_sampling(self,param):
       self.pdf[param] = self.pdf_initial[param]
       self.cdf_inv[param] = self.cdf_inv_initial[param]
+      # _pdf_norm travels WITH the pdf: restoring an unnormalized analytic pdf while leaving
+      # _pdf_norm at the histogram's 1.0 would report a density too large by that mass.
+      self._pdf_norm[param] = self._pdf_norm_initial[param]
 
     def setup_hist(self):
         """
@@ -273,6 +327,24 @@ class MCSampler(object):
 
 
     def compute_hist(self, x_samples, param,weights=None,floor_level=0):
+        # PUT THE INPUTS ON THIS SAMPLER'S BACKEND FIRST.  As a portfolio member the samples
+        # arrive from the aggregator's host _rvs (mcsamplerPortfolio pins self.xpy = numpy)
+        # while self.xpy here is cupy, and the first cupy ufunc downstream -- the
+        # xpy.maximum(samples, xpy.zeros(...)) clip in vectorized_general_tools.histogram --
+        # raised "TypeError: Unsupported type <class 'numpy.ndarray'>", killing every
+        # portfolio run with an AC member on a GPU node behind FAILED ANALYSIS and exit 0.
+        #
+        # DEVICE is the side to converge on here.  The result has to end up there anyway
+        # (setup_hist_single_param preallocates histogram_edges/histogram_cdf with self.xpy,
+        # and cdf_inverse_from_hist is read by device draws), and nothing here carries
+        # precision worth keeping on the host: the coordinates are float64 and this histogram
+        # is a *proposal* density, not an estimator (see _bincount_weighted).  Contrast
+        # mcsampler.py, whose accumulators are deliberately RiftFloat and so convert the
+        # other way.  asarray is a no-op when the input is already on this backend, so the
+        # standalone GPU and pure-numpy paths are untouched.
+        x_samples = self.xpy.asarray(x_samples)
+        if weights is not None:
+            weights = self.xpy.asarray(weights)
         # Rescale the samples to [0, 1]
         y_samples = (
             (x_samples - self.x_min[param]) / self.x_max_minus_min[param]
@@ -292,7 +364,12 @@ class MCSampler(object):
         # Smooth the histogram
 #        kernel_size =3
 #        histogram_values = self.xpy.convolve( histogram_values, self.xpy.ones(kernel_size)/kernel_size,mode='same')
-        # Mix with a uniform sampling
+        # Mix with a uniform sampling.  A bin with exactly zero probability is an
+        # absorbing state: it can never be drawn again, so the sampled support is
+        # permanently truncated and the integral is systematically biased LOW by the
+        # mass outside the support -- a bias no within-run error estimate can see.
+        # Enforce a minimal floor so every bin stays reachable.
+        floor_level = max(floor_level, HIST_FLOOR_LEVEL_MIN)
         histogram_values =    histogram_values*(1-floor_level)+floor_level*self.xpy.ones(len(histogram_values))/len(histogram_values)
 
         # Evaluate the CDF by taking a cumulative sum of the histogram.
@@ -315,15 +392,20 @@ class MCSampler(object):
            - for now, do on the CPU, since this is done rarely and involves fairly small arrays
            - this is very wasteful, since we are casting back to the CPU for ALL our sampling points
        """
-       if old_style or not(cupy_ok):
-         dat_cdf = identity_convert(self.histogram_cdf[param])
-         dat_edges = identity_convert(self.histogram_edges[param])
+       # Use the CPU path whenever this sampler is not actually running on the
+       # GPU (self.xpy is numpy). The GPU interp() calls cupy.searchsorted, which
+       # requires cupy arrays; the histograms are numpy when self.xpy is numpy,
+       # so the module-level cupy_ok flag is not the right gate here. Instance
+       # converters are used so nothing is force-pushed across backends.
+       if old_style or not(cupy_ok) or (self.xpy is np):
+         dat_cdf = self.identity_convert(self.histogram_cdf[param])
+         dat_edges = self.identity_convert(self.histogram_edges[param])
          y = np.interp(
-           identity_convert(P), dat_cdf,
+           self.identity_convert(P), dat_cdf,
            dat_edges,
            )
          # Return the value in the original scaling.
-         return identity_convert_togpu(y)*self.x_max_minus_min[param] + self.x_min[param]
+         return self.identity_convert_togpu(y)*self.x_max_minus_min[param] + self.x_min[param]
        dat_cdf = self.histogram_cdf[param]
        dat_edges =self.histogram_edges[param]
        y = interp(P,dat_cdf,dat_edges)
@@ -334,7 +416,7 @@ class MCSampler(object):
         y = (x - self.x_min[param]) / self.x_max_minus_min[param]
         # Compute the indices of the histogram bins that `x` falls into.
         indices = self.xpy.trunc(y / self.dx[param], out=y).astype(np.int32)
-        indices = self.xpy.minimum(indices,self.n_bins[param])  # prevent being out of range due to rounding !
+        indices = self.xpy.minimum(indices,self.n_bins[param]-1)  # prevent being out of range due to rounding (x == right edge maps to last bin)
         # Return the value of the histogram.
         return self.histogram_values[param][indices]
 
@@ -389,10 +471,25 @@ class MCSampler(object):
         Numerically determine the inverse CDF from a given sampling PDF. If the PDF itself is not normalized, the class will keep an internal record of the normalization and adjust the PDF values as necessary. Returns a function object which is the interpolated CDF inverse.
         """
         # Solve P'(x) == p(x), with P[lower_boun] == 0
+        pdf = self.pdf[param]
+        # odeint probes with a python float.  Scalar-style pdfs (uniform_samp,
+        # numpy.vectorize, uniform_samp_withfloor_vector) take it as-is; this
+        # module's vectorized helpers (ones(len(x)), xpy.sin(x)) need a length-1
+        # backend array.  Decide once by probing, then reduce whatever comes back
+        # (float, numpy scalar, 0-d or length-1 array on either backend) to a float.
+        try:
+            pdf(float(0.5*(self.llim[param]+self.rlim[param])))
+            as_array = False
+        except TypeError:
+            as_array = True
+        def _scalar(val):
+            return float(val.ravel()[0]) if hasattr(val, 'ravel') else float(val)
         def dP_cdf(p, x):
             if x > self.rlim[param] or x < self.llim[param]:
                 return 0
-            return self.pdf[param](x)
+            if as_array:
+                return _scalar(pdf(xpy_default.asarray([x], dtype=numpy.float64)))
+            return _scalar(pdf(x))
         x_i = numpy.linspace(self.llim[param], self.rlim[param], 1000)
         # Integrator needs to have a step size which doesn't step over the
         # probability mass
@@ -428,7 +525,15 @@ class MCSampler(object):
             # Store the random samples, and multiply on the contribution to the
             # joint PDF and joint prior at those samples.
             rv[i] = param_samples
-            joint_p_s *= self.pdf[param](param_samples)
+            # DIVIDE BY _pdf_norm, exactly as draw() does (see the res.append lines there).
+            # The samples come from cdf_inv[param], which is built from the NORMALIZED cdf, so
+            # the density they are actually drawn from is pdf/_pdf_norm.  Reporting the raw pdf
+            # here made joint_p_s inconsistent with the draws: the estimator weight
+            # prior/p_s was then too small by prod(_pdf_norm) -- a constant -- so integrate(),
+            # which uses draw_simplified(), reported ln Z low by log(prod(_pdf_norm)) whenever a
+            # caller passed an UNNORMALIZED sampling pdf.  _pdf_norm is 1 for a pdf that already
+            # integrates to 1, so this is a no-op for every normalized-pdf caller.
+            joint_p_s *= self.pdf[param](param_samples)/self._pdf_norm[param]
             #val= self.pdf[param](param_samples); print(type(val),param,xpy_default)
             # portfolio compatibility: prior_pdf is not always returning nice things
             prior_vals = self.prior_pdf[param](param_samples)
@@ -452,6 +557,58 @@ class MCSampler(object):
 
 
         return joint_p_s, joint_p_prior, rv
+
+    def sampling_density(self, X):
+        """Pointwise sampling density q(theta) of THIS member, evaluated at ARBITRARY points
+        X (shape (N, ndim), columns in self.params_ordered order).  Returns a host (numpy)
+        array of length N, or None if this sampler cannot express one.
+
+        THE PORTFOLIO MEMBER CONTRACT.  mcsamplerPortfolio builds the balance-heuristic
+        mixture denominator q_mix = sum_m frac_m q_m from this method, so what it returns
+        must be a properly NORMALIZED probability density over the sampler's own box, in
+        original coordinates, rather than a scale factor.
+
+        This sampler draws each parameter independently by inverse-CDF sampling, so the
+        density is the product over parameters of pdf[p](x)/_pdf_norm[p] -- exactly the
+        per-sample product draw_simplified() reports as joint_p_s, and the two are kept in
+        step.  Zero outside the box: cdf_inv cannot produce a point there, and pdf_from_hist
+        would otherwise return the clamped edge bin rather than 0.
+
+        PRECONDITION, not enforced here.  _pdf_norm[p] is only populated when add_parameter
+        had to build the CDF itself; when the CALLER supplies cdf_inv (what ILE does) it stays
+        at its default 1, and the result is then normalized only if the caller's pdf already
+        integrates to 1.  Every in-tree caller that supplies cdf_inv passes a normalized pdf
+        (ret_uniform_samp_vector_alt is 1/(b-a), cos_samp is sin(x)/2), so this is latent.  A
+        caller doing otherwise gets a q_m off by a constant and a biased mixture, with no
+        diagnostic.  Pinned by
+        test_portfolio_member_density.py::test_supplied_cdf_inv_with_unnormalized_pdf_is_the_known_hole.
+
+        READ-ONLY -- touches no sampler state and does not affect this sampler's own
+        integrate().
+        """
+        ndim = len(self.params_ordered)
+        if ndim == 0:
+            return None
+        if any(isinstance(p, tuple) for p in self.params_ordered):
+            # a joint (tuple) parameter has no per-axis pdf to take a product over
+            return None
+        Xc = np.atleast_2d(np.asarray(self.identity_convert(X), dtype=np.float64))
+        if Xc.shape[1] != ndim and Xc.shape[0] == ndim:
+            Xc = Xc.T   # tolerate (ndim, N)
+        if Xc.shape[1] != ndim:
+            return None
+        q = np.ones(Xc.shape[0], dtype=np.float64)
+        inside = np.ones(Xc.shape[0], dtype=bool)
+        for i, param in enumerate(self.params_ordered):
+            col = Xc[:, i]
+            inside &= (col >= self.llim[param]) & (col <= self.rlim[param])
+            # evaluate on the sampler's own backend, exactly as draw_simplified does, then
+            # bring the result back to the host the portfolio aggregates on
+            vals = self.pdf[param](self.identity_convert_togpu(col))
+            vals = np.asarray(self.identity_convert(vals), dtype=np.float64)
+            q *= vals/float(self._pdf_norm[param])
+        q[~inside] = 0.0
+        return q
 
     #@profile
     def draw(self, rvs, *args,**kwargs):
@@ -546,7 +703,7 @@ class MCSampler(object):
       weights_alt = self.xpy.maximum(weights_alt, 1e-5)    # prevent negative weights, in case integrating function with lnL < 0
       # now treat as sum
       weights_alt = weights_alt/(weights_alt.sum())
-      if weights_alt.dtype == numpy.float128:
+      if weights_alt.dtype == RiftFloat:
         weights_alt = weights_alt.astype(numpy.float64,copy=False)
 
       def function_wrapper(f, p):
@@ -564,12 +721,31 @@ class MCSampler(object):
                 points = rvs_here[p][-n_history_to_use:]
                 self.compute_hist(points, p,weights=weights_alt,floor_level=floor_integrated_probability)
                 self.pdf[p] = function_wrapper(self.pdf_from_hist, p)
+                # pdf_from_hist IS already a density: compute_hist normalizes the histogram to
+                # sum 1 and then divides by the bin width, and cdf_inverse_from_hist draws from
+                # that same normalized cdf.  So the caller's _pdf_norm -- the integral of the
+                # pdf they originally supplied -- is stale the moment this runs, and anything
+                # still dividing by it is introducing an error rather than removing one.
+                self._pdf_norm[p] = 1.0
                 self.cdf_inv[p] = function_wrapper(self.cdf_inverse_from_hist, p)
 
 
 
+    def _to_instance_backend(self, x):
+        """Put an integrand chunk on self.xpy, the backend of joint_p_s/joint_p_prior.
+
+        The integrand is one chunk and can move; the sampler state cannot.  It may arrive on
+        either side: a host callable on a GPU sampler, or a --gpu likelihood (device) with
+        --sampler-xpy numpy.  self.identity_convert_togpu is the identity on a numpy
+        sampler, so it cannot bring a device array back."""
+        if isinstance(x, self.xpy.ndarray):
+            return x
+        if self.xpy is numpy:
+            return numpy.asarray(identity_convert(x))   # cupy.asnumpy accepts host input too
+        return self.xpy.asarray(x)
+
     @profile
-    def integrate_log(self, lnF, *args, xpy=xpy_default,**kwargs):
+    def integrate_log(self, lnF, *args, xpy=None,**kwargs):
         """
         Integrate exp(lnF) returning lnI, by using n sample points, assuming integrand is lnF
         Does NOT allow for tuples of arguments, an unused feature in mcsampler
@@ -586,7 +762,7 @@ class MCSampler(object):
         temper_log -- Adapt in min(ln L, 10^(-5))^tempering_exp
         tempering_adapt -- Gradually evolve the tempering_exp based on previous history.
         floor_level -- *total probability* of a uniform distribution, averaged with the weighted sampled distribution, to generate a new sampled distribution
-        n_adapt -- number of chunks over which to allow the pdf to adapt. Default is zero, which will turn off adaptive sampling regardless of other settings
+        n_adapt -- number of chunks over which to allow the pdf to adapt. Default is 1000*n, i.e. adaptation runs on ANY run longer than one chunk -- it is NOT off by default.  The kwarg is in CHUNKS and is scaled by n here, so the default 1000*n is exactly n_adapt=1000; the scaled variable is then compared against self.ntotal, a SAMPLE count.  Do NOT pass 1000*n to reproduce the default
         convergence_tests - dictionary of function pointers, each accepting self._rvs and self.params as arguments. CURRENTLY ONLY USED FOR REPORTING
         Pinning a value: By specifying a kwarg with the same of an existing parameter, it is possible to "pin" it. The sample draws will always be that value, and the sampling prior will use a delta function at that value.
         """
@@ -597,6 +773,12 @@ class MCSampler(object):
             self.setup_hist_single_param(self.llim[p], self.rlim[p], n_bins, p)
 
         xpy_here = self.xpy
+        # The aggregates follow the INSTANCE backend.  A default of xpy_default was bound at
+        # import, so on a cupy host a sampler left on numpy (the constructor default, and
+        # --sampler-xpy numpy) fed host arrays to cupy ufuncs in init_log.
+        if xpy is None:
+            xpy = self.xpy
+        special_here = xpy_special_default if xpy is not numpy else special
 
         #
         # Pin values
@@ -621,7 +803,7 @@ class MCSampler(object):
         # Determine stopping conditions
         #
         nmax = kwargs["nmax"] if "nmax" in kwargs else float("inf")
-        neff = kwargs["neff"] if "neff" in kwargs else numpy.float128("inf")
+        neff = kwargs["neff"] if "neff" in kwargs else RiftFloat("inf")
         n = int(kwargs["n"] if "n" in kwargs else min(1000, nmax))
         convergence_tests = kwargs["convergence_tests"] if "convergence_tests" in kwargs else None
         save_no_samples = kwargs["save_no_samples"] if "save_no_samples" in kwargs else None
@@ -635,7 +817,7 @@ class MCSampler(object):
             print("  Note: cannot adapt, no history ")
 
         tempering_exp = kwargs["tempering_exp"] if "tempering_exp" in kwargs else 0.0
-        n_adapt = int(kwargs["n_adapt"]*n) if "n_adapt" in kwargs else 1000  # default to adapt to 1000 chunks, then freeze
+        n_adapt = int(kwargs["n_adapt"]*n) if "n_adapt" in kwargs else 1000*n  # default to adapt to 1000 chunks, then freeze.  NOTE: scaled by n, matching integrate()
         floor_integrated_probability = kwargs["floor_level"] if "floor_level" in kwargs else 0
         temper_log = kwargs["tempering_log"] if "tempering_log" in kwargs else False
         tempering_adapt = kwargs["tempering_adapt"] if "tempering_adapt" in kwargs else False
@@ -650,6 +832,14 @@ class MCSampler(object):
         deltalnL = kwargs['igrand_threshold_deltalnL'] if 'igrand_threshold_deltalnL' in kwargs else float("Inf") # default is to return all
         deltaP    = kwargs["igrand_threshold_p"] if 'igrand_threshold_p' in kwargs else 0 # default is to omit 1e-7 of probability
         bFairdraw  = kwargs["igrand_fairdraw_samples"] if "igrand_fairdraw_samples" in kwargs else False
+        # The fair draw below REPLACES _rvs with an export resample; a consumer that then
+        # weights those rows applies w twice.  Record whether it actually FIRED -- the CLI
+        # flag is not the same predicate, since the draw is skipped when it would not
+        # shrink the record.  Reset per pass: samplers are reused across events.
+        self._rvs_is_fairdraw = False
+        # The record describes THIS pass only.  Cleared with the flag above and set
+        # below, so it can never survive into a pass it does not describe.
+        self._rvs_record = None
         n_extr = kwargs["igrand_fairdraw_samples_max"] if "igrand_fairdraw_samples_max" in kwargs else None
 
         bShowEvaluationLog = kwargs['verbose'] if 'verbose' in kwargs else False
@@ -661,9 +851,12 @@ class MCSampler(object):
         current_log_aggregate = None
         eff_samp = 0  # ratio of max weight to sum of weights
         maxlnL = -np.inf  # max lnL
-        maxval=0   # max weight
+        maxval = -np.inf   # running max of the LOG weight; 0 would floor it at w=1
         outvals=None  # define in top level scope
         self.ntotal = 0
+        # per-chunk lnZ record: each chunk used a (different) adapted proposal, so the
+        # between-chunk scatter is an error floor the pooled variance cannot see
+        lnZ_chunk_list = []; n_chunk_list = []
         if bShowEvaluationLog:
             print("iteration Neff  sqrt(2*lnLmax) sqrt(2*lnLmarg) ln(Z/Lmax) int_var")
 
@@ -720,9 +913,7 @@ class MCSampler(object):
             else:
                 lnL= lnF(**unpacked)  # protect order using dictionary
             # take log if we are NOT using lnL
-            if cupy_ok:
-              if not(isinstance(lnL,cupy.ndarray)):
-                lnL = identity_convert_togpu(lnL)  # send to GPU, if not already there
+            lnL = self._to_instance_backend(lnL)
 
             log_integrand =lnL + self.xpy.log(joint_p_prior) - self.xpy.log(joint_p_s)
             log_weights = tempering_exp*lnL + self.xpy.log(joint_p_prior) - self.xpy.log(joint_p_s)
@@ -743,24 +934,45 @@ class MCSampler(object):
                     self._rvs["log_joint_prior"] = self.xpy.log(joint_p_prior)
                     self._rvs["log_joint_s_prior"] = self.xpy.log(joint_p_s)
                     self._rvs["log_weights"] = log_weights
-            # maxlnL
-            maxlnL_now = identity_convert(xpy.max(lnL))
-            maxlnL = identity_convert(maxlnL)
+            # maxlnL.  float(), for the same reason as maxval below: under cupy these
+            # converters return 0-d HOST arrays, and on the FIRST chunk the isinf branch
+            # assigns one straight to maxlnL -- which then meets a device value in
+            # `outvals[0]-maxlnL` (the verbose per-iteration line) and in
+            # `self._rvs["log_integrand"] > maxlnL - deltalnL` (the deltalnL cut), both of
+            # which cupy refuses.  The else branch was already safe only by accident:
+            # np.max over a list returns a numpy SCALAR, which cupy does accept.
+            maxlnL_now = float(identity_convert(xpy.max(lnL)))
+            maxlnL = float(identity_convert(maxlnL))
             if np.isinf(maxlnL ):
               maxlnL = maxlnL_now
             else:
-              maxlnL = np.max([maxlnL, maxlnL_now,-100])
+              maxlnL = float(np.max([maxlnL, maxlnL_now,-100]))
 
 
             # n, Mean, error tracked by statutils structure
             if current_log_aggregate is None:
-              current_log_aggregate = init_log(log_integrand,xpy=xpy,special=xpy_special_default)
+              current_log_aggregate = init_log(log_integrand,xpy=xpy,special=special_here)
             else:
-              current_log_aggregate = update_log(current_log_aggregate, log_integrand,xpy=xpy,special=xpy_special_default)
+              current_log_aggregate = update_log(current_log_aggregate, log_integrand,xpy=xpy,special=special_here)
             outvals = finalize_log(current_log_aggregate,xpy=xpy)
+            # per-chunk lnZ for the between-chunk error floor (init_log returns
+            # (n, log_mean, log_M2, log_ref) so lnZ_chunk = log_mean + log_ref)
+            try:
+              _chunk_agg = init_log(log_integrand,xpy=xpy,special=special_here)
+              lnZ_chunk_list.append(float(identity_convert(_chunk_agg[1])) + float(identity_convert(_chunk_agg[3])))
+              n_chunk_list.append(int(_chunk_agg[0]))
+            except Exception:
+              pass
             self.ntotal = current_log_aggregate[0]
             # effective samples
-            maxval = max(maxval, identity_convert(self.xpy.max(log_integrand) ))
+            # float(), not just identity_convert(): under cupy, identity_convert is
+            # cupy.asnumpy and self.xpy.max returns a 0-d DEVICE array, so asnumpy hands
+            # back a 0-d numpy.ndarray.  Python's max() then makes maxval a HOST ARRAY,
+            # and the eff_samp line below mixes it into a device expression -- which cupy
+            # refuses ("TypeError: Unsupported type <class 'numpy.ndarray'>"), taking down
+            # every --internal-use-lnL run on the default adaptive_cartesian_gpu sampler.
+            # A python float is accepted by both backends.
+            maxval = max(maxval, float(identity_convert(self.xpy.max(log_integrand) )))
 
             # sum of weights is the integral * the number of points
             eff_samp = xpy.exp(  outvals[0]+np.log(self.ntotal) - maxval)   # integral value minus floating point, which is maximum
@@ -792,8 +1004,7 @@ class MCSampler(object):
             # The total number of adaptive steps is reached
             #
             # FIXME: We need a better stopping condition here
-            if self.ntotal > n_adapt*n:
-                print(n_adapt,self.ntotal)
+            if self.ntotal > n_adapt:   # n_adapt already scaled by n above; the old test (n_adapt*n) double-counted n and never froze
                 continue
 
             #
@@ -805,11 +1016,45 @@ class MCSampler(object):
                     return f(arg, p)
                 return inner
 
-            weights_alt = self._rvs["log_integrand"][-n_history:]+np.max([maxlnL, 200])  # try to make sure we have some dynamic range here
-            weights_alt = self.xpy.maximum(weights_alt, 1e-5)  # prevent negative weights. NOTE THIS IS IMPORTANT: if you are integrating a function with lnL<0, use an offset!
-            weights_alt = weights_alt/(weights_alt.sum())
-            if weights_alt.dtype == numpy.float128:
+            # Tempered importance weights exp(tempering_exp*lnL + ln p - ln p_s), so the
+            # weighted histogram of draws estimates the FIXED target L^tempering_exp * prior.
+            # (The old  lnL + max(maxlnL,200)  weights ignored tempering_exp and the 1/p_s
+            # correction: near-flat weights made each histogram replay the previous
+            # proposal's sampling noise, a multiplicative random walk that collapses the
+            # proposal onto a comb of surviving bins.)
+            if save_intg:
+                weights_alt = self._rvs["log_weights"][-n_history:]
+            else:
+                # Same gap as in integrate(): save_intg is only forced on above when
+                # tempering_exp>0, while this block runs for any n_adapt>0, so with the
+                # default tempering_exp=0 there is no cached history and reading it raised
+                # KeyError('log_weights').  Adapt on this chunk alone.
+                #
+                # log_integrand, NOT log_weights: this branch is only reachable at
+                # tempering_exp == 0, where log_weights = 0*lnL + ln p - ln p_s drops the
+                # likelihood entirely and leaves the histogram replaying the previous
+                # proposal's own sampling noise.  log_integrand = lnL + ln p - ln p_s is the
+                # exact log-space twin of the int_val used by integrate().  There is no
+                # history to reach back over, so this covers one chunk regardless of
+                # history_mult.
+                weights_alt = log_integrand
+            weights_alt = self.xpy.exp(weights_alt - self.xpy.max(weights_alt))
+            # Sum stays on the DEVICE: dividing a device array by a host scalar mixes
+            # backends (test_ile_lnL_backend_defects guards exactly that).  Only the
+            # scalar used for the CHECK comes back to the host.
+            _wt_total = weights_alt.sum()
+            _wt_check = float(identity_convert(_wt_total))
+            if not numpy.isfinite(_wt_check) or _wt_check <= 0:
+                # Degenerate chunk (every lnL -inf or nan).  Normalizing would put nan in the
+                # histogram, hence in the CDF, hence in the next draw, which surfaces far away
+                # as an out-of-bounds index inside pdf_from_hist.  Keep the current proposal.
+                continue
+            weights_alt = weights_alt/_wt_total
+            if weights_alt.dtype == RiftFloat:
               weights_alt = weights_alt.astype(numpy.float64,copy=False)
+            # Points sliced to the depth the weights reach, not to n_history -- see the
+            # note on the same line in integrate().
+            n_history_here = len(weights_alt)
 
             for itr, p in enumerate(self.params_ordered):
                 # # FIXME: The second part of this condition should be made more
@@ -817,9 +1062,15 @@ class MCSampler(object):
                 if p not in self.adaptive or p in list(kwargs.keys()):
                     continue
 
-                points = self._rvs[p][-n_history:]
+                points = self._rvs[p][-n_history_here:]
                 self.compute_hist(points, p,weights=weights_alt,floor_level=floor_integrated_probability)
                 self.pdf[p] = function_wrapper(self.pdf_from_hist, p)
+                # pdf_from_hist IS already a density: compute_hist normalizes the histogram to
+                # sum 1 and then divides by the bin width, and cdf_inverse_from_hist draws from
+                # that same normalized cdf.  So the caller's _pdf_norm -- the integral of the
+                # pdf they originally supplied -- is stale the moment this runs, and anything
+                # still dividing by it is introducing an error rather than removing one.
+                self._pdf_norm[p] = 1.0
                 self.cdf_inv[p] = function_wrapper(self.cdf_inverse_from_hist, p)
 
         # If we were pinning any values, undo the changes we did before
@@ -833,7 +1084,9 @@ class MCSampler(object):
         #   - create the cumulative weights
         #   - find and remove samples which contribute too little to the cumulative weights
         if (not save_no_samples) and ( "log_integrand" in self._rvs):
-            self._rvs["sample_n"] = numpy.arange(len(self._rvs["log_integrand"]))  # create 'iteration number'        
+            self._trim_rvs_to_record("log_integrand")
+            # on self.xpy with the other keys: the fair draw gathers every key with a device index
+            self._rvs["sample_n"] = self.xpy.arange(len(self._rvs["log_integrand"]))  # create 'iteration number'
             # Step 1: Cut out any sample with lnL belw threshold
             indx_list = [k for k, value in enumerate( (self._rvs["log_integrand"] > maxlnL - deltalnL)) if value] # threshold number 1
             # FIXME: This is an unncessary initial copy, the second step (cum i
@@ -862,15 +1115,62 @@ class MCSampler(object):
                 else:
                     self._rvs[key] = self._rvs[key][indx_list]
 
+        # MC-error diagnostics (must run BEFORE the fairdraw resampling below rewrites
+        # _rvs).  See statutils: the pooled weight variance is 1/ESS restated and
+        # tail-blind; disclose the tail (k-hat), the between-chunk scatter, and --
+        # when the naive relative error is already large -- bootstrap lnZ quantiles.
+        mc_diag = {}
+        try:
+            _sb = block_scatter_sigma(lnZ_chunk_list, n_chunk_list)
+            if _sb is not None:
+                mc_diag['sigma_lnZ_block'] = _sb
+            if "log_integrand" in self._rvs:
+                _lw_diag = numpy.asarray(identity_convert(self._rvs["log_integrand"] + self._rvs["log_joint_prior"] - self._rvs["log_joint_s_prior"]), dtype=float)
+                _kh = pareto_khat_from_log(_lw_diag)
+                if _kh is not None:
+                    mc_diag['pareto_khat'] = _kh
+                mc_diag['n_ESS'] = ess_from_log_weights(_lw_diag)
+                _sig_rel_naive = np.inf
+                if outvals is not None:
+                    _sig_rel_naive = float(np.exp(identity_convert(outvals[1])/2 - identity_convert(outvals[0]) - np.log(self.ntotal)/2))
+                if _sig_rel_naive > 0.3 or mc_diag.get('sigma_lnZ_block', 0) > 0.3:
+                    _q = bootstrap_lnZ_quantiles(_lw_diag, n_total=self.ntotal)
+                    if _q is not None:
+                        mc_diag['lnZ_ci90'] = _q
+            print(" [mc diag] khat={} ESS={} sigma_block={} (chunks={})".format(
+                round(mc_diag['pareto_khat'],3) if 'pareto_khat' in mc_diag else None,
+                round(mc_diag['n_ESS'],1) if 'n_ESS' in mc_diag else None,
+                round(mc_diag['sigma_lnZ_block'],4) if 'sigma_lnZ_block' in mc_diag else None,
+                len(lnZ_chunk_list)))
+        except Exception as _e_diag:
+            print(" mcsamplerGPU: MC-error diagnostics failed ({}); continuing.".format(_e_diag))
+
         # Do a fair draw of points, if option is set. CAST POINTS BACK TO NUMPY, IDEALLY
+        # (DESIGN_rvs_naming.md) _rvs is the RETAINED set at this point -- pruned,
+        # perhaps, but never resampled.  Record that before the draw below can change what it
+        # means, so "not resampled" is a statement the record makes rather than the absence of
+        # one.  The reserve rides along BY REFERENCE where the sampler keeps one (AV and the
+        # portfolio); None elsewhere is the honest answer, not a gap.
+        self._rvs_record = RvsRecord.retained(
+            self._rvs, reserve=getattr(self, '_warm_seed_reserve', None))
         if bFairdraw and not(n_extr is None):
            n_extr = int(numpy.min([n_extr,1.5*identity_convert(eff_samp),1.5*neff]))
            print(" Fairdraw size : ", n_extr)
            ln_wt = self.xpy.array(self._rvs["log_integrand"] + self._rvs["log_joint_prior"] - self._rvs["log_joint_s_prior"] ,dtype=float)
            ln_wt = identity_convert(ln_wt)  # send to CPU
            ln_wt += - special.logsumexp(ln_wt)
-           wt = xpy.exp(identity_convert_togpu(ln_wt))
+           wt = xpy.exp(self._to_instance_backend(ln_wt))
            if n_extr < len(self._rvs["log_integrand"]):
+               # RETAINED-SET RESERVE, taken HERE.  The gather just below rebinds every _rvs
+               # key to n_extr rows drawn WITH REPLACEMENT, so this is the last moment at
+               # which the rows this pass actually kept still exist.  Exporters that read
+               # _rvs afterwards -- the .dgrid distance grid above all -- were binning that
+               # export resample as if it were the sample set.  Local import: AV owns the
+               # one builder and imports THIS module at the bottom, so a top-level import
+               # here would be circular.  Built only when the draw is really about to
+               # happen, so a pass that never fair-draws pays nothing for it.
+               from RIFT.integrators.mcsamplerAdaptiveVolume import keep_reserve_from_rvs
+               keep_reserve_from_rvs(self, 'mcsamplerGPU', integrand_is_log=True)
                indx_list = self.xpy.random.choice(self.xpy.arange(len(wt)), size=n_extr,replace=True,p=wt) # fair draw
                # FIXME: See previous FIXME
                for key in list(self._rvs.keys()):
@@ -880,10 +1180,20 @@ class MCSampler(object):
                        self._rvs[key] = identity_convert(self._rvs[key][indx_list])
 
 
+               self._rvs_is_fairdraw = True   # _rvs is now an EXPORT resample, rows already ~ w
+               # ...and now it is an export resample.  n_retained comes from that record's
+                # PROVENANCE, which captured the count eagerly -- NOT from len(), which reads
+                # self._rvs and would return the POST-draw length: the retained record holds a
+                # REFERENCE to the live dict this block has just replaced in place.  That is
+                # this project's own bug class, so it is spelled out rather than assumed.
+               self._rvs_record = RvsRecord.fair_draw(
+                   self._rvs, n_retained=self._rvs_record.n_retained(),
+                   reserve=getattr(self, '_warm_seed_reserve', None))
         # Create extra dictionary to return things
         dict_return ={}
         if convergence_tests is not None:
             dict_return["convergence_test_results"] = last_convergence_test
+        dict_return.update(mc_diag)   # MC-error diagnostics (pareto_khat, n_ESS, sigma_lnZ_block, lnZ_ci90)
 
         # perform type conversion of all stored variables
         if cupy_ok:
@@ -927,7 +1237,7 @@ class MCSampler(object):
         temper_log -- Adapt in min(ln L, 10^(-5))^tempering_exp
         tempering_adapt -- Gradually evolve the tempering_exp based on previous history.
         floor_level -- *total probability* of a uniform distribution, averaged with the weighted sampled distribution, to generate a new sampled distribution
-        n_adapt -- number of chunks over which to allow the pdf to adapt. Default is zero, which will turn off adaptive sampling regardless of other settings
+        n_adapt -- number of chunks over which to allow the pdf to adapt. Default is 1000*n, i.e. adaptation runs on ANY run longer than one chunk -- it is NOT off by default.  The kwarg is in CHUNKS and is scaled by n here, so the default 1000*n is exactly n_adapt=1000; the scaled variable is then compared against self.ntotal, a SAMPLE count.  Do NOT pass 1000*n to reproduce the default
         convergence_tests - dictionary of function pointers, each accepting self._rvs and self.params as arguments. CURRENTLY ONLY USED FOR REPORTING
         Pinning a value: By specifying a kwarg with the same of an existing parameter, it is possible to "pin" it. The sample draws will always be that value, and the sampling prior will use a delta function at that value.
         """
@@ -980,7 +1290,7 @@ class MCSampler(object):
         # Determine stopping conditions
         #
         nmax = kwargs["nmax"] if "nmax" in kwargs else float("inf")
-        neff = kwargs["neff"] if "neff" in kwargs else numpy.float128("inf")
+        neff = kwargs["neff"] if "neff" in kwargs else RiftFloat("inf")
         n = int(kwargs["n"] if "n" in kwargs else min(1000, nmax))
         convergence_tests = kwargs["convergence_tests"] if "convergence_tests" in kwargs else None
         save_no_samples = kwargs["save_no_samples"] if "save_no_samples" in kwargs else None
@@ -1015,6 +1325,14 @@ class MCSampler(object):
         deltalnL = kwargs['igrand_threshold_deltalnL'] if 'igrand_threshold_deltalnL' in kwargs else float("Inf") # default is to return all
         deltaP    = kwargs["igrand_threshold_p"] if 'igrand_threshold_p' in kwargs else 0 # default is to omit 1e-7 of probability
         bFairdraw  = kwargs["igrand_fairdraw_samples"] if "igrand_fairdraw_samples" in kwargs else False
+        # The fair draw below REPLACES _rvs with an export resample; a consumer that then
+        # weights those rows applies w twice.  Record whether it actually FIRED -- the CLI
+        # flag is not the same predicate, since the draw is skipped when it would not
+        # shrink the record.  Reset per pass: samplers are reused across events.
+        self._rvs_is_fairdraw = False
+        # The record describes THIS pass only.  Cleared with the flag above and set
+        # below, so it can never survive into a pass it does not describe.
+        self._rvs_record = None
         n_extr = kwargs["igrand_fairdraw_samples_max"] if "igrand_fairdraw_samples_max" in kwargs else None
 
         bShowEvaluationLog = kwargs['verbose'] if 'verbose' in kwargs else False
@@ -1023,12 +1341,12 @@ class MCSampler(object):
         if bShowEvaluationLog:
             print(" .... mcsampler : providing verbose output ..... ")
 
-        int_val1 = numpy.float128(0)
+        int_val1 = RiftFloat(0)
         self.ntotal = 0
         maxval = -float("Inf")
         maxlnL = -float("Inf")
         eff_samp = 0
-        mean, var = None, numpy.float128(0)    # to prevent infinite variance due to overflow
+        mean, var = None, RiftFloat(0)    # to prevent infinite variance due to overflow
         if cupy_ok:
           var = xpy_default.float64(0)   # cupy doesn't have float128
 
@@ -1084,14 +1402,12 @@ class MCSampler(object):
             else:
                 fval = func(**unpacked) # Chris' original plan: note this insures the function arguments are tied to the parameters, using a dictionary. 
 
-            if cupy_ok:
-              if not(isinstance(fval,cupy.ndarray)):
-                fval = identity_convert_togpu(fval)  # send to GPU, if not already there
+            fval = self._to_instance_backend(fval)
 
             #
             # Check if there is any practical contribution to the integral
             #
-            # FIXME: While not technically a fatal error, this will kill the 
+            # FIXME: While not technically a fatal error, this will kill the
             # adaptive sampling
             if not(cupy_ok): # only do this check if not on GPU
               if fval.sum() == 0:
@@ -1116,7 +1432,7 @@ class MCSampler(object):
                     self._rvs["integrand"] = xpy_here.hstack( (self._rvs["integrand"], fval) )
                     self._rvs["joint_prior"] = xpy_here.hstack( (self._rvs["joint_prior"], joint_p_prior) )
                     self._rvs["joint_s_prior"] = xpy_here.hstack( (self._rvs["joint_s_prior"], joint_p_s) )
-                    self._rvs["weights"] = xpy_here.hstack( (self._rvs["joint_s_prior"], fval*joint_p_prior/joint_p_s) )
+                    self._rvs["weights"] = xpy_here.hstack( (self._rvs["weights"], fval*joint_p_prior/joint_p_s) )   # BUGFIX: was appending onto joint_s_prior, corrupting the weights record -- the same fix mcsampler.py:571 already carries
                 else:
                     self._rvs["integrand"] = fval
                     self._rvs["joint_prior"] = joint_p_prior
@@ -1147,9 +1463,9 @@ class MCSampler(object):
             if var is None:
               var=0
             if mean is None:
-              mean=identity_convert_togpu(0.0)
+              mean=self.identity_convert_togpu(0.0)
             current_aggregate = [int(self.ntotal),mean, (self.ntotal-1)*var]
-            current_aggregate = update(current_aggregate, int_val,xpy=xpy_default)
+            current_aggregate = update(current_aggregate, int_val,xpy=self.xpy)
             outvals = finalize(current_aggregate)
 #            print(var, outvals[-1])
             var = outvals[-1]
@@ -1159,7 +1475,7 @@ class MCSampler(object):
             # running number of evaluations
             self.ntotal += n
             # FIXME: Likely redundant with int_val1
-            mean = identity_convert_togpu(xpy_default.float64(int_val1/self.ntotal))
+            mean = self.identity_convert_togpu(self.xpy.float64(int_val1/self.ntotal))
 
             # this test should not be required (!), but ... nan can happen
             if np.isfinite(maxval): #not(np.isinf(maxval)):
@@ -1211,8 +1527,12 @@ class MCSampler(object):
                 return inner
 
             if not(save_intg):
-                print("Direct access ")
-                weights_alt = int_vals**tempering_exp
+                # No integrand history was cached: save_intg is only forced on above when
+                # tempering_exp>0, while this block runs for any n_adapt>0, so the default
+                # tempering_exp=0 lands here.  The only weights in hand are this chunk's
+                # importance weights, so adapt on the chunk alone.  Was int_vals**tempering_exp,
+                # a name that has never existed, so every such call raised NameError instead.
+                weights_alt = int_val
             elif not(tempering_exp):  # zero value, should not happen but just in case, fall back to using integrand for adaptation
                 weights_alt = self._rvs["integrand"][-n_history:]
             else:
@@ -1226,11 +1546,30 @@ class MCSampler(object):
                   weights_alt =((self._rvs["integrand"][-n_history:]/self._rvs["joint_s_prior"][-n_history:]*self._rvs["joint_prior"][-n_history:])**tempering_exp )
                   weights_alt = self.xpy.maximum(weights_alt,10)   # preventing too little dynamic range
 
-            weights_alt = weights_alt/(weights_alt.sum())
+            # Sum stays on the DEVICE: dividing a device array by a host scalar mixes
+            # backends (test_ile_lnL_backend_defects guards exactly that).  Only the
+            # scalar used for the CHECK comes back to the host.
+            _wt_total = weights_alt.sum()
+            _wt_check = float(identity_convert(_wt_total))
+            if not numpy.isfinite(_wt_check) or _wt_check <= 0:
+                # An all-zero chunk reaches here only on the GPU: the fval.sum()==0 skip above
+                # is gated `if not(cupy_ok)`.  Normalizing would write nan into the histogram
+                # and the failure would surface later as an out-of-bounds index in
+                # pdf_from_hist.  Keep the current proposal instead.
+                continue
+            weights_alt = weights_alt/_wt_total
             # Type convert as needed: if weights are float128, convert to float64; otherwise we hit a typing error later with bincount
-            if weights_alt.dtype == numpy.float128:
+            if weights_alt.dtype == RiftFloat:
               weights_alt = weights_alt.astype(numpy.float64,copy=False)
 #            weights_alt = floor_integrated_probability*xpy_default.ones(len(weights_alt))/len(weights_alt) + (1-floor_integrated_probability)*weights_alt
+            # Slice the points to the depth the WEIGHTS actually reach, not to n_history.
+            # The two differ whenever the integrand record is shorter than the parameter
+            # record -- the branch above that adapts on one chunk, and any sampler reused
+            # for a second integrate(), since _rvs[p] carries over from the previous pass
+            # while "integrand" restarts.  Both records are appended in lockstep from
+            # wherever the shorter one begins, so equal depths are aligned; unequal ones
+            # reach bincount as "The weights and list don't have the same length."
+            n_history_here = len(weights_alt)
 
             for itr, p in enumerate(self.params_ordered):
                 # # FIXME: The second part of this condition should be made more
@@ -1238,13 +1577,19 @@ class MCSampler(object):
                 if p not in self.adaptive or p in list(kwargs.keys()):
                     continue
 
-                points = self._rvs[p][-n_history:]
+                points = self._rvs[p][-n_history_here:]
                 self.compute_hist(points, p,weights=weights_alt,floor_level=floor_integrated_probability)
             #    if p == 'declination':
             #          vals = identity_convert(self.histogram_values[p])
             #          print(vals)
             #          print(np.mean(vals),np.std(vals))
                 self.pdf[p] = function_wrapper(self.pdf_from_hist, p)
+                # pdf_from_hist IS already a density: compute_hist normalizes the histogram to
+                # sum 1 and then divides by the bin width, and cdf_inverse_from_hist draws from
+                # that same normalized cdf.  So the caller's _pdf_norm -- the integral of the
+                # pdf they originally supplied -- is stale the moment this runs, and anything
+                # still dividing by it is introducing an error rather than removing one.
+                self._pdf_norm[p] = 1.0
                 self.cdf_inv[p] = function_wrapper(self.cdf_inverse_from_hist, p)
 
         # If we were pinning any values, undo the changes we did before
@@ -1258,7 +1603,9 @@ class MCSampler(object):
         #   - create the cumulative weights
         #   - find and remove samples which contribute too little to the cumulative weights
         if (not save_no_samples) and ( "integrand" in self._rvs):
-            self._rvs["sample_n"] = numpy.arange(len(self._rvs["integrand"]))  # create 'iteration number'        
+            self._trim_rvs_to_record("integrand")
+            # on self.xpy with the other keys: the fair draw gathers every key with a device index
+            self._rvs["sample_n"] = self.xpy.arange(len(self._rvs["integrand"]))  # create 'iteration number'
             if deltalnL < 1e10:
               # Step 1: Cut out any sample with lnL belw threshold
               indx_list = [k for k, value in enumerate( (self._rvs["integrand"] > maxlnL - deltalnL)) if value] # threshold number 1
@@ -1271,7 +1618,7 @@ class MCSampler(object):
                 else:
                     self._rvs[key] = self._rvs[key][indx_list]
             # Step 2: Create and sort the cumulative weights, among the remaining points, then use that as a threshold
-            wt = self._rvs["integrand"]*self._rvs["joint_prior"]/self._rvs["joint_s_prior"]
+            wt = identity_convert(self._rvs["integrand"]*self._rvs["joint_prior"]/self._rvs["joint_s_prior"])  # to CPU, as the log path does
             idx_sorted_index = numpy.lexsort((numpy.arange(len(wt)), wt))  # Sort the array of weights, recovering index values
             indx_list = numpy.array( [[k, wt[k]] for k in idx_sorted_index])     # pair up with the weights again. NOTE NOT INTEGER TYPE ANY MORE
             cum_sum = numpy.cumsum(indx_list[:,1])  # find the cumulative sum
@@ -1285,12 +1632,34 @@ class MCSampler(object):
                     self._rvs[key] = self._rvs[key][indx_list]
 
         # Do a fair draw of points, if option is set. CAST POINTS BACK TO NUMPY, IDEALLY
+        # (DESIGN_rvs_naming.md) _rvs is the RETAINED set at this point -- pruned,
+        # perhaps, but never resampled.  Record that before the draw below can change what it
+        # means, so "not resampled" is a statement the record makes rather than the absence of
+        # one.  The reserve rides along BY REFERENCE where the sampler keeps one (AV and the
+        # portfolio); None elsewhere is the honest answer, not a gap.
+        # THIS ENTRY POINT IS UNAMBIGUOUSLY LINEAR.  A use_lnL=True call was handed off to
+        # integrate_log at the top, so everything reaching here stored `integrand` = the linear
+        # value and wrote no log columns at all.  Say so on the record: without it a consumer
+        # calling log_likelihood()/log_weights() gets a raise for the DEFAULT GPU mode.
+        self._rvs_record = RvsRecord.retained(
+            self._rvs, reserve=getattr(self, '_warm_seed_reserve', None),
+            integrand_is_log=False)
         if bFairdraw and not(n_extr is None):
            n_extr = int(numpy.min([n_extr,1.5*eff_samp,1.5*neff]))
            print(" Fairdraw size : ", n_extr)
            wt = self.xpy.array(self._rvs["integrand"]*self._rvs["joint_prior"]/self._rvs["joint_s_prior"]/self.xpy.max(self._rvs["integrand"]),dtype=float)
            wt *= 1.0/self.xpy.sum(wt)
            if n_extr < len(self._rvs["integrand"]):
+               # RETAINED-SET RESERVE, taken HERE.  The gather just below rebinds every _rvs
+               # key to n_extr rows drawn WITH REPLACEMENT, so this is the last moment at
+               # which the rows this pass actually kept still exist.  Exporters that read
+               # _rvs afterwards -- the .dgrid distance grid above all -- were binning that
+               # export resample as if it were the sample set.  Local import: AV owns the
+               # one builder and imports THIS module at the bottom, so a top-level import
+               # here would be circular.  Built only when the draw is really about to
+               # happen, so a pass that never fair-draws pays nothing for it.
+               from RIFT.integrators.mcsamplerAdaptiveVolume import keep_reserve_from_rvs
+               keep_reserve_from_rvs(self, 'mcsamplerGPU', integrand_is_log=False)
                indx_list = self.xpy.random.choice(self.xpy.arange(len(wt)), size=n_extr,replace=True,p=wt) # fair draw
                # FIXME: See previous FIXME
                for key in list(self._rvs.keys()):
@@ -1299,6 +1668,16 @@ class MCSampler(object):
                    else:
                        self._rvs[key] = identity_convert(self._rvs[key][indx_list])
 
+               self._rvs_is_fairdraw = True   # _rvs is now an EXPORT resample, rows already ~ w
+               # ...and now it is an export resample.  n_retained comes from that record's
+                # PROVENANCE, which captured the count eagerly -- NOT from len(), which reads
+                # self._rvs and would return the POST-draw length: the retained record holds a
+                # REFERENCE to the live dict this block has just replaced in place.  That is
+                # this project's own bug class, so it is spelled out rather than assumed.
+               self._rvs_record = RvsRecord.fair_draw(
+                   self._rvs, n_retained=self._rvs_record.n_retained(),
+                   reserve=getattr(self, '_warm_seed_reserve', None),
+                   integrand_is_log=False)
         # Create extra dictionary to return things
         dict_return ={}
         if convergence_tests is not None:
@@ -1333,22 +1712,24 @@ def uniform_samp_cdf_inv_vector(a,b,p):
 #    Note NO cupy implementation yet
 #    """
 #    return numpy.heaviside(x-a,0)*numpy.heaviside(b-x,0)/(b-a)
-def uniform_samp_vector(a,b,x,xpy=xpy_default):
+def uniform_samp_vector(a,b,x,xpy=None):
    """
    uniform_samp_vector_lazy:
       Implement uniform sampling as multiplication by a constant.
       Much faster and lighter weight. We never use the cutoffs anyways, because the limits are hardcoded elsewhere.
    """
+   xpy = infer_array_module(x, xpy)
    return xpy.ones(len(x))/(b-a)  # requires the variable in range.  Needed because there is no cupy implementation of np.heavyside
 # if cupy_ok:
 #    uniform_samp_vector = uniform_samp_vector_lazy  
 
 def ret_uniform_samp_vector_alt(a,b):
-    return lambda x: xpy_default.ones(len(x))/(b-a)
+    return lambda x: infer_array_module(x).ones(len(x))/(b-a)
 #    return lambda x: 1./(b-a)
 
 
-def uniform_samp_withfloor_vector(rmaxQuad,rmaxFlat,pFlat,x,xpy=xpy_default):
+def uniform_samp_withfloor_vector(rmaxQuad,rmaxFlat,pFlat,x,xpy=None):
+    xpy = infer_array_module(x, xpy)
     if isinstance(x, float):
         ret =0.
         if x<rmaxQuad:
@@ -1357,46 +1738,54 @@ def uniform_samp_withfloor_vector(rmaxQuad,rmaxFlat,pFlat,x,xpy=xpy_default):
             ret +=pFlat/rmaxFlat
         return  ret
     ret = xpy.zeros(x.shape,dtype=numpy.float64)
-    ret += xpy.select([x<rmaxQuad],[(1.-pFlat)/rmaxQuad])
-    ret += xpy.select([x<rmaxFlat],[pFlat/rmaxFlat])
+    ret += xpy.where(x<rmaxQuad, (1.-pFlat)/rmaxQuad, 0.)   # cupy.select refuses scalar choices
+    ret += xpy.where(x<rmaxFlat, pFlat/rmaxFlat, 0.)
     return ret
 
 
 
 # syntatic sugar : predefine the most common distributions
-def uniform_samp_phase(x,xpy=xpy_default):
+def uniform_samp_phase(x,xpy=None):
    """
    Assume range known as 0,2pi
    """
+   xpy = infer_array_module(x, xpy)
    return xpy.ones(len(x))/(2*cupy_pi) 
-def uniform_samp_psi(x,xpy=xpy_default):
+def uniform_samp_psi(x,xpy=None):
    """
    Assume range known as 0,pi
    """
+   xpy = infer_array_module(x, xpy)
    return xpy.ones(len(x))/(cupy_pi) 
-def uniform_samp_theta(x,xpy=xpy_default):
+def uniform_samp_theta(x,xpy=None):
    """
    Assume range known as 
    """
+   xpy = infer_array_module(x, xpy)
    return xpy.sin(x)/(2.) 
-def uniform_samp_dec(x,xpy=xpy_default):
+def uniform_samp_dec(x,xpy=None):
    """
    Assume range known as 
    """
+   xpy = infer_array_module(x, xpy)
    return xpy.cos(x)/(2.) 
 
 
-def cos_samp(x,xpy=xpy_default):
+def cos_samp(x,xpy=None):
+        xpy = infer_array_module(x, xpy)
         return xpy.sin(x)/2   # x from 0, pi
 
-def dec_samp(x,xpy=xpy_default):
+def dec_samp(x,xpy=None):
+        xpy = infer_array_module(x, xpy)
         return xpy.sin(x+cupy_pi/2)/2   # x from 0, pi
 
 cos_samp_vector = cos_samp
 dec_samp_vector = dec_samp
-def cos_samp_cdf_inv_vector(p,xpy=xpy_default):
+def cos_samp_cdf_inv_vector(p,xpy=None):
+    xpy = infer_array_module(p, xpy)
     return xpy.arccos( 2*p-1)   # returns from 0 to pi
-def dec_samp_cdf_inv_vector(p,xpy=xpy_default):
+def dec_samp_cdf_inv_vector(p,xpy=None):
+    xpy = infer_array_module(p, xpy)
     return xpy.arccos(2*p-1) - xpy.pi/2  # target from -pi/2 to pi/2
 
 
@@ -1411,8 +1800,8 @@ def dec_samp_cdf_inv_vector(p,xpy=xpy_default):
 def q_samp_vector(qmin,qmax,x):
     scale = 1./(1+qmin) - 1./(1+qmax)
     return 1/numpy.power((1+x),2)/scale
-def q_cdf_inv_vector(qmin,qmax,x,xpy=xpy_default):
-    return np.array((qmin + qmax*qmin + qmax*x - qmin*x)/(1 + qmax - qmax*x + qmin*x),dtype=np.float128)
+def q_cdf_inv_vector(qmin,qmax,x,xpy=None):
+    return np.array((qmin + qmax*qmin + qmax*x - qmin*x)/(1 + qmax - qmax*x + qmin*x),dtype=RiftFloat)
 
 # total mass. Assumed used with q.  2M/Mmax^2-Mmin^2
 def M_samp_vector(Mmin,Mmax,x):
@@ -1481,7 +1870,31 @@ def convergence_test_MostSignificantPoint(pcut, rvs, params):
 #    - this test assumes *unsorted* past history: the 'ncopies' segments are assumed independent.
 import scipy.stats as stats
 def convergence_test_NormalSubIntegrals(ncopies, pcutNormalTest, sigmaCutRelativeErrorThreshold, rvs, params):
-    weights = rvs["integrand"]* rvs["joint_prior"]/rvs["joint_s_prior"]  # rvs["weights"] # rvs["weights"] is *sorted* (side effect?), breaking test. Recalculated weights are not.  Use explicitly calculated weights until sorting effect identified
+    # ORDERING CAVEAT (documented, deliberately NOT worked around here -- see
+    # test_convergence_sample_order.py, which carries the measurements).
+    #
+    # The save-P thresholding block (mcsampler.py:739-752) reindexes EVERY _rvs column by
+    # cumulative-weight order, so after it runs the rows are sorted by weight ascending.  This test
+    # splits them into `ncopies` CONTIGUOUS segments and assumes those are independent, which sorted
+    # rows are not: measured, max/min segment mass is 1.15e3 sorted versus 1.83 in draw order.
+    #
+    # The previous note here claimed recomputing the weights from the components avoided this.  It
+    # does not: the components were permuted by the same reindexing, and measured, cached and
+    # recomputed weights are BOTH 100% ascending.  That claim is simply false and is removed.
+    #
+    # `sample_n` does not rescue it either.  It is (re)created as arange(len(...)) at the START of
+    # the threshold block, so on a REUSED sampler it is assigned to an already-permuted array and
+    # encodes the order at the start of that call, not the draw order -- measured, reordering by it
+    # after two integrate() calls leaves 0.752 ascending and a segment ratio of 373.  Worse, between
+    # appending new samples and the block re-running, sample_n is STALE and SHORT (3000 weights vs
+    # 1500 ids), so indexing by it would silently drop half the samples.
+    #
+    # A real fix needs stable ids assigned where samples are APPENDED, in every sampler.  Since this
+    # test has no live callers (all production call sites are commented out; only
+    # test/test_like_and_samp.py uses it), that plumbing is not justified -- but anyone re-enabling
+    # this test must do it first, or the sub-integrals are not independent and the normality check
+    # is meaningless.
+    weights = rvs["integrand"] * rvs["joint_prior"] / rvs["joint_s_prior"]
 #    weights = weights /numpy.sum(weights)    # Keep original normalization, so the integral values printed to stdout have meaning relative to the overall integral value.  No change in code logic : this factor scales out (from the log, below)
     igrandValues = numpy.zeros(ncopies)
     len_part = int(len(weights)/ncopies)  # deprecated: np.floor->np.int

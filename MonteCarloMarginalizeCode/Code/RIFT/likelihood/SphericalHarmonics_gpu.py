@@ -162,10 +162,23 @@ else:
 
 
 
+def _infer_xpy(theta):
+    """Pick the array backend from the data when the caller did not name one.
+
+    The module-level ``xpy_default`` is cupy on any host where cupy merely
+    imports, so an unadorned call from host-numpy code used to dispatch a GPU
+    kernel onto host arrays and raise.  Explicit ``xpy=`` always wins; this only
+    covers callers that leave it unset.
+    """
+    if cupy_here and isinstance(theta, cupy.ndarray):
+        return cupy
+    return np
+
+
 def SphericalHarmonicsVectorized(
         lm,
         theta, phi,
-        xpy=xpy_default, dtype=np.complex128,
+        xpy=None, dtype=np.complex128,
         l_max=8,
     ):
     """
@@ -180,8 +193,10 @@ def SphericalHarmonicsVectorized(
       Array of polar angles to evaluate harmonics at.
     phi : array_like, shape = (n_params,)
       Array of azimuth angles to evaluate harmonics at.
-    xpy : numpy or cupy (default is cupy if loaded, else numpy)
-      Numpy implementation to use.
+    xpy : numpy or cupy (default: inferred from `theta`)
+      Numpy implementation to use.  If left as None, cupy is used when `theta`
+      is a cupy array and numpy otherwise, so host arrays never reach a GPU
+      kernel.
     dtype : numpy.dtype (default is numpy.complex128)
       Datatype to use for output.  Must be complex.
     l_max : int (default is 8)
@@ -196,6 +211,9 @@ def SphericalHarmonicsVectorized(
       Array of spherical harmonics.  First axis varies `theta, phi`, and second
       axis varies `l, m`.
     """
+    if xpy is None:
+        xpy = _infer_xpy(theta)
+
     l, m = lm.T
 
     n_indices = l.size

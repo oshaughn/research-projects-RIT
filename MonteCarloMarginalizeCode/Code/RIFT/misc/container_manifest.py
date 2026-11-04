@@ -45,6 +45,22 @@ YAML schema
         cuda_capability_min: 7.0
         cuda_capability_max: null
         note: "cupy-cuda12x, newer base"
+
+Per-host ILE profiles (optional)
+--------------------------------
+
+A container entry may also carry
+
+    select_requirements: TARGET.GPUs_GlobalMemoryMb >= 40000  # ANDed into the branch test
+    ile_exe: integrate_likelihood_extrinsic_jax              # bare name or in-container path
+    request_memory: 16000                                     # MB
+
+If any entry sets ``ile_exe`` or ``request_memory``, a GPU ILE job selects its
+executable and memory request from the same branch that selects its image.
+Entries are tested highest ``cuda_capability_min`` first; at equal minimum an
+entry with ``select_requirements`` is tested first.  All three choices are
+ClassAd expressions over the matched machine, re-evaluated on every match.
+Entries without the fields use the job defaults.
 """
 
 import os
@@ -60,6 +76,10 @@ __all__ = [
     "build_capability_defined_requirement",
     "build_fallback_single_image",
     "build_runtime_selection_wrapper",
+    "has_ile_profiles",
+    "build_request_memory_expr",
+    "build_ile_exe_expr",
+    "build_profile_label_expr",
 ]
 
 # Default machine ClassAd attribute advertising GPU compute capability.  The
@@ -180,6 +200,45 @@ def load_container_manifest(path):
                     path, label
                 )
             )
+        select_req = entry.get("select_requirements")
+        if select_req is not None:
+            if not isinstance(select_req, str) or not select_req.strip():
+                raise ContainerManifestError(
+                    "Container manifest {} entry '{}': select_requirements must be a ClassAd "
+                    "expression string".format(path, label)
+                )
+            if cap_min is None:
+                # without a minimum the entry would sort below every capability test
+                raise ContainerManifestError(
+                    "Container manifest {} entry '{}': select_requirements needs "
+                    "cuda_capability_min".format(path, label)
+                )
+            select_req = select_req.strip()
+            # The selector is also embedded in a comma-split transfer_input_files
+            # entry and in a container_image value that may not contain '/'.
+            if any(ch in select_req for ch in ",/\n"):
+                raise ContainerManifestError(
+                    "Container manifest {} entry '{}': select_requirements may not contain "
+                    "',', '/' or a newline".format(path, label)
+                )
+        req_mem = entry.get("request_memory")
+        if req_mem is not None:
+            try:
+                req_mem = 0 if isinstance(req_mem, bool) else int(req_mem)
+            except (TypeError, ValueError):
+                req_mem = 0
+            if req_mem <= 0:
+                raise ContainerManifestError(
+                    "Container manifest {} entry '{}': request_memory must be a positive "
+                    "integer (MB)".format(path, label)
+                )
+        ile_exe = entry.get("ile_exe")
+        if ile_exe is not None and (not isinstance(ile_exe, str) or not ile_exe
+                                    or any(ch in ile_exe for ch in " ,\"'\\$\n")):
+            raise ContainerManifestError(
+                "Container manifest {} entry '{}': ile_exe must be a path without spaces, "
+                "commas, quotes, backslashes or '$'".format(path, label)
+            )
         containers.append(
             {
                 "label": label,
@@ -187,6 +246,9 @@ def load_container_manifest(path):
                 "cuda_capability_min": cap_min,
                 "cuda_capability_max": cap_max,
                 "note": entry.get("note"),
+                "select_requirements": select_req,
+                "ile_exe": ile_exe,
+                "request_memory": req_mem,
             }
         )
 
@@ -208,6 +270,12 @@ def load_container_manifest(path):
             "Container manifest {} fallback '{}' is not one of {}".format(
                 path, fallback, sorted(labels)
             )
+        )
+
+    if {c["label"]: c for c in containers}[fallback]["select_requirements"]:
+        raise ContainerManifestError(
+            "Container manifest {} fallback '{}' may not set select_requirements: it is "
+            "the unconditional else-branch".format(path, fallback)
         )
 
     capability_attr = data.get("capability_attr") or DEFAULT_CAPABILITY_ATTR
@@ -258,14 +326,26 @@ def _build_selector(manifest, value_fn, ternary=False):
     thresholds = [
         c
         for c in containers
-        if c["cuda_capability_min"] is not None and c["label"] != fb["label"]
+        if (c["cuda_capability_min"] is not None or c.get("select_requirements"))
+        and c["label"] != fb["label"]
     ]
-    # Fold ascending so the highest min ends up outermost.
-    thresholds.sort(key=lambda c: c["cuda_capability_min"])
+    # Fold ascending so the highest min ends up outermost; at equal min, an entry
+    # with select_requirements is folded last, i.e. tested first.
+    thresholds.sort(key=lambda c: (
+        c["cuda_capability_min"] if c["cuda_capability_min"] is not None else float("-inf"),
+        bool(c.get("select_requirements")),
+    ))
 
     expr = value_fn(fb)
     for c in thresholds:
-        cond = "TARGET.{attr} >= {mn}".format(attr=attr, mn=_fmt_cap(c["cuda_capability_min"]))
+        terms = []
+        if c["cuda_capability_min"] is not None:
+            terms.append("TARGET.{attr} >= {mn}".format(attr=attr, mn=_fmt_cap(c["cuda_capability_min"])))
+        if c.get("select_requirements"):
+            # =?= true: an attribute the slot does not advertise makes the term
+            # false (fall through to the next entry), not undefined
+            terms.append("(({}) =?= true)".format(c["select_requirements"]))
+        cond = " && ".join(terms)
         if ternary:
             expr = "({cond} ? {val} : {inner})".format(cond=cond, val=value_fn(c), inner=expr)
         else:
@@ -512,6 +592,13 @@ def build_runtime_selection_wrapper(manifest, inner_command=None):
     ClassAd/container-universe selectors, then runs ``inner_command`` or the
     wrapper arguments inside the selected image with apptainer.
     """
+    with_req = [c["label"] for c in manifest["containers"] if c.get("select_requirements")]
+    if with_req:
+        # the wrapper only sees the GPU capability, so it would pick a different
+        # entry than the ClassAd selectors
+        raise ContainerManifestError(
+            "RIFT_CONTAINER_RUNTIME_SELECT cannot evaluate select_requirements "
+            "(entries: {})".format(", ".join(with_req)))
     labels, mins, maxs, rtpaths, fetches = [], [], [], [], []
     for c in manifest["containers"]:
         runtime_path, fetch_url, cap_min, cap_max = _runtime_image_fields(c)
@@ -552,3 +639,51 @@ def build_require_gpus_floor(manifest):
     if any(m is None for m in mins) or not mins:
         return None
     return "Capability >= {}".format(_fmt_cap(min(mins)))
+
+
+def has_ile_profiles(manifest):
+    """True iff any container sets ``ile_exe`` or ``request_memory``."""
+    return any(c.get("ile_exe") or c.get("request_memory") for c in manifest["containers"])
+
+
+def build_request_memory_expr(manifest, default_mb):
+    """Return the ``request_memory`` value (MB) for a GPU ILE job of this family.
+
+    A ClassAd selector over ``TARGET`` when entries differ, else a plain integer.
+    HTCondor evaluates ``RequestMemory`` against the matched slot, so the dynamic
+    slot is carved at the selected size, and the schedd keeps the expression, so a
+    rematch after eviction selects again.  Like the image selector it is
+    ``undefined`` on a slot without the capability attribute; the job's
+    :func:`build_capability_defined_requirement` keeps it off such slots.
+    """
+    values = {c["label"]: int(c.get("request_memory") or default_mb) for c in manifest["containers"]}
+    if len(set(values.values())) == 1:
+        return str(values[manifest["fallback"]])
+    return _build_selector(manifest, lambda c: str(values[c["label"]]))
+
+
+def _ile_exe_path(container, default_exe, exe_dir):
+    exe = container.get("ile_exe")
+    if not exe:
+        return default_exe
+    if exe.startswith("/") or not exe_dir:
+        return exe
+    return exe_dir.rstrip("/") + "/" + exe
+
+
+def build_ile_exe_expr(manifest, default_exe, exe_dir=None):
+    """Return a ClassAd selector over quoted in-container ILE executable paths.
+
+    A bare ``ile_exe`` name is prefixed with ``exe_dir`` (the in-container bin
+    directory); entries without ``ile_exe`` use ``default_exe``.  The job carries
+    this as ``MY.RIFTILEExe`` and passes it to the job as
+    a trailing ``--rift-ile-exe=$$([MY.RIFTILEExe])`` argument.
+    """
+    return _build_selector(
+        manifest, lambda c: '"{}"'.format(_ile_exe_path(c, default_exe, exe_dir))
+    )
+
+
+def build_profile_label_expr(manifest):
+    """Return a ClassAd selector over quoted container labels (for the job record)."""
+    return _build_selector(manifest, lambda c: '"{}"'.format(c["label"]))

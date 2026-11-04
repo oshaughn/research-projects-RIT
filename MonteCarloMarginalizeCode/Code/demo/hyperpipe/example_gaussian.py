@@ -20,6 +20,7 @@ parser = argparse.ArgumentParser()
 parser.add_argument("--fname",type=str,help="Dummy argument required by API")
 parser.add_argument('--using-eos', type=str, help="Send eos file with [lnL, sigma_lnL, lambda1, lambda2, lambda3, lambda4] as the parameters.")
 parser.add_argument('--using-eos-index',type=int, help="Line number for single calculation.  Single-line calculation only")
+parser.add_argument("--n-events-to-analyze",type=int,default=1)
 parser.add_argument('--eos_start_index',type=int, help="Line number from where to start the likelihood calculation.")
 parser.add_argument('--eos_end_index',type=int, help="Line number which needs likelihood for which needs to be evaluated.")
 parser.add_argument('--plot', action='store_true', help="Enable to plot resultant M-R and Gaussians.")
@@ -32,7 +33,7 @@ parser.add_argument("--conforming-output-name",action='store_true')
 opts = parser.parse_args()
 if not(opts.using_eos_index is None):
     opts.eos_start_index = opts.using_eos_index
-    opts.eos_end_index = opts.using_eos_index+1
+    opts.eos_end_index = opts.using_eos_index+opts.n_events_to_analyze
 
 dat_orig_names = None
 fname_eos = opts.using_eos
@@ -65,6 +66,12 @@ def likelihood_evaluation():
     
     if opts.using_eos[:5] =='file:': eoss = np.genfromtxt(opts.using_eos[5:],dtype='str')
     else: eoss = np.genfromtxt(opts.using_eos[:],dtype='str')
+
+    # Sanity check on ranges : standard, do no work if not needed
+    if opts.eos_start_index > len(eoss):
+        sys.exit(0) # nothing to do
+    if opts.eos_end_index >= len(eoss):
+        opts.eos_end_index = len(eoss)-1
     
     likelihood_dict = {}
     

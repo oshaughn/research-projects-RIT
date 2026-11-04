@@ -17,6 +17,8 @@
 import numpy as np
 import argparse
 import os
+import shlex
+import subprocess
 import sys
 import lal
 import lalsimulation as lalsim
@@ -28,8 +30,46 @@ if ( 'RIFT_LOWLATENCY'  in os.environ):
 else:
     assume_lowlatency=False
 
+# ----------------------------------------------------------------------
+# Hyperpipeline ASCII grid format (opt-in via env var).  When set, every
+# grid file pseudo_pipe touches (target_params, proposed-grid, the
+# --input-grid handed to BasicIteration, and the --sim-xml command-single
+# sanity-check invocation) is .dat instead of .xml.gz, and the
+# downstream pipeline runs in hyperpipeline mode end-to-end.  When unset,
+# behaviour is identical to the legacy XML pipeline.
+#
+# By design, pseudo_pipe does NOT convert formats internally -- the
+# entire process operates cohesively in one mode or the other.  In
+# hyperpipeline mode the user is responsible for staging any external
+# inputs (e.g. --manual-initial-grid) as hyperpipeline .dat; the
+# auto-generated AMR / template-bank seed-grid paths still emit XML and
+# will fail downstream unless --manual-initial-grid is supplied.
+# ----------------------------------------------------------------------
+_use_hpip_pp = str(os.environ.get("RIFT_HYPERPIPELINE_FORMAT", "")).strip().lower() in ("1", "true", "yes", "on")
+grid_suffix_pp = "dat" if _use_hpip_pp else "xml.gz"
+sim_grid_flag_pp = "--sim-grid" if _use_hpip_pp else "--sim-xml"
+if _use_hpip_pp:
+    print(" === pseudo_pipe: hyperpipeline ASCII grid format active (RIFT_HYPERPIPELINE_FORMAT) ===")
+    print("     Inter-stage grids will be .{}, command-single will use {}".format(grid_suffix_pp, sim_grid_flag_pp))
+
 # Backward compatibility
-from RIFT.misc.dag_utils import which
+from RIFT.misc.dag_utils_generic import which
+from RIFT.misc.cip_pipeline import flag_final_group_unique, configure_eccentricity_prior
+# leaf module: numpy only, so this does not drag numba/cupy into the pipeline script
+from RIFT.likelihood.time_interp_choice import (
+    BARE_FLAG_SENTINEL, CROSSOVER_GUIDANCE, resolve_interpolate_time_request)
+# Same reason (numpy-only leaf module), and IMPORTED rather than re-typed: a second
+# hand-written copy of the choice tuple is how a typo becomes a silently different
+# likelihood -- the pipeline would accept 'bandlimted', forward it, and the mistake
+# would only surface when the first ILE job died.
+from RIFT.likelihood.time_marginalization_quadrature import (
+    TIME_QUADRATURE_CHOICES, NOLOOP_ONLY_TIME_QUADRATURES, validate_time_quadrature,
+    refuse_unhonourable_time_quadrature, refuse_unless_time_quadrature_emitted,
+    refuse_jax_unsupported_time_quadrature)
+# Same reason, same leaf-module discipline, for the Q_lm pregrid factor.
+from RIFT.likelihood.q_time_pregrid import (
+    Q_TIME_PREGRID_CHOICES, validate_q_time_pregrid_factor,
+    refuse_unhonourable_q_time_pregrid, refuse_unless_q_time_pregrid_emitted)
 ligolw_prefix = 'igwn_'
 if not(which(ligolw_prefix + "ligolw_add")):
     ligolw_prefix = ''
@@ -109,6 +149,15 @@ def retrieve_event_from_coinc(fname_coinc):
     else:
         event_dict["eccentricity"] = None
         event_dict["meanPerAno"] = None
+    try:
+        event_dict["E0"] = row.psi3
+    except:
+        event_dict["E0"] = 0.0
+    try:
+        event_dict["p_phi0"] = row.beta
+    except:
+        event_dict["p_phi0"] = 0.0
+
     event_dict["IFOs"] = list(set(ifo_list))
     max_snr_idx = snr_list.index(max(snr_list))
     event_dict['SNR'] = snr_list[max_snr_idx]
@@ -132,11 +181,220 @@ def unsafe_parse_arg_string_dict(my_argstr):
     return dict_return
 
 
+def _lisa_data_products_from_ini(opts):
+    """Fill the LISA data-product opts (channels / PSD files) from the conventional
+    production-ini sections so a LISA run can be driven by --use-ini like the
+    ground-based path.  Scalars and lisa-* algorithm options are already populated
+    by the generic [rift-pseudo-pipe] parser (any CLI arg, by name); here we only
+    translate the per-channel *dict* products that don't map cleanly to a flat key:
+
+      [data]         channels = {'A': 'fake_strain', 'E': ..., 'T': ...}
+      [lalinference] psds     = {'A': 'A_psd.xml.gz', ...}
+
+    Values already set (e.g. via [rift-pseudo-pipe] lisa-channel-name) win, so the
+    flat CLI surface still overrides.  Read-only; no LDG data-find is invoked.
+    """
+    import configparser as _CfgP
+    cfg = _CfgP.ConfigParser()
+    cfg.optionxform = str
+    cfg.read(opts.use_ini)
+
+    def _dict_to_assignments(section, key):
+        if not cfg.has_option(section, key):
+            return None
+        mapping = eval(cfg.get(section, key))
+        return ["{}={}".format(ifo, val) for ifo, val in mapping.items()]
+
+    if not opts.lisa_channel_name:
+        opts.lisa_channel_name = _dict_to_assignments("data", "channels")
+    if not opts.lisa_psd_file:
+        opts.lisa_psd_file = _dict_to_assignments("lalinference", "psds")
+
+
+def extra_helper_arguments(value):
+    """--extra-args-helper: a file of helper arguments, or the arguments themselves."""
+    if os.path.isfile(value):
+        with open(value) as extra:
+            value = extra.read()
+    return shlex.split(value)
+
+
+def run_lisa_known_sky_surface(opts):
+    if opts.approx is None:
+        print(" --lisa-known-sky requires --approx ")
+        sys.exit(1)
+    if opts.use_jax_ile:
+        # This path hardcodes integrate_likelihood_extrinsic_batchmode_lisa below
+        # (a separate, LISA-specific driver) and never reads opts.use_jax_ile; it is
+        # not "the same code" as the LDG/OSG ILE selection, so silently ignoring the
+        # flag would leave a user believing they got the JAX driver when they did
+        # not.  Refuse rather than run the wrong driver silently.
+        print(" --use-jax-ile has no effect on --lisa-known-sky: this path always "
+              "runs integrate_likelihood_extrinsic_batchmode_lisa, a separate "
+              "LISA-specific driver with no JAX equivalent in this repository.  "
+              "Drop --use-jax-ile for LISA runs.")
+        sys.exit(1)
+    if opts.use_ini is not None:
+        # LISA production-ini path: scalars/algorithm options come from the
+        # generic [rift-pseudo-pipe] parser; fill the per-channel data products
+        # (channels, PSDs) from the conventional [data]/[lalinference] sections.
+        _lisa_data_products_from_ini(opts)
+
+    bin_dir = os.path.dirname(os.path.abspath(__file__))
+    helper = os.path.join(bin_dir, "helper_LISA_Events.py")
+    cepp = os.path.join(bin_dir, "create_event_parameter_pipeline_BasicIteration")
+    ile = os.path.join(bin_dir, "integrate_likelihood_extrinsic_batchmode_lisa")
+
+    if opts.use_rundir:
+        workdir = os.path.abspath(opts.use_rundir)
+    else:
+        event_label = "manual_" + format_gps_time(opts.event_time)
+        sky_label = "variable_sky" if opts.lisa_vary_sky else "known_sky"
+        workdir = os.path.abspath(
+            event_label + "_LISA_" + opts.approx + "_" + sky_label + opts.manual_postfix
+        )
+    os.makedirs(workdir, exist_ok=False)
+
+    helper_cmd = [
+        sys.executable,
+        helper,
+        "--working-directory",
+        workdir,
+        "--input-grid",
+        "proposed-grid.dat",
+        "--approximant",
+        opts.approx,
+        "--l-max",
+        str(opts.l_max),
+        "--event-time",
+        format_gps_time(opts.event_time),
+        "--cache-file",
+        opts.lisa_cache_file,
+        "--ecliptic-longitude",
+        str(opts.ecliptic_longitude),
+        "--ecliptic-latitude",
+        str(opts.ecliptic_latitude),
+        "--fmin-template",
+        str(opts.lisa_fmin_template),
+        "--fmax",
+        str(opts.lisa_fmax),
+        "--reference-freq",
+        str(opts.lisa_reference_freq),
+        "--srate",
+        str(opts.lisa_srate),
+        "--data-integration-window-half",
+        str(opts.lisa_data_integration_window_half),
+        "--grid-size",
+        str(opts.lisa_grid_size),
+        "--grid-fractional-width",
+        str(opts.lisa_grid_fractional_width),
+        "--sky-grid-width",
+        str(opts.lisa_sky_grid_width),
+        "--n-iterations",
+        str(opts.lisa_n_iterations),
+        "--n-samples-per-job",
+        str(opts.lisa_n_samples_per_job),
+        "--request-memory-ILE",
+        str(opts.internal_ile_request_memory),
+        "--request-memory-CIP",
+        str(opts.internal_cip_request_memory or 4096),
+    ]
+    if opts.lisa_vary_sky:
+        helper_cmd.append("--vary-sky")
+    if opts.lisa_zero_likelihood:
+        helper_cmd.append("--zero-likelihood")
+    for assignment in opts.lisa_channel_name or []:
+        helper_cmd.extend(["--channel-name", assignment])
+    for assignment in opts.lisa_psd_file or []:
+        helper_cmd.extend(["--psd-file", assignment])
+    if opts.extra_args_helper:
+        helper_cmd.extend(extra_helper_arguments(opts.extra_args_helper))
+
+    print(" LISA known-sky helper command: ", " ".join(shlex.quote(x) for x in helper_cmd))
+    subprocess.run(helper_cmd, check=True)
+
+    if opts.lisa_skip_cepp_render:
+        print(" LISA helper bundle written in {}".format(workdir))
+        return
+
+    env = os.environ.copy()
+    env["RIFT_HYPERPIPELINE_FORMAT"] = "1"
+    env["PATH"] = bin_dir + os.pathsep + env.get("PATH", "")
+    env["PYTHONPATH"] = os.path.abspath(os.path.join(bin_dir, "..")) + os.pathsep + env.get("PYTHONPATH", "")
+    cepp_cmd = [
+        sys.executable,
+        cepp,
+        "--ile-n-events-to-analyze",
+        "1",
+        "--input-grid",
+        os.path.join(workdir, "proposed-grid.dat"),
+        "--ile-exe",
+        ile,
+        "--ile-args",
+        os.path.join(workdir, "args_ile.txt"),
+        "--cip-args-list",
+        os.path.join(workdir, "args_cip_list.txt"),
+        "--test-args",
+        os.path.join(workdir, "args_test.txt"),
+        "--working-directory",
+        workdir,
+        "--n-iterations",
+        str(opts.lisa_n_iterations),
+        "--n-samples-per-job",
+        str(opts.lisa_n_samples_per_job),
+        "--n-copies",
+        str(opts.ile_copies),
+        "--request-memory-ILE",
+        str(opts.internal_ile_request_memory),
+        "--request-memory-CIP",
+        str(opts.internal_cip_request_memory or 4096),
+        "--transfer-file-list",
+        os.path.join(workdir, "helper_transfer_files.txt"),
+    ]
+    if opts.internal_ile_request_disk:
+        cepp_cmd += ["--ile-request-disk", str(opts.internal_ile_request_disk)]
+    if opts.internal_cip_request_disk:
+        cepp_cmd += ["--cip-request-disk", str(opts.internal_cip_request_disk)]
+    if opts.internal_general_request_disk:
+        cepp_cmd += ["--general-request-disk", str(opts.internal_general_request_disk)]
+    # Container: let write_ILE_sub_simple emit the singularity + file-transfer
+    # wiring (the LDG path's native mechanism) rather than any LISA-specific code.
+    # Needs SINGULARITY_RIFT_IMAGE (+ SINGULARITY_BASE_EXE_DIR) in the env.
+    if opts.lisa_use_singularity:
+        # write_ILE_sub_simple's singularity path requires the CEPP's --cache-file
+        # to be set (else "Need to specify frames_dir or cache_file to use
+        # singularity"); the LISA cache is otherwise only inside the ILE args.
+        cepp_cmd += ["--use-singularity", "--cache-file", opts.lisa_cache_file]
+    # Puffball between iterations: perturb the (very tight) CIP posterior so the
+    # next grid is not a near-degenerate cluster (else the CIP refit diverges).
+    if opts.lisa_n_iterations > 1 and not opts.lisa_no_puff:
+        cepp_cmd += [
+            "--puff-exe", os.path.join(bin_dir, "util_ParameterPuffball.py"),
+            "--puff-args", os.path.join(workdir, "args_puff.txt"),
+            "--puff-cadence", "1",
+            "--puff-max-it", str(opts.lisa_n_iterations),
+        ]
+    # LISA reflected-sky-mode (vary-sky): reflect the grid at one iteration to
+    # explore the secondary sky mode (latitude bimodality).
+    if opts.lisa_search_reflected_sky_mode and opts.lisa_n_iterations > 1:
+        cepp_cmd += [
+            "--search-reflected-sky-mode",
+            "--reflected-sky-mode-exe", os.path.join(bin_dir, "convert_primary_sky_mode_to_secondary"),
+            "--lisa-reference-time", str(opts.lisa_reference_time),
+        ]
+        if opts.lisa_search_reflected_sky_mode_iteration is not None:
+            cepp_cmd += ["--search-reflected-sky-mode-iteration", str(opts.lisa_search_reflected_sky_mode_iteration)]
+    print(" LISA known-sky CEPP command: ", " ".join(shlex.quote(x) for x in cepp_cmd))
+    subprocess.run(cepp_cmd, check=True, cwd=workdir, env=env)
+    print(" LISA known-sky CEPP surface rendered in {}".format(workdir))
+
+
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--skip-reproducibility",action='store_true')
 parser.add_argument("--use-production-defaults",action='store_true',help="Use production defaults. Intended for use with tools like asimov or by nonexperts who just want something to run on a real event.  Will require manual setting of other arguments!")
 parser.add_argument("--use-subdags",action='store_true',help="Use CEPP_Alternate instead of CEPP_BasicIteration. Note this writes an adaptively-sized DAG each iteration, but doesn't otherwise optimize yet.")
+parser.add_argument("--pipeline-builder",default=None,choices=["BasicIteration","AlternateIteration","BasicMultiApproxIteration"],help="Explicitly select the create_event_parameter_pipeline_* iteration builder, as a drop-in hot-swap for side-by-side A/B testing. Overrides the implicit --use-subdags routing. If unset, the builder is chosen by --use-subdags (Alternate) vs. the default (Basic).")
 parser.add_argument("--use-ile-subdags",action='store_true',help="Use ILE subdag system (new)")
 parser.add_argument("--bilby-ini-file",default=None,type=str,help="Pass ini file for parsing. Intended to use for calibration reweighting. Full path recommended")
 parser.add_argument("--bilby-pickle-file",default=None,type=str,help="Bilby Pickle file with event settings. Intended to use for calibration reweighting. Full path recommended")
@@ -152,17 +410,63 @@ parser.add_argument("--calibration-reweighting-count",type=int,default=None,help
 parser.add_argument("--calibration-reweighting-initial-extra-args",type=str,default=None,help="If not 'None', pass through. One argument targets effective sample size, other duplicates inoutput")
 parser.add_argument("--calibration-reweighting-extra-args",type=str,default=None,help="If not 'None', pass through. One argument targets effective sample size, other duplicates inoutput")
 parser.add_argument("--calibration-reweighting-osg",action='store_true',help="Attempt to use settings for OSG for cal reweighting. Remove after developed")
+# In-loop calibration marginalization (inside the ILE GPU loop), as opposed to the
+# postprocessing --calibration-reweighting path above.  Setting the envelope directory
+# enables it and threads the corresponding flags into the ILE arguments (args_ile.txt).
+parser.add_argument("--calmarg-envelope-directory",default=None,type=str,help="Enable IN-LOOP calibration marginalization in ILE. Directory with per-IFO calibration envelope files named <IFO>.txt (e.g. H1.txt, L1.txt, V1.txt). Threaded to ILE as --calibration-envelope-directory (absolute path).")
+parser.add_argument("--calmarg-correction-type", default=None, help="Envelope convention: data, template, or per-detector H1:data,L1:data,V1:template (bilby-pipe defaults if omitted).")
+parser.add_argument("--calmarg-n-realizations",default=100,type=int,help="Number of calibration realizations for in-loop calmarg. Threaded to ILE as --calibration-n-realizations.")
+parser.add_argument("--calmarg-spline-count",default=10,type=int,help="Number of spline nodes for in-loop calmarg envelopes. Threaded to ILE as --calibration-spline-count.")
+parser.add_argument("--calmarg-fused-kernel",action='store_true',help="Use the fused GPU kernel (Option C) for in-loop calmarg. GPU only; ILE falls back to the loop method otherwise. Threaded to ILE as --calibration-fused-kernel.")
+parser.add_argument("--calmarg-pilot",action='store_true',help="Option C adaptive calibration: add per-iteration cal PILOT jobs that learn a cal proposal (harvest top-lnL composite points -> ILE --calibration-dump-responsibilities -> fit+consolidate) and SEED the next iteration's wide ILE jobs via --calibration-proposal-breadcrumb. Requires --calmarg-envelope-directory.")
+parser.add_argument("--calmarg-pilot-cadence",default=1,type=int,help="Run a cal pilot every n iterations (default 1).")
+parser.add_argument("--calmarg-pilot-max-it",default=3,type=int,help="Stop launching cal pilots after this iteration (cal is boring; freeze once learned). Default 3.")
+parser.add_argument("--calmarg-pilot-top-fraction",default=0.05,type=float,help="Fraction of highest-lnL composite points the pilot harvests. Default 0.05.")
+parser.add_argument("--calmarg-pilot-max-points",default=32,type=int,help="Cap on harvested pilot points per iteration. Default 32.")
+parser.add_argument("--calmarg-first-cip-sigma-cut",default=100.0,type=float,help="With --calmarg-pilot: relax the first CIP stage's --sigma-cut to this value, so cold-start (prior-cal) iteration-0 points -- which have large MC error -- are not all stripped by CIP's default 0.6.  Threaded to helper_LDG_Events.py. Default 100 (effectively keep all cold-start points).")
+parser.add_argument("--calmarg-burn-in-neff",default=None,type=float,help="In-loop calmarg: burn the extrinsic sampler in on the cheap zero-cal likelihood to this n_eff before the full cal-marginalized integration (warm start; the extrinsic posterior is ~cal-independent). Threaded to ILE as --calibration-burn-in-neff.")
+parser.add_argument("--calmarg-export-posterior",action='store_true',help="In-loop calmarg: at the final fairdraw export, also write the RECOVERED calibration posterior -- for each fair-draw sample, draw one cal realization in proportion to its posterior weight and write a self-contained sibling <output>_<event>_cal.dat with the full draw (intrinsic + extrinsic + cal_<IFO>_amp_<k>/cal_<IFO>_phase_<k> node columns). Threaded to ILE as --calibration-export-posterior (fires only at the extrinsic/fairdraw stage).")
+parser.add_argument("--extrinsic-handoff",action='store_true',help="Extrinsic handoff (GMM sampler only): each iteration's wide ILE jobs write a per-event extrinsic GMM proposal (--extrinsic-proposal-output) of their extrinsic posterior; a per-iteration consolidation picks the most representative one and SEEDS the next iteration's wide ILE jobs via --extrinsic-proposal-breadcrumb, so the extrinsic sampler starts on the answer instead of cold.  Requires --ile-sampler-method GMM.  See RIFT/calmarg/DESIGN_extrinsic_handoff.md.")
+parser.add_argument("--extrinsic-handoff-select",default="lnL",help="Metric the extrinsic consolidation ranks per-event proposals by (lnL|neff|n_samples). Default lnL (most peak-representative).")
 parser.add_argument("--distance-reweighting",action='store_true',help="Option to add job to DAG to reweight posterior samples due to different distance prior (LVK prod prior)")
-parser.add_argument("--extra-args-helper",action=None, help="Filename with arguments for the helper. Use to provide alternative channel names and other advanced configuration (--channel-name, data type)!")
+parser.add_argument("--extra-args-helper",action=None, help="Arguments for the helper, or the name of a file holding them. Use to provide alternative channel names and other advanced configuration (--channel-name, data type)!")
 parser.add_argument("--manual-postfix",default='',type=str)
 parser.add_argument("--gracedb-id",default=None,type=str)
 parser.add_argument("--gracedb-exe",default="gracedb")
 parser.add_argument("--use-legacy-gracedb",action='store_true')
 parser.add_argument("--internal-use-gracedb-bayestar",action='store_true',help="Retrieve BS skymap from gracedb (bayestar.fits), and use it internally in integration with --use-skymap bayestar.fits.")
 parser.add_argument("--event-time",default=None,type=float,help="Event time. Intended to override use of GracedbID. MUST provide --manual-initial-grid ")
+parser.add_argument("--lisa-known-sky",action='store_true',help="Use the LISA helper to build a known-sky LISA CEPP surface and exit. Avoids the LDG event helper path.")
+parser.add_argument("--lisa-vary-sky",action='store_true',help="With --lisa-known-sky, treat ecliptic sky location as intrinsic rather than pinning --lisa-fixed-sky.")
+parser.add_argument("--lisa-skip-cepp-render",action='store_true',help="With --lisa-known-sky, only write the helper bundle; do not render the CEPP DAG.")
+parser.add_argument("--lisa-cache-file",default="lisa.cache",help="With --lisa-known-sky, cache file passed to the LISA ILE.")
+parser.add_argument("--lisa-channel-name",action="append",default=None,help="With --lisa-known-sky, channel assignment such as A=fake_strain. May be repeated.")
+parser.add_argument("--lisa-psd-file",action="append",default=None,help="With --lisa-known-sky, PSD assignment such as A=A_psd.xml.gz. May be repeated.")
+parser.add_argument("--ecliptic-longitude",default=1.0,type=float,help="With --lisa-known-sky, fixed ecliptic longitude.")
+parser.add_argument("--ecliptic-latitude",default=0.3,type=float,help="With --lisa-known-sky, fixed ecliptic latitude.")
+parser.add_argument("--lisa-fmin-template",default=1.0e-3,type=float,help="With --lisa-known-sky, template low-frequency cutoff.")
+parser.add_argument("--lisa-fmax",default=0.125,type=float,help="With --lisa-known-sky, high-frequency cutoff.")
+parser.add_argument("--lisa-reference-freq",default=5.0e-3,type=float,help="With --lisa-known-sky, waveform reference frequency.")
+parser.add_argument("--lisa-srate",default=0.25,type=float,help="With --lisa-known-sky, sample rate. Kept as float for long-duration LISA data.")
+parser.add_argument("--lisa-data-integration-window-half",default=300.0,type=float,help="With --lisa-known-sky, half-width of the ILE data integration window.")
+parser.add_argument("--lisa-no-puff",action="store_true",help="Disable the inter-iteration puffball for the known-sky LISA path.")
+parser.add_argument("--lisa-search-reflected-sky-mode",action="store_true",help="LISA vary-sky: at one iteration, reflect the grid to the secondary sky mode (handles the LISA latitude bimodality).")
+parser.add_argument("--lisa-search-reflected-sky-mode-iteration",default=None,type=int,help="Iteration to reflect the sky (default n_iterations-2).")
+parser.add_argument("--lisa-reference-time",default=0.0,type=float,help="LISA coalescence/reference time (for the reflected-sky transform).")
+parser.add_argument("--lisa-use-singularity",action="store_true",help="Forward --use-singularity to the CEPP for the known-sky LISA path. The container wiring + transfer is then emitted by write_ILE_sub_simple, exactly as for the LDG path; set SINGULARITY_RIFT_IMAGE (osdf:// staged image preferred, so dag_utils file-transfers it) and SINGULARITY_BASE_EXE_DIR (dir of the LISA ILE *inside* the image).")
+parser.add_argument("--lisa-grid-size",default=3,type=int,help="With --lisa-known-sky, number of synthetic initial-grid points.")
+parser.add_argument("--lisa-grid-fractional-width",default=1.0e-3,type=float,help="With --lisa-known-sky, fractional mass width for the initial grid.")
+parser.add_argument("--lisa-sky-grid-width",default=0.02,type=float,help="With --lisa-known-sky --lisa-vary-sky, ecliptic sky half-step scale for the initial grid.")
+parser.add_argument("--lisa-n-iterations",default=1,type=int,help="With --lisa-known-sky, CEPP iteration count.")
+parser.add_argument("--lisa-n-samples-per-job",default=1,type=int,help="With --lisa-known-sky, CEPP samples per job.")
+parser.add_argument("--lisa-zero-likelihood",action='store_true',help="With --lisa-known-sky, pass --zero-likelihood through to the LISA ILE args.")
 parser.add_argument("--calibration",default="C00",type=str)
 parser.add_argument("--playground-data",action='store_true', help="Passed through to helper_LDG_events, and changes name prefix")
 parser.add_argument("--approx",default=None,type=str,help="Approximant. REQUIRED")
+parser.add_argument("--approx-extra",default=None,action='append',help="Additional waveform model, repeatable.  Selects the cross-model workflow: every model is evaluated on ONE shared intrinsic grid and marginalized over point by point, and the terminal stage forks to give each model its own posterior and evidence.  Implies --pipeline-builder BasicMultiApproxIteration.  See RIFT/misc/DESIGN_multiapprox_marginalization.md")
+parser.add_argument("--approx-prior",default=None,action='append',help="APPROX=WEIGHT prior p(m) over waveform models, repeatable.  Default uniform.  NOT sampling weights.")
+parser.add_argument("--approx-extra-gwsignal",default=None,action='append',help="An --approx-extra model that must be generated through gwsignal.  The primary --approx inherits --use-gwsignal automatically.  The generator route is PER MODEL: the phenom family has no time-domain mode generator in gwsignal, so a single global route cannot serve an EOB-vs-phenom comparison.")
+parser.add_argument("--require-all-approx",action='store_true',help="Drop intrinsic points not successfully evaluated under EVERY model, instead of marginalizing over whichever subset survived.")
 parser.add_argument("--use-gwsurrogate",action='store_true',help="Attempt to use gwsurrogate instead of lalsuite.")
 parser.add_argument("--use-gwsignal",action='store_true',help="Attempt to use gwsignal interface.")
 parser.add_argument("--l-max",default=2,type=int)
@@ -179,7 +483,11 @@ parser.add_argument("--sample-eccentricity-squared",action='store_true', help="O
 parser.add_argument("--use-eccentricity-squared",action='store_true', help="Allows for fitting and sampling in eccentricity_squared instead of eccentricity")
 parser.add_argument("--assume-eccentric",action='store_true', help="Add eccentric options for each part of analysis")
 parser.add_argument("--use-meanPerAno",action='store_true', help="Add meanPerAno options for each part of analysis")
+parser.add_argument("--use-EOB-parameters",action='store_true', help="Add sampling in EOB parameters; currently only a6c")
+parser.add_argument("--assume-hyperbolic",action='store_true', help="Add hyperbolic options for each part of analysis")
 parser.add_argument("--internal-cip-use-periodic-ecc-vars",action='store_true', help="use e cos ell, e sin ell as fitting variables ")
+from RIFT.misc import eccentric_phase_pipeline, eccentric_phase_models
+eccentric_phase_pipeline.add_arguments(parser)
 parser.add_argument("--assume-lowlatency-tradeoffs",action='store_true', help="Force analysis with various low-latency tradeoffs (e.g., drop spin 2, use aligned, etc)")
 parser.add_argument("--assume-highq",action='store_true', help="Force analysis with the high-q strategy, neglecting spin2. Passed to 'helper'")
 parser.add_argument("--assume-well-placed",action='store_true',help="If present, the code will adopt a strategy that assumes the initial grid is very well placed, and will minimize the number of early iterations performed. Not as extrme as --propose-flat-strategy")
@@ -193,12 +501,14 @@ parser.add_argument("--internal-ile-n-max",default=None,type=int,help="Set maxim
 parser.add_argument("--internal-ile-inv-spec-trunc-time",default=None,type=float,help="Timescale of inverse spectrum truncation time. Default in pipeline is zero. Should be no more than 1/2 the segment length")
 parser.add_argument("--internal-ile-data-tukey-window-time",default=None,type=float,help="Timescale of the tukey window (total, both sides)")
 parser.add_argument("--internal-ile-psd-common-window",action='store_true',help="Default is to use the window shape correction on the input PSD (assumed to be scaled), and NOT to try to scale PSD.  Adding this option means we assume the PSD is not being window-corrected on input, so does not need rescaling. ")
+parser.add_argument("--internal-ile-modify-taper",default=None,help="String provided modifies taper. If not provided TAPER_START will be used for all waveforms. Future-protecting for nonstandard tapering")
 parser.add_argument("--internal-marginalize-distance",action='store_true',help="If present, the code will marginalize over the distance variable. Passed diretly to helper script. Default will be to generate d_marg script *on the fly*")
 parser.add_argument("--internal-marginalize-distance-file",help="Filename for marginalization file.  You MUST make sure the max distance is set correctly")
 parser.add_argument("--internal-distance-max",type=float,help="If present, the code will use this as the upper limit on distance (overriding the distance maximum in the ini file, or any other setting). *required* to use internal-marginalize-distance in most circumstances")
 parser.add_argument("--internal-ile-check-good-enough",action='store_true', help=" IN PROGRESS: force creation of 'ile_good_enough' files in all ILE run directories, and adding to transfer_file_list")
 parser.add_argument("--internal-correlate-default",action='store_true',help='Force joint sampling in mc,delta_mc, s1z and possibly s2z')
-parser.add_argument("--internal-force-iterations",type=int,default=None,help="If inteeger provided, overrides internal guidance on number of iterations, attempts to force prolonged run. By default puts convergence tests on")
+parser.add_argument("--internal-force-iterations",type=int,default=None,help="If integer provided, overrides internal guidance on number of iterations, attempts to force prolonged run. By default puts convergence tests on")
+parser.add_argument("--internal-truncate-cip-arg-list",type=int, default=None, help="If integer provided, write only the last N lines of the cip_arg_list file. Recommended value is 1, to create extrinsic+calmarg only output. Other values can be used to disable the first few iterations of manual tuning, if initial grid is well-adapted")
 parser.add_argument("--internal-test-convergence-threshold",type=float,default=None,help="The value of the threshold. 0.02 has been default. If not specified, left out of helper command line (where default is maintained) ")
 parser.add_argument("--internal-flat-strategy",action='store_true',help="Use the same CIP options for every iteration, with convergence tests on.  Passes --test-convergence, ")
 parser.add_argument("--internal-use-amr",action='store_true',help="Changes refinement strategy (and initial grid) to use. PRESENTLY WE CAN'T MIX AND MATCH AMR, CIP ITERATIONS, so this is fixed for the whole run right now; use continuation and 'fetch' to augment")
@@ -215,6 +525,10 @@ parser.add_argument("--add-extrinsic",action='store_true')
 parser.add_argument("--add-extrinsic-time-resampling",action='store_true',help="adds the time resampling option.  Only deployed for vectorized calculations (which should be all that end-users can access)")
 parser.add_argument("--internal-ile-srate-time-resampling",default=None, help=" Adds --srate-resample-time-marginalization to ILE for  output, to provide higher-resolution time output ")
 parser.add_argument("--internal-ile-srate-internal",default=None, help=" Adds --srate-internal to ILE, modifying how calculations are performed internally to use a higher sampling rate ")
+parser.add_argument("--internal-ile-interpolate-time",nargs='?',const=BARE_FLAG_SENTINEL,default=None,type=str,help="Enable sub-sample interpolation of Q_lm at fractional detector arrival times in the maintained NoLoop likelihood. REQUIRES AN EXPLICIT STENCIL: nearest|cubic|sinc -- automatic selection was removed as measurably unreliable, and a bare flag is rejected rather than silently doing nothing. MEASURED GUIDANCE (SEOBNRv4, an IMR model): %s. Forwarded verbatim to helper_LDG_Events.py, which validates it. Full tables, limitations and provenance: RIFT/likelihood/DESIGN_q_window_stencil.md." % CROSSOVER_GUIDANCE)
+parser.add_argument("--internal-ile-time-marginalization-quadrature",default=None,type=str,choices=list(TIME_QUADRATURE_CHOICES),help="Rule for the TIME integral of the marginalized likelihood in ILE: %s. Default None = pass nothing, so the ILE default ('simpson', the historical fixed-deltaT Simpson rule) is unchanged and the emitted args_ile.txt is byte-identical to today. 'bandlimited' resolves the integrand instead of the data: exp(lnL(t)) is a peak of width sigma_t = 1/(2 pi rho sigma_f), which SHRINKS AS 1/rho, while the grid spacing deltaT=1/srate is fixed by the data -- so production under-resolves its own integrand, worse at higher SNR (measured: rigidly scanning the grid phase moves the reported lnL by 1.649 nats at srate 4096, rho=40). Forwarded verbatim to helper_LDG_Events.py, which validates it and puts --time-marginalization-quadrature on the ILE command line; from args_ile.txt it reaches every ILE*.sub INCLUDING ILE_extr.sub. REFUSED, not ignored, at DAG-BUILD TIME if this workflow cannot honour it (calibration marginalization, --rotation-slow, --freqresponse, or a configuration without --time-marginalization/--vectorized/--gpu). IMPORTANT -- INI OVERRIDE: the RIFT ini parser OVERRIDES the command line for non-boolean options, and this is a string option, so NEVER set it in a --use-ini that a Makefile or wrapper also sets on the command line; the ini value would win silently. Rationale, measured tables and exclusions: RIFT/likelihood/DESIGN_time_marginalization_quadrature.md." % ("|".join(TIME_QUADRATURE_CHOICES),))
+parser.add_argument("--internal-ile-q-time-pregrid-factor",default=None,type=int,choices=list(Q_TIME_PREGRID_CHOICES),help="OPT-IN certified Q_lm pregrid in ILE (PR #261): %s. Default None = pass nothing, so the ILE default (factor 1, the historical unchanged path) is unchanged and the emitted args_ile.txt is byte-identical to today. Factor 8 reflects each finite Q window, FFT-interpolates it onto an 8x finer grid once after packing, and evaluates detector arrival times off that grid with four-tap CUBIC interpolation -- the geocentric time-integration grid is left at the data deltaT. Forwarded verbatim to helper_LDG_Events.py, which validates it and puts --q-time-pregrid-factor on the ILE command line. REFUSED, not ignored, at DAG-BUILD TIME if this workflow cannot honour it (calibration marginalization, --rotation-slow, --freqresponse, a configuration without --vectorized, or an explicit --internal-ile-interpolate-time naming a stencil other than cubic -- factor 8 forces cubic and will not silently override a different explicit request). IMPORTANT -- INI OVERRIDE: the RIFT ini parser OVERRIDES the command line for non-boolean options, so NEVER set this in a --use-ini that a Makefile or wrapper also sets on the command line. Rationale: bin/integrate_likelihood_extrinsic_batchmode (grep q_time_pregrid)." % ("|".join(str(c) for c in Q_TIME_PREGRID_CHOICES),))
+parser.add_argument("--internal-ile-n-chunk",default=None,type=int,help="Override the extrinsic chunk size (--n-chunk) passed to ILE, via the helper. Default behaviour (helper): 40000, scaled linearly with SNR above 40 and capped at 160000, because at high SNR the posterior is a vanishing fraction of the prior volume and a small chunk gives few informative samples per adaptation step. Larger chunks cost GPU memory but measured HOST memory (what RequestMemory governs) is flat, so no memory-request change is normally needed. EXPERTS ONLY.")
 parser.add_argument("--batch-extrinsic",action='store_true')
 parser.add_argument("--fmin",default=20,type=int,help="Mininum frequency for integration. template minimum frequency (we hope) so all modes resolved at this frequency")  # should be 23 for the BNS
 parser.add_argument("--fmin-template",default=None,type=float,help="Mininum frequency for template. If provided, then overrides automated settings for fmin-template = fmin/Lmax")  # should be 23 for the BNS
@@ -231,26 +545,40 @@ parser.add_argument("--cip-sampler-oracle-list",type=str,default=None,help="if s
 parser.add_argument("--cip-fit-method",type=str,default=None)
 parser.add_argument("--cip-internal-use-eta-in-sampler",action='store_true', help="Use 'eta' as a sampling parameter. Designed to make GMM sampling behave particularly nicely for objects which could be equal mass")
 parser.add_argument("--ile-jobs-per-worker",type=int,default=None,help="Default will be 20 per worker usually for moderate-speed approximants, and more for very fast configurations")
+parser.add_argument("--ile-jobs-per-worker-first",type=int,default=None,help="Default size for initial iteration, usually 2* number used for others")
 parser.add_argument("--ile-no-gpu",action='store_true')
 parser.add_argument("--ile-xpu",action='store_true',help='Request ILE run on both GPU and CPU. Disables ile_force_gpu, if provided!')
 parser.add_argument("--ile-force-gpu",action='store_true')
+parser.add_argument("--ile-gpu-fanout",default=None,help="Multi-GPU ILE fan-out: split each ILE batch's intrinsic-grid range across N GPUs on the node (one shard per GPU).  Integer N (also requests N GPUs+CPUs) or 'auto' (split across whatever GPUs are visible at runtime).  Baked into the generated ile_pre.sh, so it needs no runtime environment.  Equivalent to setting RIFT_ILE_GPU_FANOUT.  Requires --ile-force-gpu.")
+parser.add_argument("--ile-exe",default=None,type=str,help="Path to the ILE executable used for this workflow's ILE/ILE_puff/ILE_fetch/ILE_extr jobs (forwarded to create_event_parameter_pipeline_* as --ile-exe).  Default: `which integrate_likelihood_extrinsic_batchmode`, or `which integrate_likelihood_extrinsic_jax` if --use-jax-ile is set.  Mutually exclusive with --use-jax-ile.")
+parser.add_argument("--use-jax-ile",action='store_true',help="Use `which integrate_likelihood_extrinsic_jax` as the ILE executable in place of the default batchmode driver, for every ILE/ILE_puff/ILE_fetch/ILE_extr job.  The JAX driver does not implement calibration marginalization, ROM/NR-lookup templates, supplementary likelihood factors, --zero-likelihood, or --maximize-only (see check_critical_and_report in bin/integrate_likelihood_extrinsic_jax); combining it with --calmarg-envelope-directory is REFUSED at DAG-build time rather than left to fail at the first ILE job.  Mode-specific JAX options (--mode, --angle-marg-scheme, and the rest of that driver's surface) are not separate pseudo_pipe options -- pass them through --manual-extra-ile-args.  OSG/SINGULARITY CAVEAT: --use-osg unconditionally adds --use-singularity, and write_ILE_sub_simple then rewrites the condor executable to <SINGULARITY_BASE_EXE_DIR or /usr/bin/>/integrate_likelihood_extrinsic_jax (basename preserved) -- but no container this repository builds (Dockerfile, containers/rift_container.def.in, rift_container_family.yaml) installs JAX or that driver, so every ILE job would fail at runtime.  --use-jax-ile with --use-osg is therefore REFUSED at DAG-build time unless --jax-ile-container-ok is also given, which asserts the named SINGULARITY_RIFT_IMAGE/SINGULARITY_BASE_EXE_DIR image actually provides integrate_likelihood_extrinsic_jax and JAX.  Also REFUSED with --lisa-known-sky, which always runs the separate integrate_likelihood_extrinsic_batchmode_lisa driver and has no JAX equivalent.")
+parser.add_argument("--jax-ile-container-ok",action='store_true',help="Override the --use-jax-ile + --use-osg refusal (see --use-jax-ile help).  Pass this ONLY when the container named by SINGULARITY_RIFT_IMAGE / resolved via SINGULARITY_BASE_EXE_DIR actually provides both a JAX installation and the integrate_likelihood_extrinsic_jax executable -- no container built by this repository does.  Has no effect without --use-jax-ile, and does not affect the separate --lisa-known-sky refusal.")
 parser.add_argument("--fake-data-cache",type=str)
 parser.add_argument("--spin-magnitude-prior",default='default',type=str,help="options are default [uniform mag for precessing, zprior for aligned], volumetric, uniform_mag_prec, uniform_mag_aligned, zprior_aligned")
+parser.add_argument("--eccentricity-prior",default='uniform',type=str,choices=['uniform','log_uniform'],help="Target prior for convergence subdags and the final CIP group: uniform in e ('uniform') or uniform in log(e) ('log_uniform'). Preliminary eccentric PE groups use uniform.")  # constrained: the value is forwarded verbatim to CIP, which only branches on the exact string 'log_uniform', so an unrecognized value here would silently run the uniform prior instead of failing
 parser.add_argument("--force-lambda-max",default=None,type=float,help="Provide this value to override the value of lambda-max provided") 
 parser.add_argument("--force-lambda-small-max",default=None,type=float,help="Provide this value to override the value of lambda-small-max provided") 
 parser.add_argument("--force-lambda-no-linear-init",action='store_true',help="Disables use of priors focused towards small lambda for initial iterations. Designed for PP plot tests with wide/uniform priors.")
-parser.add_argument("--force-chi-max",default=None,type=float,help="Provide this value to override the value of chi-max provided") 
-parser.add_argument("--force-chi-small-max",default=None,type=float,help="Provide this value to override the value of chi-max provided") 
-parser.add_argument("--force-ecc-max",default=None,type=float,help="Provide this value to override the value of ecc-max provided")
-parser.add_argument("--force-ecc-min",default=None,type=float,help="Provide this value to override the value of ecc-min provided")
-parser.add_argument("--force-comp-max",default=1000,type=float,help="Provide this value to override the value of the max component mass in CIP provided")
-parser.add_argument("--force-comp-min",default=1,type=float,help="Provide this value to override the value of min component mass in CIP provided")
-parser.add_argument("--force-meanPerAno-max",default=None,type=float,help="Provide this value to override the value of meanPerAno-max provided")
-parser.add_argument("--force-meanPerAno-min",default=None,type=float,help="Provide this value to override the value of meanPerAno-min provided")
+
+parser.add_argument("--force-chi-max",default=None,type=float,help="Provde this value to override the value of chi-max provided")
+parser.add_argument("--force-chi-small-max",default=None,type=float,help="Provde this value to override the value of chi-max provided")
+parser.add_argument("--force-a6c-max",default=-20,type=float,help="Provde this value to override the value of a6c-max provided")
+parser.add_argument("--force-a6c-min",default=-80,type=float,help="Provde this value to override the value of a6c-min provided")
+parser.add_argument("--force-E0-max",default=None,type=float,help="Provide this value to override the value of E0-max provided")
+parser.add_argument("--force-E0-min",default=None,type=float,help="Provide this value to override the value of E0-min provided")
+parser.add_argument("--force-pphi0-max",default=None,type=float,help="Provide this value to override the value of pphi0-max provided")
+parser.add_argument("--force-pphi0-min",default=None,type=float,help="Provide this value to override the value of pphi0-min provided")
+parser.add_argument("--force-ecc-max",default=None,type=float,help="Provde this value to override the value of ecc-max provided")
+parser.add_argument("--force-ecc-min",default=None,type=float,help="Provde this value to override the value of ecc-min provided")
+parser.add_argument("--force-comp-max",default=1000,type=float,help="Provde this value to override the value of the max component mass in CIP provided")
+parser.add_argument("--force-comp-min",default=1,type=float,help="Provde this value to override the value of min component mass in CIP provided")
+parser.add_argument("--force-meanPerAno-max",default=None,type=float,help="Provde this value to override the value of meanPerAno-max provided")
+parser.add_argument("--force-meanPerAno-min",default=None,type=float,help="Provde this value to override the value of meanPerAno-min provided")
 parser.add_argument("--scale-mc-range",type=float,default=None,help="If using the auto-selected mc, scale the ms range proposed by a constant factor. Recommend > 1. . ini file assignment will override this.")
 parser.add_argument("--limit-mc-range",default=None,type=str,help="Pass this argumen through to the helper to set the mc range")
 parser.add_argument("--force-mc-range",default=None,type=str,help="Pass this argumen through to the helper to set the mc range")
 parser.add_argument("--force-eta-range",default=None,type=str,help="Pass this argumen through to the helper to set the eta range")
+parser.add_argument("--force-mtot-range",default=None,type=str,help="Pass this argument through to the helper to set the mtot range. Overrides mc parameter with mtot parameter broadly throughout the pipeline.")
 parser.add_argument("--allow-subsolar", action='store_true', help="Override limits which otherwise prevent subsolar mass PE")
 parser.add_argument("--force-hint-snr",default=None,type=str,help="Pass this argumen through to the helper to control source amplitude effects")
 parser.add_argument("--force-initial-grid-size",default=None,type=float,help="Only used for automated grids.  Passes --force-initial-grid-size down to helper")
@@ -278,8 +606,25 @@ parser.add_argument("--n-output-samples-last",type=int,default=20000,help="Numbe
 parser.add_argument("--internal-last-iteration-extrinsic-samples-per-ile",default=5,type=int,help="Draw this many samples from each ILE job")
 parser.add_argument("--internal-last-iteration-extrinsic-samples-per-ile-internal",default=10,type=int,help="Draw this many samples from each ILE job")
 parser.add_argument("--internal-cip-cap-neff",type=int,default=500,help="Largest value for CIP n_eff to use for *non-final* iterations. ALWAYS APPLIED. ")
+# --- Alt config: resolve transverse-spin (chi1_perp) tails, esp. low mass (transverse-spin study) ---
+# The interim CIP posterior is the COMBINATION of the cip-explode-jobs worker cohort; its NET
+# effective-sample count (not any single worker's n_eff) is what resolves the transverse tails.
+# The shipped default caps that net count via --internal-cip-cap-neff=500 and n-output-samples=5000,
+# and stops on the tail-blind Gaussian 'lame' convergence test -> chi1_perp under-extends vs bilby.
+# This opt-in bundle lifts the NET samples-out and switches to a tail-sensitive stop.
+parser.add_argument("--rf-transverse-spin-coordinates", choices=["off","auto","physics3","geometric4","geometric4-phase-excess"], default=None, help="Pass opt-in geometric4 RF fit basis to applicable full precessing stages; auto selects geometric4. physics3 is retired and refused")
+parser.add_argument("--internal-cip-transverse-tails",action='store_true',help="OPT-IN alt config for resolving transverse-spin (chi1_perp) tails, esp. at low mass. Bundles: (a) tail-sensitive convergence test (passes --internal-test-convergence-method js_lame to helper_LDG_Events.py, unless overridden); (b) raises the NET interim posterior samples across the CIP worker cohort by lifting --internal-cip-cap-neff and --n-output-samples and scaling up --cip-explode-jobs (MORE WORKERS -> more net samples-out, NOT larger per-worker n_eff) -- the raised interim sample count is what makes js_lame's quantile-drift tolerance statistically meaningful; (c) transverse TAIL-GUARD in the puffball: --append-with-random-parameter chi1_perp appends+shuffles uniformly-random transverse draws into every puff, so the proposed grid keeps offering chi1_perp tail coverage even after the posterior contracts (the measured tail-starvation feedback), and puff is kept active through all iterations. REQUIRES A PRECESSING ANALYSIS (precessing approximant or --assume-precessing): the tail guard proposes nonzero transverse spin, so combining this with --assume-nospin/--assume-nonprecessing or an aligned-spin approximant is REJECTED rather than silently changing the spin model analyzed. Tune with the --internal-cip-transverse-tails-* flags. Default OFF (behavior unchanged). See results_triage/CONVERGENCE_PROTOCOL_2026-07-23.md.")
+parser.add_argument("--internal-cip-transverse-tails-cap-neff",type=int,default=4000,help="With --internal-cip-transverse-tails: raise --internal-cip-cap-neff to at least this (the interim net-n_eff throttle; shipped base is 500).")
+parser.add_argument("--internal-cip-transverse-tails-nout",type=int,default=20000,help="With --internal-cip-transverse-tails: raise interim --n-output-samples to at least this (net samples out, combined across workers).")
+parser.add_argument("--internal-cip-transverse-tails-worker-scale",type=float,default=3.0,help="With --internal-cip-transverse-tails: multiply cip-explode-jobs (and -last) by this, so the raised net sample count is produced by MORE WORKERS while each worker's n_eff stays modest.")
+parser.add_argument("--internal-cip-transverse-tails-puff-fraction",type=float,default=0.3,help="With --internal-cip-transverse-tails: fraction of the puff output appended as uniformly-random chi1_perp tail-guard points (puffball --append-with-random-fraction).")
+parser.add_argument("--internal-test-convergence-method",type=str,default=None,help="Convergence-test method passed to helper_LDG_Events.py (lame|ks1d|KL_1d|js_additive|js_lame). If js_lame is requested, --internal-cip-transverse-tails is AUTO-ENABLED (the raised interim sample count is required for js_lame's drift tolerance) and therefore js_lame REQUIRES A PRECESSING ANALYSIS -- it is rejected with --assume-nospin/--assume-nonprecessing or an aligned-spin approximant, where there is no transverse tail to score. If unset: helper default (lame), or js_lame when --internal-cip-transverse-tails is on.")
 parser.add_argument('--internal-cip-tripwire',type=float,help="Passed to CIP")
 parser.add_argument("--internal-cip-temper-log",action='store_true',help="Use temper_log in CIP.  Helps stabilize adaptation for high q for example")
+parser.add_argument("--internal-ile-deduplicate-grid",action='store_true',help="Create separate exact unique ordinary ILE grids while retaining posterior weights and exports.")
+parser.add_argument("--internal-cip-singularity-image",default=None,help="Independent CIP/builder runtime image; does not replace the ILE image.")
+parser.add_argument("--internal-cip-request-gpus",default=0,type=int,help="GPU devices requested by every CIP fit producer and sampling worker.")
+parser.add_argument("--internal-cip-require-gpus",default=None,help="Condor RequireGPUs expression for the selected CIP CUDA runtime.")
 parser.add_argument("--internal-cip-request-memory",default=None,type=int,help="ILE memory request in Mb. Only experts should change this.")
 parser.add_argument("--internal-ile-sky-network-coordinates",action='store_true',help="Passthrough to ILE ")
 parser.add_argument("--internal-ile-sky-network-coordinates-raw",action='store_true',help="Passthrough to ILE ")
@@ -291,13 +636,61 @@ parser.add_argument("--internal-ile-force-noreset-adapt",action='store_true',hel
 parser.add_argument("--internal-ile-adapt-log",action='store_true',help="Passthrough to ILE ")
 parser.add_argument("--internal-ile-auto-logarithm-offset",action='store_true',help="Passthrough to ILE")
 parser.add_argument("--internal-ile-use-lnL",action='store_true',help="Passthrough to ILE via helper.  Will DISABLE auto-logarithm-offset and manual-logarithm-offset for ILE")
+parser.add_argument("--export-marginal-distance-grid",action='store_true',help="Ask the ILE extrinsic stage to export per-intrinsic likelihood density grids in luminosity distance. Forces ILE lnL mode and disables distance marginalization. Requires the extrinsic stage (--add-extrinsic).")
+parser.add_argument("--export-distance-slices",default=0,type=int,help="If >0, ask the ILE extrinsic stage to export K-row .dslice files (Plan-B fixed-distance extrinsic-marginalized likelihoods). Forces ILE lnL mode and disables distance marginalization. Requires the extrinsic stage (--add-extrinsic).")
+parser.add_argument("--export-distance-slices-n-core",default=0,type=int,help="Passthrough: --n-distance-slice-core for the .dslice export.")
+parser.add_argument("--export-distance-slices-n-wing",default=0,type=int,help="Passthrough: --n-distance-slice-wing for the .dslice export.")
+parser.add_argument("--export-distance-slices-all-fresh",action='store_true',default=False,help="Passthrough: --distance-slice-all-fresh. All K slices are fresh fixed-d integrations (no importance-reweight core). Use at low main-loop n_eff, where the reweight core is starved.")
+parser.add_argument("--export-distance-slices-randomize",action='store_true',default=False,help="Passthrough: --distance-slice-randomize. (all-fresh) Draw each intrinsic's fresh-slice distances at random posterior-d quantiles, so K=1 gives a fair-draw of d per intrinsic -- cheap dense (intrinsic,d) coverage for the AD surrogate.")
+parser.add_argument("--export-distance-slices-wing-neff",default=None,type=int,help="Passthrough: --distance-slice-wing-neff (n_eff per fresh fixed-d slice integration -- the precision of each L(d) row).")
+parser.add_argument("--export-distance-slices-wing-nmax",default=None,type=int,help="Passthrough: --distance-slice-wing-nmax (max samples per fresh fixed-d slice integration).")
+parser.add_argument("--export-distance-slices-wing-delta-lnL",default=None,type=float,help="Passthrough: --distance-slice-wing-delta-lnL for the .dslice export (target lnL drop below peak for wing placement).")
+parser.add_argument("--export-distance-slices-skip-threshold",default=None,type=float,help="Passthrough: --distance-slice-skip-threshold for the .dslice export (absolute peak-lnL detectability cut).")
 parser.add_argument("--ile-additional-files-to-transfer",default=None,help="Comma-separated list of filenames. To append to the transfer file list for ILE jobs (only). Intended for surrogates in LAL_DATA_PATH for wide-ranging use")
 parser.add_argument("--internal-cip-use-lnL",action='store_true')
-parser.add_argument("--manual-initial-grid",default=None,type=str,help="Filename (full path) to initial grid. Copied into proposed-grid.xml.gz, overwriting any grid assignment done here")
+parser.add_argument("--manual-initial-grid",default=None,type=str,help="Filename (full path) to initial grid. Copied into proposed-grid.<suffix>, overwriting any grid assignment done here. Suffix is .xml.gz by default and .dat when RIFT_HYPERPIPELINE_FORMAT is set; the source file's format must match the active mode.")
 parser.add_argument("--manual-initial-grid-supplements",action='store_true', help="Manual inital grid used to SUPPLEMENT output of the default helper grid.")
 parser.add_argument("--manual-extra-ile-args",default=None,type=str,help="Avenue to adjoin extra ILE arguments.  Needed for unusual configurations (e.g., if channel names are not being selected, etc)")
 parser.add_argument("--internal-ile-force-adapt-all",action='store_true', help="Syntactic sugar to prevent need to add manual-extra-ile-args for this: easier on user")
+parser.add_argument("--transverse-seed-climb",default=None,choices=["setup","dag","parallel","composite"],help="Seed the initial grid with near-peak points across transverse spin, found by hillclimbing a fast marginalized likelihood (util_TransverseSeedClimb.py: CMA-ES in mu1,mu2,q,s2z,chi1_perp,phi1; free climbs plus a ladder of pinned chi1_perp).  'setup' runs it here, on this host, and appends to proposed-grid.xml.gz.  'dag' adds a node before the iteration-0 ILE jobs (GPU with --transverse-seed-climb-request-gpu) that appends to overlap-grid-0.  'parallel' runs that node alongside iteration 0 and gives its points their own ILE_seed jobs, which join the iteration-0 consolidation; iteration 0 is not delayed.  'composite' runs the node after iteration 0, climbing from the best ILE-scored lines of all.net beside CIP 0; its ILE_seed jobs join the iteration-1 consolidation (needs >= 2 iterations).  The seeds are proposals: ILE re-scores them.  Off by default.")
+parser.add_argument("--transverse-seed-climb-args",default="",type=str,help="Extra arguments for util_TransverseSeedClimb.py (e.g. '--chi1-perp-ladder 0.2,0.5,0.8 --n-seed-points 400 --climb-approx IMRPhenomXPHM').")
+parser.add_argument("--transverse-seed-climb-n-max",default=1000,type=int,help="'dag', 'parallel', 'composite' modes: most points the climb may add (seed ILE batches are sized for it).")
+parser.add_argument("--transverse-seed-climb-request-gpu",action='store_true',help="DAG modes: the climb node requests a GPU.")
+parser.add_argument("--transverse-seed-climb-singularity-image",default=None,help="DAG modes with containers: image for the climb node (needs JAX; the ILE image has none).  Default: $SINGULARITY_RIFT_SEED_CLIMB_IMAGE.")
+parser.add_argument("--transverse-seed-climb-condor-commands",default=None,help="DAG modes: condor commands file for the climb node (--ile-condor-commands format).  Default: the ILE condor commands.")
+parser.add_argument("--transverse-seed-climb-exe",default=None,help="DAG modes: climb executable.  Default: `which util_TransverseSeedClimb.py`.  In a container this path is resolved inside the image, so it must exist there or on a bound filesystem (/scratch, /cvmfs).")
+# --- Time-domain (Toeplitz) inner product + glitch marginalization passthroughs ---
+#   ALL default None/OFF => byte-identical pipeline behavior (the ILE default inner product
+#   is the classic fd-diagonal lsu.ComplexIP/ComplexOverlap).  These are thin passthroughs to
+#   the ILE binary flags of the same name; they exist so an ini-driven PRODUCTION run can
+#   enable the TD path + glitch marginalization without --manual-extra-ile-args string surgery,
+#   and (crucially) so the --glitch-basis-file .npz rides the condor transfer_input_files list.
+parser.add_argument("--internal-ile-inner-product",default=None,type=str,help="Passthrough to ILE --internal-ile-inner-product: 'fd-diagonal' (default OFF, classic), 'td-toeplitz' (time-domain Toeplitz precision kernel, plan T3) or 'td-gs' (fully time-domain code path: unwindowed data, untapered templates, Toeplitz covariance on hard-cut pieces, U(t)/V(t); see --internal-ile-td-mref/-piece/-acf-file). EXPERIMENTAL. Enables the TD/glitch flags below.")
+parser.add_argument("--internal-ile-td-mref",default=None,type=float,help="Passthrough to ILE --td-mref MSUN (td-gs: time unit of the pieces).")
+parser.add_argument("--internal-ile-td-piece",action='append',default=None,help="Passthrough to ILE --td-piece 'START,END' in units of M_ref relative to the event time (td-gs; repeatable). In an ini give a list literal or a single quoted string.")
+parser.add_argument("--internal-ile-td-ifo-time-offset",action='append',default=None,help="Passthrough to ILE --td-ifo-time-offset 'IFO:SECONDS' (td-gs; repeatable).")
+parser.add_argument("--internal-ile-td-acf-file",action='append',default=None,help="Passthrough to ILE --td-acf-file 'IFO:path.npy' (td-gs; repeatable; tdanalysis (2,N) [tau,R] format). The .npy is ADDED TO THE ILE CONDOR TRANSFER LIST and the flag rewritten to the transferred basename on OSG, as for --internal-ile-glitch-basis-file.")
+parser.add_argument("--internal-ile-td-dense-max-n",default=None,type=int,help="Passthrough to ILE --td-dense-max-n (td-gs).")
+parser.add_argument("--internal-ile-td-u-stride",default=None,type=int,help="Passthrough to ILE --td-u-stride (td-gs).")
+parser.add_argument("--internal-ile-td-u-method",default=None,type=str,help="Passthrough to ILE --td-u-method {auto,prefix,recursion,batched,chunked} (td-gs).")
+parser.add_argument("--internal-ile-td-subsample",default=None,type=int,help="Passthrough to ILE --td-subsample K (td-gs: templates placed to 1/K of a sample with tdanalysis' Lanczos resampler; Precompute cost x K; default 1 = whole samples).")
+parser.add_argument("--internal-ile-td-highpass",default=None,type=float,help="Passthrough to ILE --td-highpass FREQ (td-gs: zero-phase high-pass of the data, e.g. 10 Hz for real strain with walled ACFs; default off).")
+parser.add_argument("--internal-ile-td-u-svd-tol",default=None,type=float,help="Passthrough to ILE --td-u-svd-tol TOL (td-gs: SVD-over-time compression of U(t),V(t); recommended 1e-13; default off).")
+parser.add_argument("--internal-ile-td-acf-cond",default=None,type=float,help="Passthrough to ILE --td-acf-cond (td-gs PSD->ACF target condition number).")
+parser.add_argument("--internal-ile-td-calibration-correction-type",default=None,type=str,help="Passthrough to ILE --td-calibration-correction-type {rift,bilby} (td-gs with in-loop calmarg: how a realization becomes the template factor; rift = RIFT's FD convention, bilby = per-detector bilby_pipe semantics).")
+parser.add_argument("--internal-ile-td-calibration-fir-half-length",default=None,type=int,help="Passthrough to ILE --td-calibration-fir-half-length (td-gs calmarg: force the FIR half-length; default exact).")
+parser.add_argument("--internal-ile-td-whiteness-check",action='store_true',default=False,help="Passthrough to ILE --td-whiteness-check (td-gs).")
+parser.add_argument("--internal-ile-td-solver",default=None,type=str,help="Passthrough to ILE --td-solver {auto,dense,pcg} (TD path only).")
+parser.add_argument("--internal-ile-td-acf-duration",default=None,type=float,help="Passthrough to ILE --td-acf-duration [s] (TD truncated-segment path).")
+parser.add_argument("--internal-ile-td-analysis-start",default=None,type=float,help="Passthrough to ILE --td-analysis-start [s] (template-frame segment start, plan T5/D1).")
+parser.add_argument("--internal-ile-td-analysis-end",default=None,type=float,help="Passthrough to ILE --td-analysis-end [s] (template-frame segment end, plan T5/D1).")
+parser.add_argument("--internal-ile-td-gap",action='append',default=None,help="DISABLED (refused). To excise data use --internal-ile-inner-product td-gs with disjoint --internal-ile-td-piece intervals.")
+parser.add_argument("--internal-ile-glitch-basis",action='append',default=None,help="Passthrough to ILE --glitch-basis 'IFO:t1,t2,f1,f2[:r]' (analytic Slepian glitch marginalization, G3). Repeatable. Requires --internal-ile-inner-product td-toeplitz. In an ini give a list literal or a single quoted string.")
+parser.add_argument("--internal-ile-glitch-basis-file",action='append',default=None,help="Data-informed glitch basis for one detector, 'IFO:path.npz' (G4, glitschen/BayesWave PCA/SVD). Repeatable. The .npz is ADDED TO THE ILE CONDOR TRANSFER LIST and the ILE flag is rewritten to reference the transferred basename, so it works on execute nodes / OSG. Requires --internal-ile-inner-product td-toeplitz. In an ini give a list literal or a single quoted string.")
+parser.add_argument("--internal-ile-glitch-sigma",default=None,type=str,help="Passthrough to ILE --glitch-sigma (glitch amplitude hyperparameter mode; only 'profile' is wired).")
 parser.add_argument("--internal-puff-transverse",action='store_true', help=" appends the following arguments: --parameter phi1 --parameter phi2 --parameter chi1_perp_u --parameter chi2_perp_u ")
+parser.add_argument("--internal-puff-mu-random-transverse", action='store_true',
+                    help="Opt-in BBH/BasicIteration: use mu1,mu2,q,s2z puff plus RANDOM transverse spins for the first CIP batch; later batches (including refinement subdags) use internal-puff-transverse covariance puff. Default: unchanged legacy puff.")
 parser.add_argument("--manual-extra-puff-args",default=None,type=str,help="Avenue to adjoin extra PUFF arguments.  ")
 parser.add_argument("--manual-extra-test-args",default=None,type=str,help="Avenue to adjoin extra TEST arguments.  ")
 parser.add_argument("--manual-extra-cip-args",default=None,type=str,help="Avenue to adjoin extra CIP arguments.  Needed for external priors or likelihoods in CIP stage")
@@ -320,7 +713,36 @@ parser.add_argument("--use-osg-public",action='store_true',help="Activate public
 parser.add_argument("--archive-pesummary-label",default=None,help="If provided, creates a 'pesummary' directory and fills it with this run's final output at the end of the run")
 parser.add_argument("--archive-pesummary-event-label",default="this_event",help="Label to use on the pesummary page itself")
 parser.add_argument("--internal-mitigate-fd-J-frame",default="L_frame",help="L_frame|rotate, choose method to deal with ChooseFDWaveform being in wrong frame. Default is to request L frame for inputs")
+parser.add_argument("--internal-force-puff-iterations", default=4, type=int, help="Number of iterations to be puffed")
+parser.add_argument("--first-iteration-jumpstart",action='store_true',help="No ILE jobs the first iteration.  Assumes you already have .composite files and want to get going. Particularly helpful for subdag systems")
+parser.add_argument("--use-mtot-coords",action='store_true',help="Passed to the helper to configure CIP and PUFF for mtot instead of mc.")
+parser.add_argument("--force-scatter-grids",action='store_true',help="Eliminates all non-scatter intrinsic points from hyperbolic grids throughout the workflow.")
+parser.add_argument("--force-plunge-grids",action='store_true',help="Eliminates all non-plunge intrinsic points from hyperbolic grids throughout the workflow.")
+parser.add_argument("--force-zoomwhirl-grids",action='store_true',help="Eliminates all non-zoomwhirl intrinsic points from hyperbolic grids throughout the workflow.")
+parser.add_argument("--force-hyperbolic-22", action='store_true', help='Forces just the 22 modes for hyperbolic waveforms')
 opts=  parser.parse_args()
+
+# Resolve the sub-sample stencil request IMMEDIATELY, so a bare flag / retired 'True' / typo
+# fails here rather than being forwarded into a workflow build.  Value unused at this point --
+# the call is for its validation side effect; the helper resolves it again for the emission.
+resolve_interpolate_time_request(opts.internal_ile_interpolate_time)
+
+
+# Multi-GPU ILE fan-out: --ile-gpu-fanout funnels through RIFT_ILE_GPU_FANOUT, which
+# create_event_parameter_pipeline_BasicIteration (run via os.system, inheriting this
+# environment) and dag_utils read at DAG-build time to size request_GPUs/CPUs and bake
+# the value into ile_pre.sh.  A CLI value wins over any inherited environment value.
+if opts.ile_gpu_fanout is not None:
+    os.environ['RIFT_ILE_GPU_FANOUT'] = str(opts.ile_gpu_fanout)
+
+# Ensure --assume-hyperbolic is set when using any --force-X-grids option
+# Ensure only ONE of the --force-X-grids options is set
+force_grids = [opts.force_scatter_grids, opts.force_plunge_grids, opts.force_zoomwhirl_grids]
+if any(force_grids) and not opts.assume_hyperbolic:
+    parser.error("Using --force-scatter-grids, --force-plunge-grids, or "
+                 "--force-zoomwhirl-grids requires --assume-hyperbolic!")
+if sum(bool(x) for x in force_grids) > 1:
+    parser.error("CANNOT use multiple --force-X-grids options at the same time!")
 
 config_stored=None; config_dict=None
 ile_condor_commands = None
@@ -329,6 +751,8 @@ if (opts.use_ini):
     config = ConfigParser.ConfigParser()
     config.optionxform=str # force preserve case! Important for --choose-data-LI-seglen
     config.read(opts.use_ini)
+    config_stored=config
+    # Command line arguments
     if 'rift-pseudo-pipe' in config:
         # get the list of items
         rift_items = dict(config["rift-pseudo-pipe"])
@@ -346,14 +770,13 @@ if (opts.use_ini):
             os.environ['RIFT_REQUIRE_GPUS'] = rift_items['ile_require_gpus']
 
         # Container family (multi-container per-machine image selection): let the ini
-        # file provide the image/exe-dir, as the environment normally would.  The value
-        # may be a single .sif/osdf URL (legacy) or a .yaml/.yml family manifest.
-        # Environment still dominates, matching the accounting/require-GPUs behavior above.
+        # carry the manifest + base exe dir, so a single ini is self-contained.  These
+        # are read from os.environ by create_event_parameter_pipeline_BasicIteration /
+        # write_ILE_sub_simple; the environment still dominates if already set.
         if not('SINGULARITY_RIFT_IMAGE' in os.environ) and 'singularity_rift_image' in rift_items:
             os.environ['SINGULARITY_RIFT_IMAGE'] = rift_items['singularity_rift_image']
         if not('SINGULARITY_BASE_EXE_DIR' in os.environ) and 'singularity_base_exe_dir' in rift_items:
             os.environ['SINGULARITY_BASE_EXE_DIR'] = rift_items['singularity_base_exe_dir']
-
 
         # attempt to lazy-select the command-line that are present in the ini file section
         for item in rift_items:
@@ -378,7 +801,130 @@ if (opts.use_ini):
         for item in rift_items:
             val = rift_items[item].strip()
             ile_condor_commands.append([item, val])
-            
+
+# --internal-ile-td-gap is refused, from the command line or the ini above.
+_TD_GAP_REFUSAL = (" FAILURE: --internal-ile-td-gap is disabled (the gap-marginalized td-toeplitz "
+                   "likelihood is not yet regularized for fMax < fNyq).  To excise data, use "
+                   "--internal-ile-inner-product td-gs with --internal-ile-td-mref M and disjoint "
+                   "--internal-ile-td-piece START,END intervals (units of M_ref) covering the data "
+                   "to KEEP.  Pieces are independent blocks: correlations across the gap are dropped.")
+def _td_gap_requested(_v):
+    return bool(_v if isinstance(_v, (list, tuple)) else _v is not None)
+if _td_gap_requested(opts.internal_ile_td_gap):
+    print(_TD_GAP_REFUSAL)
+    sys.exit(1)
+
+# After the ini, which can set the mode.
+if eccentric_phase_pipeline.requested(opts):
+    if not opts.assume_eccentric or not opts.use_meanPerAno:
+        parser.error('--eccentric-phase-coordinates requires --assume-eccentric and --use-meanPerAno')
+    if opts.internal_cip_use_periodic_ecc_vars or opts.internal_use_amr:
+        parser.error('Effective eccentric-phase coordinates cannot be combined with the legacy periodic-ecc basis or AMR')
+    eccentric_phase_pipeline.validate_request(opts)
+
+if opts.rf_transverse_spin_coordinates == 'physics3':
+    from RIFT.misc.rf_transverse_spin import RETIRED_MESSAGE
+    parser.error(RETIRED_MESSAGE)
+
+# Multi-GPU ILE fan-out: funnel --ile-gpu-fanout (CLI) OR ile-gpu-fanout=... (ini
+# [rift-pseudo-pipe]) through RIFT_ILE_GPU_FANOUT.  Done AFTER the ini is parsed so an
+# ini-only value also lands.  create_event_parameter_pipeline_BasicIteration (run via
+# os.system, inheriting this environment) and dag_utils read it at DAG-build time to
+# size request_GPUs/CPUs and bake the value into ile_pre.sh.
+if opts.ile_gpu_fanout is not None:
+    os.environ['RIFT_ILE_GPU_FANOUT'] = str(opts.ile_gpu_fanout)
+
+# JAX ILE selection.  Placed AFTER the --use-ini block above: the ini can set both
+# use-jax-ile and calmarg-envelope-directory via [rift-pseudo-pipe], and a check
+# above that block would validate values the ini is about to replace.
+if opts.use_jax_ile and opts.ile_exe:
+    raise ValueError(
+        "--use-jax-ile and --ile-exe are mutually exclusive: --use-jax-ile already "
+        "resolves to `which integrate_likelihood_extrinsic_jax`.  Pass that "
+        "executable's path via --ile-exe directly instead of setting both.")
+if opts.use_jax_ile and opts.calmarg_envelope_directory:
+    raise ValueError(
+        "--use-jax-ile is incompatible with in-loop calibration marginalization "
+        "(--calmarg-envelope-directory): bin/integrate_likelihood_extrinsic_jax does "
+        "not implement --calibration-* options (see check_critical_and_report in "
+        "that driver).  Drop --calmarg-envelope-directory or drop --use-jax-ile.")
+if opts.use_jax_ile and opts.internal_ile_time_marginalization_quadrature in NOLOOP_ONLY_TIME_QUADRATURES:
+    raise ValueError(
+        "--use-jax-ile is incompatible with --internal-ile-time-marginalization-quadrature "
+        "%r: bin/integrate_likelihood_extrinsic_jax does not implement it, so every ILE "
+        "job would fail at startup.  Drop one of the two."
+        % opts.internal_ile_time_marginalization_quadrature)
+
+# TIME-MARGINALIZATION QUADRATURE, part 1 of 2: everything refusable WITHOUT running the
+# helper.  Deliberately placed AFTER the --use-ini block above: the ini parser OVERRIDES the
+# command line for non-boolean options, so a validate above it checks a value that the ini is
+# about to replace, and a bad ini value would surface downstream as "helper call failed to
+# generate required file" instead of as a quadrature diagnostic.
+if opts.internal_ile_time_marginalization_quadrature is not None:
+    # Validate through the LIBRARY function as well as argparse `choices`, so this script and
+    # the ILE driver can never disagree about what the legal set is.
+    validate_time_quadrature(opts.internal_ile_time_marginalization_quadrature)
+    if opts.lisa_known_sky:
+        # --lisa-known-sky exits below, before both the forward to the helper and the
+        # args_ile.txt guard, and builds its own ILE arguments through helper_LISA_Events.py
+        # which does not know this option.  Refuse rather than silently dropping it.
+        raise ValueError(
+            "--internal-ile-time-marginalization-quadrature is not supported on the "
+            "--lisa-known-sky path: that path builds args_ile.txt through "
+            "helper_LISA_Events.py, which does not carry the option, so the request would be "
+            "silently dropped.")
+    # What this script knows before the helper runs: calibration marginalization is added HERE,
+    # not by the helper, and --manual-extra-ile-args can carry any ILE flag at all.
+    _tq_early = ""
+    if opts.calmarg_envelope_directory:
+        _tq_early += " --calibration-envelope-directory " + str(opts.calmarg_envelope_directory)
+    if opts.manual_extra_ile_args:
+        _tq_early += " " + str(opts.manual_extra_ile_args)
+    if _tq_early:
+        # Only the EXCLUSIONS are checkable this early -- the required flags are added by the
+        # helper -- so append the requirements to keep the message about what is actually wrong.
+        refuse_unhonourable_time_quadrature(
+            opts.internal_ile_time_marginalization_quadrature,
+            "--time-marginalization --vectorized --gpu " + _tq_early,
+            "this pipeline's own options (checked before the helper runs, so the failure is "
+            "immediate rather than after a workflow has been built)")
+
+# Q_lm PREGRID FACTOR, part 1 of 2: everything refusable WITHOUT running the helper.  Same
+# placement reasoning as the quadrature block just above (after --use-ini, so a bad ini value
+# is not checked before the ini is about to replace it).
+if opts.internal_ile_q_time_pregrid_factor is not None:
+    # Validate through the LIBRARY function as well as argparse `choices`, so this script and
+    # the ILE driver can never disagree about what the legal set is.
+    validate_q_time_pregrid_factor(opts.internal_ile_q_time_pregrid_factor)
+    if opts.lisa_known_sky:
+        # Same reasoning as the quadrature check: --lisa-known-sky builds args_ile.txt through
+        # helper_LISA_Events.py, which does not carry this option either.
+        raise ValueError(
+            "--internal-ile-q-time-pregrid-factor is not supported on the --lisa-known-sky "
+            "path: that path builds args_ile.txt through helper_LISA_Events.py, which does not "
+            "carry the option, so the request would be silently dropped.")
+    # What this script knows before the helper runs: calibration marginalization is added HERE,
+    # not by the helper, and --manual-extra-ile-args can carry any ILE flag at all (including a
+    # conflicting explicit --interpolate-time).
+    _qp_early = ""
+    if opts.calmarg_envelope_directory:
+        _qp_early += " --calibration-envelope-directory " + str(opts.calmarg_envelope_directory)
+    if opts.manual_extra_ile_args:
+        _qp_early += " " + str(opts.manual_extra_ile_args)
+    if _qp_early:
+        # Only the EXCLUSIONS (and a manually-passed stencil conflict) are checkable this early
+        # -- the NoLoop flags are added by the helper -- so append them to keep the
+        # message about what is actually wrong.
+        refuse_unhonourable_q_time_pregrid(
+            opts.internal_ile_q_time_pregrid_factor,
+            "--time-marginalization --vectorized --gpu " + _qp_early,
+            "this pipeline's own options (checked before the helper runs, so the failure is "
+            "immediate rather than after a workflow has been built)")
+
+if opts.lisa_known_sky:
+    run_lisa_known_sky_surface(opts)
+    sys.exit(0)
+
 
 
 if opts.use_osg:
@@ -389,6 +935,26 @@ if opts.use_osg_public:
     opts.condor_local_nonworker=True
     opts.condor_local_nonworker_igwn_prefix=False
     opts.condor_nogrid_nonworker=False
+
+# --use-jax-ile + --use-osg: --use-osg unconditionally pairs with --use-singularity
+# (see the cmd built below), and write_ILE_sub_simple then rewrites the condor
+# executable to <SINGULARITY_BASE_EXE_DIR or /usr/bin/>/<basename>, discarding the
+# `which integrate_likelihood_extrinsic_jax` resolution above.  No container this
+# repository builds carries JAX or that driver, so every ILE job would fail at
+# runtime, silently at build time.  Placed here (after opts.use_osg_public is
+# folded into opts.use_osg) so it sees the final value of opts.use_osg regardless
+# of which flag or ini key set it.
+if opts.use_jax_ile and opts.use_osg and not opts.jax_ile_container_ok:
+    raise ValueError(
+        "--use-jax-ile with --use-osg is REFUSED at DAG-build time: --use-osg "
+        "always adds --use-singularity, and write_ILE_sub_simple rewrites the "
+        "condor executable to <SINGULARITY_BASE_EXE_DIR or /usr/bin/>/<basename>, "
+        "but no container this repository builds (Dockerfile, "
+        "containers/rift_container.def.in, rift_container_family.yaml) installs "
+        "JAX or integrate_likelihood_extrinsic_jax -- every ILE job would fail at "
+        "runtime.  If SINGULARITY_RIFT_IMAGE/SINGULARITY_BASE_EXE_DIR names an "
+        "image you have verified provides both, pass --jax-ile-container-ok to "
+        "proceed.  Otherwise drop --use-jax-ile or --use-osg.")
 
 if opts.ile_copies <=0:
     raise Exception(" Must have 1 or more ILE instances per intrinsic point")
@@ -500,7 +1066,7 @@ elif opts.use_coinc and opts.fake_data_cache:
     # if gracedb id is NOT none, but if we have a coinc and cache file, do nothing/no warnings
    print("  pseudo_pipe: no authenticated lookup needed, coinc and cache file provided as ", opts.use_coinc, opts.fake_data_cache)     
 else:
-    from RIFT.misc.dag_utils import which
+    from RIFT.misc.dag_utils_generic import which
     # https://computing.docs.ligo.org/guide/htcondor/credentials/#scitokens
     print(" ===> WARNING <=== ")
     print(" gracedb id provided but either missing coinc file or cache file; lookup necessary, possibly requiring authentication ")
@@ -564,15 +1130,33 @@ if opts.choose_data_LI_seglen:
 
 is_analysis_precessing =False
 is_analysis_eccentric =False
+is_analysis_hyperbolic =False
 if opts.approx == "SEOBNRv3" or opts.approx == "NRSur7dq2" or opts.approx == "NRSur7dq4" or (opts.approx == 'SEOBNv3_opt') or (opts.approx == 'IMRPhenomPv2') or (opts.approx =="SEOBNRv4P" ) or (opts.approx == "SEOBNRv4PHM") or (opts.approx == "SEOBNRv5PHM") or ('SpinTaylor' in opts.approx) or ('IMRPhenomTP' in opts.approx or ('IMRPhenomXP' in opts.approx)):
-        is_analysis_precessing=True
+    is_analysis_precessing = True
 if opts.assume_precessing:
-        is_analysis_precessing = True
+    is_analysis_precessing = True
 if opts.assume_nonprecessing:
-        is_analysis_precessing = False
+    is_analysis_precessing = False
 if opts.assume_eccentric:
-        is_analysis_eccentric = True
+    is_analysis_eccentric = True
+if opts.assume_hyperbolic:
+    is_analysis_hyperbolic = True
 
+# Resolve ONE effective hyperbolic prior range for the whole workflow.  Each
+# consumer carries its own default and they do not agree: initial points are
+# generated out to p_phi0=10, while CIP defaults to 5.4, so a bare
+# --assume-hyperbolic evaluates likelihood at points the posterior then throws
+# away.  Fix the range here (defaults matching grid generation) and forward it
+# explicitly to grid generation, CIP, and puffing, override or not.
+hyperbolic_range = {'E0_min': 1.0, 'E0_max': 1.2, 'pphi0_min': 0.0, 'pphi0_max': 10.0}
+for _name in hyperbolic_range:
+    _val = getattr(opts, 'force_' + _name)
+    if not(_val is None):
+        hyperbolic_range[_name] = _val
+if is_analysis_hyperbolic:
+    if hyperbolic_range['E0_min'] >= hyperbolic_range['E0_max'] or hyperbolic_range['pphi0_min'] >= hyperbolic_range['pphi0_max']:
+        raise ValueError(" Empty hyperbolic prior range requested: check --force-E0-min/max and --force-pphi0-min/max ")
+    print(" Hyperbolic prior range (grid generation, CIP, puff): E0 [{},{}], p_phi0 [{},{}] ".format(hyperbolic_range['E0_min'],hyperbolic_range['E0_max'],hyperbolic_range['pphi0_min'],hyperbolic_range['pphi0_max']))
 
 dirname_run = gwid+ "_" + opts.calibration+ "_"+ opts.approx+"_fmin" + str(fmin) +"_fmin-template"+str(fmin_template) +"_lmax"+str(opts.l_max) + "_"+opts.spin_magnitude_prior
 if opts.online:
@@ -590,7 +1174,9 @@ if opts.assume_matter:
 if opts.assume_eccentric:
     dirname_run += "_with_eccentricity"
     if opts.use_meanPerAno:
-        dirname_run += "_and_meanPerAno"
+        dirname_run += "_with_eccentricity_and_meanPerAno"
+if opts.assume_hyperbolic:
+    dirname_run += "_with_hyperbolic"
 if opts.no_matter:
     dirname_run += "_no_matter"
 if opts.assume_highq:
@@ -610,6 +1196,9 @@ if opts.manual_postfix:
 # Override run directory name
 if opts.use_rundir:
     dirname_run = opts.use_rundir
+extra_args_helper = []
+if opts.extra_args_helper:
+    extra_args_helper = extra_helper_arguments(opts.extra_args_helper)  # before the chdir below: a relative file path
 os.mkdir(dirname_run)
 os.chdir(dirname_run)
 
@@ -641,8 +1230,22 @@ if not(opts.use_ini is None):
         P.eccentricity = event_dict["eccentricity"]
     if not(event_dict['meanPerAno'] is None):
         P.meanPerAno = event_dict["meanPerAno"]
-    # Write 'target_params.xml.gz' file
-    lalsimutils.ChooseWaveformParams_array_to_xml([P], "target_params")
+    if event_dict['E0'] is not None:
+        P.E0 = event_dict['E0']
+        P.p_phi0 = event_dict['p_phi0']
+    # Write 'target_params' file -- hyperpipeline .dat or legacy XML.
+    if _use_hpip_pp:
+        from RIFT.misc import hyperpipeline_io as _hpio
+        _cols = _hpio.build_column_list(
+            use_eccentricity=(P.eccentricity != 0),
+            use_meanPerAno=(P.meanPerAno != 0),
+            use_eob_parameters=opts.use_EOB_parameters,
+            use_hyperbolic=opts.assume_hyperbolic)
+        _hpio.write_grid_from_P_list("target_params", [P], _cols,
+                                     lal_module=lal,
+                                     lalsimutils_module=lalsimutils)
+    else:
+        lalsimutils.ChooseWaveformParams_array_to_xml([P], "target_params")
 
     if opts.use_production_defaults:
         # use more workers for high-q triggers
@@ -662,13 +1265,22 @@ if not(opts.skip_reproducibility): # not(assume_lowlatency):
         import shutil, json
         if opts.use_ini:
             shutil.copyfile(opts.use_ini, "local.ini") # copy into current directory
-        os.mkdir("reproducibility")
+        if not(os.path.exists("reproducibility")):
+            os.mkdir("reproducibility")
         # Write this script and its arguments
 #        thisfile = os.path.realpath(__file__)
 #        shutil.copyfile(thisfile, "reproducibility/the_script_used.py")
         argparse_dict = vars(opts)
+        # arguments in json form
         with open("reproducibility/the_arguments_used.json",'w') as f:
                 json.dump(argparse_dict,f)
+        # config parsing
+        if opts.use_ini and not(config_dict is None):
+            for name in argparse_dict:
+                config_stored['rift-pseudo-pipe'][name] = str(argparse_dict[name]) # add info
+            with open("reproducibility/local_real.ini",'w') as f:
+                config.write(f) # the actual arguments used!  (Not yet tested it works as input)
+            
         # Write commits
 #        cmd = "(cd ${ILE_CODE_PATH}; git rev-parse HEAD) > reproducibility/RIFT.commit"
 #        os.system(cmd)
@@ -684,11 +1296,90 @@ if not(opts.skip_reproducibility): # not(assume_lowlatency):
 
 # Run helper command
 npts_it = 500
+# Alt config for transverse-spin (chi1_perp) tails (opt-in; transverse-spin study). Lift the NET
+# interim posterior-sample count (combined across CIP workers) and switch to a tail-sensitive stop.
+# Worker COUNT is scaled later (after the auto-explode block); here we lift the per-iteration net
+# throttles (cap-neff, n-output) and record that helper must use the tail-sensitive convergence test.
+# js_lame REQUIRES the raised interim sample count (its quantile-drift tolerance is at the
+# split-half noise floor at the shipped n~5e3): requesting js_lame auto-enables the tails bundle.
+#
+# The whole bundle only has meaning for an analysis that HAS transverse spin: the tail guard
+# appends uniformly-random chi1_perp (i.e. nonzero s1x/s1y) to every puff, and js_lame scores the
+# chi1_perp tail.  Under --assume-nospin/--assume-nonprecessing, or with an aligned-spin
+# approximant, those grid points are not representable by the waveform being used: ILE either
+# rejects them or silently analyzes a different spin model, and the convergence test is handed no
+# transverse parameter at all (helper only passes chi1_perp when the analysis is precessing).
+# Refuse the combination rather than quietly changing the physics of the run.
+def approx_supports_precession(approx_name):
+    """Authoritative precession classification of an approximant, from lalsimulation's own spin
+    support flag.  The is_analysis_precessing test above is a hand-maintained name list that omits
+    supported precessing models (e.g. IMRPhenomXO4a), so it must not be the sole gate on options
+    that require transverse spin.  Returns None when the name is not a lalsimulation approximant
+    (external/NR waveforms), in which case the caller should fall back to the name list."""
+    try:
+        support = lalsim.SimInspiralGetSpinSupportFromApproximant(lalsim.GetApproximantFromString(approx_name))
+    except Exception:
+        return None
+    # CASEBYCASE (e.g. NR/surrogate entries) allows precession, decided per waveform; both the
+    # current and the older LAL_-prefixed spellings of these constants are accepted.
+    precessing_support = [getattr(lalsim, name) for name in
+                          ('SIM_INSPIRAL_PRECESSINGSPIN', 'LAL_SIM_INSPIRAL_PRECESSINGSPIN',
+                           'SIM_INSPIRAL_CASEBYCASE', 'LAL_SIM_INSPIRAL_CASEBYCASE')
+                          if hasattr(lalsim, name)]
+    if not precessing_support:
+        return None
+    return support in precessing_support
+
+if opts.internal_puff_mu_random_transverse:
+    if (opts.assume_nospin or opts.assume_nonprecessing or not (
+            is_analysis_precessing or approx_supports_precession(opts.approx))):
+        raise ValueError('--internal-puff-mu-random-transverse requires a precessing analysis')
+    if (opts.assume_matter or opts.assume_eccentric or opts.assume_hyperbolic
+            or opts.use_EOB_parameters or opts.internal_use_amr
+            or opts.use_subdags or opts.approx_extra
+            or opts.pipeline_builder not in (None, 'BasicIteration')
+            or opts.internal_cip_transverse_tails
+            or opts.internal_test_convergence_method == 'js_lame'):
+        raise ValueError('early mu/random-transverse puff currently supports precessing BBH with BasicIteration; incompatible with nuisance-coordinate puffing, Alternate/MultiApprox, AMR and the transverse-tails bundle')
+    is_analysis_precessing = True
+    opts.internal_puff_transverse = True
+
+if opts.internal_cip_transverse_tails or opts.internal_test_convergence_method == 'js_lame':
+    # "precessing approximant or --assume-precessing" is the contract, so ask lalsimulation about
+    # the approximant rather than trusting only the name list.  The forced flags still win, since
+    # they change what the analysis actually samples.
+    analysis_has_transverse_spin = is_analysis_precessing or bool(approx_supports_precession(opts.approx))
+    if opts.assume_nospin or opts.assume_nonprecessing:
+        analysis_has_transverse_spin = False
+    if not analysis_has_transverse_spin:
+        raise Exception(" --internal-cip-transverse-tails (and --internal-test-convergence-method js_lame, which enables it) require a PRECESSING analysis: the puff tail-guard proposes nonzero chi1_perp and the convergence test scores its tail, neither of which an aligned-spin/zero-spin waveform can represent.  Current settings give a nonprecessing analysis (approx {}{}{}).  Use a precessing approximant or --assume-precessing, or drop these options.".format(opts.approx, ' with --assume-nospin' if opts.assume_nospin else '', ' with --assume-nonprecessing' if opts.assume_nonprecessing else ''))
+    if not is_analysis_precessing:
+        # A precessing approximant the name list does not recognize.  The bundle needs the analysis
+        # itself to carry transverse spin -- the helper only proposes the precessing fit strategy and
+        # the chi1_perp convergence parameter for a precessing analysis -- so turn it on here instead
+        # of making the user restate the approximant's own physics with --assume-precessing.
+        is_analysis_precessing = True
+        print("  [transverse-tails] approximant {} supports precession; using the precessing analysis options this bundle requires".format(opts.approx))
+if opts.internal_test_convergence_method == 'js_lame' and not opts.internal_cip_transverse_tails:
+    opts.internal_cip_transverse_tails = True
+    print("  [transverse-tails] AUTO-ENABLED by --internal-test-convergence-method js_lame (drift test needs the raised interim n-output-samples)")
+if opts.internal_cip_transverse_tails:
+    opts.internal_cip_cap_neff = int(np.max([opts.internal_cip_cap_neff, opts.internal_cip_transverse_tails_cap_neff]))
+    opts.n_output_samples      = int(np.max([opts.n_output_samples,      opts.internal_cip_transverse_tails_nout]))
+    if opts.internal_test_convergence_method is None:
+        opts.internal_test_convergence_method = 'js_lame'
+    print("  [transverse-tails] raising NET interim sampling: cip-cap-neff -> {}, n-output-samples -> {} (worker count scaled x{} below); convergence test -> {}; puff tail-guard chi1_perp fraction {}".format(opts.internal_cip_cap_neff, opts.n_output_samples, opts.internal_cip_transverse_tails_worker_scale, opts.internal_test_convergence_method, opts.internal_cip_transverse_tails_puff_fraction))
+
 cmd = " helper_LDG_Events.py --force-notune-initial-grid   --propose-fit-strategy --propose-ile-convergence-options  --fmin " + str(fmin) + " --fmin-template " + str(fmin_template) + " --working-directory " + base_dir + "/" + dirname_run  + helper_psd_args  + " --no-enforce-duration-bound --test-convergence "
+cmd += " --internal-initial-grid-approximant {} ".format(opts.approx)
+if opts.internal_test_convergence_method:
+    cmd += " --internal-test-convergence-method {} ".format(opts.internal_test_convergence_method)
 if opts.internal_use_gracedb_bayestar:
     cmd += " --internal-use-gracedb-bayestar "
 if opts.internal_use_amr:
     cmd += " --internal-use-amr " # minimal support performed in this routine, mainly for puff
+if eccentric_phase_pipeline.requested(opts):
+    cmd += eccentric_phase_pipeline.build_arguments(opts)
 if opts.internal_use_aligned_phase_coordinates:
     cmd += " --internal-use-aligned-phase-coordinates "
 if opts.internal_use_rescaled_transverse_spin_coordinates:
@@ -697,6 +1388,8 @@ if not(opts.internal_use_amr) and not(opts.manual_initial_grid and not(opts.manu
     cmd+= " --propose-initial-grid "
 if opts.force_initial_grid_size:
     cmd += " --force-initial-grid-size {} ".format(int(opts.force_initial_grid_size))
+if opts.use_EOB_parameters:
+    cmd += " --use-EOB-parameters "
 if opts.assume_matter:
         cmd += " --assume-matter "
         npts_it = 1000
@@ -716,22 +1409,33 @@ else:
         npts_it = 1500
 if is_analysis_eccentric:
     cmd += " --assume-eccentric "
-    from RIFT.misc.eccentric_defaults import iteration_points
-    # Physical intrinsic dimensions before eccentricity and its anomaly.
-    dimensions = 2 + (0 if opts.assume_nospin else (6 if is_analysis_precessing else 2))
-    if opts.assume_matter:
-        dimensions += 1 if opts.assume_matter_but_primary_bh else 2
+    npts_it = int(npts_it*1.5)
     if opts.use_meanPerAno:
         cmd += " --use-meanPerAno "
+        npts_it = int(npts_it*1.5)
+if is_analysis_hyperbolic:
+    cmd += " --assume-hyperbolic "
+    npts_it = int(npts_it*2.25)
+    # always pass the resolved range, so grid generation, CIP, and puff agree
+    cmd += " --E0-max {}  --E0-min {}  ".format(hyperbolic_range['E0_max'],hyperbolic_range['E0_min'])
+    cmd += " --pphi0-max {}  --pphi0-min {}  ".format(hyperbolic_range['pphi0_max'],hyperbolic_range['pphi0_min'])
+    if opts.force_scatter_grids:
+        cmd += " --force-scatter-grids "
+    if opts.force_plunge_grids:
+        cmd += " --force-plunge-grids "
+    if opts.force_zoomwhirl_grids:
+        cmd += " --force-zoomwhirl-grids "
+    if opts.force_hyperbolic_22:
+        cmd += " --force-hyperbolic-22 "
 if opts.assume_highq:
     cmd+= ' --assume-highq  --force-grid-stretch-mc-factor 2'  # the mc range, tuned to equal-mass binaries, is probably too narrow. Workaround until fixed in helper
     npts_it =1000
-if is_analysis_eccentric:
-    npts_it = iteration_points(npts_it, dimensions, 1 + int(opts.use_meanPerAno))
 if opts.internal_propose_converge_last_stage:
     cmd += " --propose-converge-last-stage "
 if opts.internal_test_convergence_threshold: # pass argument if provided
     cmd += " --internal-test-convergence-threshold {}  ".format(opts.internal_test_convergence_threshold)
+if opts.rf_transverse_spin_coordinates:
+    cmd += ' --rf-transverse-spin-coordinates {} '.format(opts.rf_transverse_spin_coordinates)
 if not(opts.cip_fit_method is None):
     cmd += " --force-fit-method {} ".format(opts.cip_fit_method)
     if opts.cip_fit_method == 'rf':
@@ -741,6 +1445,20 @@ if not(opts.cip_fit_method is None):
 
 if opts.internal_ile_use_lnL:
     cmd+= " --internal-ile-use-lnL "
+if opts.export_marginal_distance_grid or (opts.export_distance_slices and opts.export_distance_slices > 0):
+    # Per-distance likelihood export needs ILE lnL mode (forced here for the
+    # whole run, giving clean lnL-scaled helper args) and, *only at the export
+    # stage*, no distance marginalization.  We deliberately do NOT disable
+    # distance marginalization globally: the intrinsic iterations keep it (it
+    # is a large speedup).  Only the final extrinsic stage that emits the
+    # per-distance output has --distance-marginalization stripped, and that
+    # stripping is done by create_event_parameter_pipeline_* on the ILE_extr
+    # argument string -- not here.
+    opts.internal_ile_use_lnL = True
+    if "--internal-ile-use-lnL" not in cmd:
+        cmd += " --internal-ile-use-lnL "
+    if not opts.add_extrinsic:
+        print(" ==> WARNING: distance grid/slice export is emitted by the ILE extrinsic stage, but --add-extrinsic is not set; no per-distance output will be produced. <== ")
 if opts.internal_cip_use_lnL:
     cmd += " --internal-cip-use-lnL "
 if opts.internal_ile_data_tukey_window_time:
@@ -757,6 +1475,10 @@ elif opts.scale_mc_range:
     cmd += " --scale-mc-range  " + str(opts.scale_mc_range).replace(' ','')
 if not(opts.force_eta_range is None):
     cmd+= " --force-eta-range  " + str(opts.force_eta_range).replace(' ','')
+if not(opts.force_mtot_range is None):
+    cmd+= " --force-mtot-range  " + str(opts.force_mtot_range).replace(' ','')
+if opts.use_mtot_coords:
+    cmd+= " --use-mtot-coords "
 if opts.allow_subsolar:
     cmd += " --allow-subsolar "
 if opts.force_chi_max:
@@ -790,6 +1512,10 @@ if opts.data_LI_seglen:
         cmd += " --data-LI-seglen "+str(opts.data_LI_seglen)
 if opts.assume_well_placed:
     cmd += " --assume-well-placed "
+if opts.calmarg_pilot:
+    # cold-start cal pilots draw cal from the broad PRIOR -> large MC error on iteration 0;
+    # relax the first CIP stage's sigma-cut so those points are not all stripped.
+    cmd += " --calmarg-first-cip-sigma-cut {} ".format(opts.calmarg_first_cip_sigma_cut)
 #if is_event_bns and not opts.no_matter:
 #        cmd += " --assume-matter "
 #        npts_it = 1000
@@ -811,18 +1537,42 @@ if opts.use_osg:
         cmd += " --use-cvmfs-frames "  # only run with CVMFS data, otherwise very very painful
 if opts.use_ini:
     cmd += " --use-ini " + opts.use_ini
-    cmd += " --sim-xml {}/target_params.xml.gz --event 0 ".format(base_dir + "/"+ dirname_run)  # full path to target_params.xml.gz
+    cmd += " {} {}/target_params.{} --event 0 ".format(sim_grid_flag_pp, base_dir + "/"+ dirname_run, grid_suffix_pp)  # full path to target_params (xml.gz or .dat)
     if (opts.event_time is None):
         cmd += " --event-time " + str(event_dict["tref"])
     #
 else:
     cmd += " --calibration-version " + opts.calibration 
 if opts.use_online_psd_file:
-    # Get IFO list from ini file
-##    import ConfigParser
-#    config = ConfigParser.ConfigParser()
-#    config.read(opts.use_ini)
-    ifo_list = eval(config.get('analysis','ifos'))
+    # Which instruments does that PSD file cover?
+    #
+    # This used to read the ini's [analysis] ifos unconditionally, but `config`
+    # only exists on the --use-ini path, so --use-online-psd-file without an ini
+    # -- the natural way to run a synthetic injection -- died with
+    # "NameError: name 'config' is not defined".
+    #
+    # Prefer the ini when there is one (it is the run's declared instrument
+    # list), then an explicit --manual-ifo-list, and otherwise ask the PSD file
+    # itself, which names its own instruments and cannot disagree with itself.
+    ifo_list = None
+    if opts.use_ini:
+        ifo_list = eval(config.get('analysis','ifos'))
+    elif opts.manual_ifo_list:
+        ifo_list = eval(opts.manual_ifo_list)
+    else:
+        try:
+            import lal.series
+            from igwn_ligolw import utils as _ligolw_utils, ligolw as _ligolw
+            _xmldoc = _ligolw_utils.load_filename(
+                opts.use_online_psd_file, contenthandler=lal.series.PSDContentHandler)
+            ifo_list = sorted(lal.series.read_psd_xmldoc(_xmldoc).keys())
+            print(" pseudo_pipe: instruments read from {}: {}".format(
+                opts.use_online_psd_file, ifo_list))
+        except Exception as exc:
+            print(" pseudo_pipe: --use-online-psd-file needs an instrument list, and "
+                  "neither --use-ini nor --manual-ifo-list was given, and the PSD file "
+                  "could not be read ({}) ".format(exc))
+            sys.exit(1)
     # Create command line arguments for those IFOs, so helper can correctly pass then downward
     for ifo in ifo_list:
         cmd+= " --psd-file {}={}".format(ifo,opts.use_online_psd_file)
@@ -850,6 +1600,38 @@ if opts.internal_ile_auto_logarithm_offset:
     cmd += " --internal-ile-auto-logarithm-offset "
 if opts.internal_ile_rotate_phase:
     cmd += " --internal-ile-rotate-phase "
+if (resolve_interpolate_time_request(opts.internal_ile_interpolate_time) is not None
+        or opts.internal_ile_interpolate_time is not None):
+    # resolve_interpolate_time_request rather than a truthiness test: the flag takes a VALUE, so
+    # '--internal-ile-interpolate-time False' passes the STRING 'False' (truthy in Python) and a
+    # BARE flag passes a sentinel.  Both must be distinguished from "a stencil was named", and a
+    # bare flag must raise rather than silently forward nothing.  (The call is kept for that
+    # raise; it is no longer what decides whether to forward.)
+    #
+    # AN EXPLICIT OFF-REQUEST IS ALSO FORWARDED, since 2026-09-02.  It used to be dropped here --
+    # resolve_interpolate_time_request maps 'False'/'off'/'none' to None, exactly like an absent
+    # flag -- and dropping it was harmless only while the ILE default was 'nearest', because
+    # forwarding nothing and forwarding 'nearest' were the same answer.  The ILE default is now
+    # time_interp_choice.TIME_INTERP_DEFAULT, so they are opposites and dropping an off-request
+    # would have turned interpolation ON for a user who explicitly turned it off.  The helper
+    # re-expresses it as '--interpolate-time nearest'; this only has to stop swallowing it.
+    # HELPER passthrough (not a raw ILE arg): the helper owns ILE argument construction, and it
+    # also knows whether the maintained NoLoop path that --interpolate-time requires is in use --
+    # which needs --time-marginalization AND --vectorized AND one of --gpu/--rotation-slow/
+    # --freqresponse; the ILE driver refuses rather than ignoring if any is missing.  It also owns the stencil choice, because srate and fmax are
+    # resolved there -- so forward the request verbatim rather than resolving it here, and let the
+    # helper's log line be the single record of what was chosen.
+    cmd += " --internal-ile-interpolate-time " + str(opts.internal_ile_interpolate_time) + " "
+if opts.internal_ile_time_marginalization_quadrature is not None:
+    # HELPER passthrough, exactly like the stencil above and for the same reason: the helper owns
+    # ILE argument construction, so the flag must enter args_ile.txt where every other ILE
+    # argument does.  `is not None` rather than a truthiness test -- the option takes a VALUE.
+    cmd += " --internal-ile-time-marginalization-quadrature " + str(opts.internal_ile_time_marginalization_quadrature) + " "
+if opts.internal_ile_q_time_pregrid_factor is not None:
+    # HELPER passthrough, exactly like the two options above and for the same reason.
+    cmd += " --internal-ile-q-time-pregrid-factor " + str(opts.internal_ile_q_time_pregrid_factor) + " "
+if not(opts.internal_ile_n_chunk is None):
+    cmd += " --internal-ile-n-chunk {} ".format(int(opts.internal_ile_n_chunk))
 # If user provides ini file *and* ini file has fake-cache field, generate a local.cache file, and pass it as argument
 if opts.use_ini:
 #    config = ConfigParser.ConfigParser()
@@ -863,11 +1645,51 @@ if opts.use_ini:
         cmd += " --cache local.cache --fake-data  "
 if opts.fake_data_cache:
     cmd += " --cache {} --fake-data  ".format(opts.fake_data_cache)
+    # event_dict["IFOs"] is populated on the --use-ini path (and by the gracedb
+    # lookup), but NOT by --event-time + --fake-data-cache, which is the natural
+    # way to set up a synthetic injection.  That combination used to die here
+    # with KeyError: 'IFOs'.  Resolve it from --manual-ifo-list, or from the
+    # instruments already read off the PSD file, and store it so the later
+    # consumers of event_dict["IFOs"] see it too.
+    _ifos = event_dict.get("IFOs")
+    if not _ifos and opts.manual_ifo_list:
+        _ifos = eval(opts.manual_ifo_list)
+    if not _ifos:
+        try:
+            _ifos = list(ifo_list)
+        except NameError:
+            _ifos = None
+    if not _ifos:
+        print(" pseudo_pipe: --fake-data-cache needs an instrument list.  Give "
+              "--manual-ifo-list \"['H1','L1']\", or --use-online-psd-file whose "
+              "instruments can be read. ")
+        sys.exit(1)
+    event_dict["IFOs"] = list(_ifos)
     if len(event_dict["IFOs"]) >0 :
         short_list = " {} ".format(event_dict['IFOs'])        
         cmd += " --manual-ifo-list {} ".format(short_list.replace(' ',''))
+if extra_args_helper:
+    cmd += " " + " ".join(shlex.quote(x) for x in extra_args_helper) + " "
 print( cmd)
-os.system(cmd)
+if os.path.exists('helper_ile_args.txt'):
+    # This is generated output, not an input.  Remove it before invoking the
+    # helper so a failed helper cannot be mistaken for fresh success in a
+    # re-used directory.  The emitted-byte guard below cannot distinguish a
+    # stale file from a fresh one when both carry the same requested value.
+    os.unlink('helper_ile_args.txt')
+_helper_rc = os.system(cmd)
+if _helper_rc != 0:
+    print(" FAILURE: helper call exited nonzero; refusing to use any pre-existing "
+          "helper_ile_args.txt")
+    sys.exit(1)
+if eccentric_phase_pipeline.requested(opts):
+    if _helper_rc != 0:
+        raise RuntimeError('Helper failed before freezing the eccentric-phase mass anchor')
+    from RIFT.misc import eccentric_phase_policy
+    eccentric_phase_build = eccentric_phase_policy.read_into(opts)
+    if not opts.skip_reproducibility:
+        with open('reproducibility/the_arguments_used.json','w') as f:
+            json.dump(vars(opts),f)
 # we MUST make helper_ile_args.txt
 if not(os.path.exists('helper_ile_args.txt')):
     print(" FAILURE: helper call failed to generate required file helper_ile_args.txt")
@@ -948,8 +1770,10 @@ if opts.use_gwsignal:
     line += " --use-gwsignal  --approx " + opts.approx
 elif not 'NR' in opts.approx:
         line += " --approx " + opts.approx
-elif opts.use_gwsurrogate and 'NRHybSur' in opts.approx:
+elif opts.use_gwsurrogate and 'NRHybSur' in opts.approx and 'Tidal' not in opts.approx:
         line += " --rom-group {} --rom-param NRHybSur3dq8.h5 --approx {} ".format(sur_location_prefix,opts.approx)
+elif opts.use_gwsurrogate and 'NRHybSur' in opts.approx and 'Tidal' in opts.approx:
+        line += " --rom-group {} --rom-param NRHybSur3dq8Tidal --approx {} ".format(sur_location_prefix,opts.approx)
 elif opts.use_gwsurrogate and "NRSur7dq2" in opts.approx:
         line += " --rom-group {} --rom-param NRSur7dq2.h5 --approx {}  ".format(sur_location_prefix,opts.approx)
 elif opts.use_gwsurrogate and "NRSur7dq4" in opts.approx:
@@ -968,8 +1792,123 @@ if not(opts.manual_extra_ile_args is None):
     line += " {} ".format(opts.manual_extra_ile_args)  # embed with space on each side, avoid collisions
     if '--declination ' in opts.manual_extra_ile_args:   # if we are pinning dec, we aren't using a cosine coordinate. Don't mess up.
         line = line.replace('--declination-cosine-sampler', '')
+# --- Time-domain (Toeplitz) inner product + glitch marginalization passthroughs ---
+#   Default None/OFF => nothing appended => byte-identical args_ile.txt.  When the TD inner
+#   product is requested, thread the ILE flags of the same name into args_ile.txt.  The
+#   --glitch-basis-file .npz files are additionally routed onto the ILE condor transfer list
+#   (via ile_additional_files_to_transfer, the same mechanism/idiom PSD-independent auxiliary
+#   files already use) and the ILE flag is rewritten to the transferred BASENAME on OSG /
+#   file-transfer (mirroring the PSD --psd-file convention: abspath in the transfer list =
+#   condor source, basename on the execute node), while a shared-FS (non-OSG) run keeps the
+#   absolute path exactly as PSD files do.
+def _as_list(_v):
+    # append-action gives a list on the CLI; an ini's eval() of a quoted scalar gives a str.
+    if _v is None:
+        return []
+    return _v if isinstance(_v, (list, tuple)) else [_v]
+if opts.internal_ile_inner_product:
+    line += " --internal-ile-inner-product {} ".format(opts.internal_ile_inner_product)
+    if opts.internal_ile_td_solver:
+        line += " --td-solver {} ".format(opts.internal_ile_td_solver)
+    if not(opts.internal_ile_td_acf_duration is None):
+        line += " --td-acf-duration {} ".format(opts.internal_ile_td_acf_duration)
+    if not(opts.internal_ile_td_analysis_start is None):
+        line += " --td-analysis-start {} ".format(opts.internal_ile_td_analysis_start)
+    if not(opts.internal_ile_td_analysis_end is None):
+        line += " --td-analysis-end {} ".format(opts.internal_ile_td_analysis_end)
+    if _as_list(opts.internal_ile_td_gap):      # also set via an ini
+        print(_TD_GAP_REFUSAL)
+        sys.exit(1)
+    for _gb in _as_list(opts.internal_ile_glitch_basis):
+        line += " --glitch-basis {} ".format(_gb)
+    if opts.internal_ile_glitch_sigma:
+        line += " --glitch-sigma {} ".format(opts.internal_ile_glitch_sigma)
+    for _spec in _as_list(opts.internal_ile_glitch_basis_file):
+        _ifo, _path = _spec.split(":", 1)
+        _path_abs = os.path.abspath(os.path.expanduser(_path))
+        if not os.path.isfile(_path_abs):
+            print(" FAILURE: --internal-ile-glitch-basis-file {}: no such file {}".format(_ifo, _path_abs))
+            sys.exit(1)
+        if opts.use_osg:
+            for _source in (opts.ile_additional_files_to_transfer or "").split(","):
+                if not _source:
+                    continue
+                _source_abs = os.path.abspath(os.path.expanduser(_source))
+                if (os.path.basename(_source_abs) == os.path.basename(_path_abs)
+                        and os.path.realpath(_source_abs) != os.path.realpath(_path_abs)):
+                    print(" FAILURE: OSG glitch basis basename collision: {} and {}".format(
+                        _source_abs, _path_abs))
+                    sys.exit(1)
+        # abspath onto the transfer list (condor source); basename on OSG execute nodes.
+        opts.ile_additional_files_to_transfer = (
+            (opts.ile_additional_files_to_transfer + "," + _path_abs)
+            if opts.ile_additional_files_to_transfer else _path_abs)
+        _ref = os.path.basename(_path_abs) if opts.use_osg else _path_abs
+        line += " --glitch-basis-file {}:{} ".format(_ifo, _ref)
+    # td-gs flags (fully time-domain code path)
+    if not(opts.internal_ile_td_mref is None):
+        line += " --td-mref {} ".format(opts.internal_ile_td_mref)
+    for _piece in _as_list(opts.internal_ile_td_piece):
+        line += " --td-piece {} ".format(_piece)
+    for _off in _as_list(opts.internal_ile_td_ifo_time_offset):
+        line += " --td-ifo-time-offset {} ".format(_off)
+    if not(opts.internal_ile_td_dense_max_n is None):
+        line += " --td-dense-max-n {} ".format(opts.internal_ile_td_dense_max_n)
+    if not(opts.internal_ile_td_u_stride is None):
+        line += " --td-u-stride {} ".format(opts.internal_ile_td_u_stride)
+    if opts.internal_ile_td_u_method:
+        line += " --td-u-method {} ".format(opts.internal_ile_td_u_method)
+    if not(opts.internal_ile_td_subsample is None):
+        line += " --td-subsample {} ".format(opts.internal_ile_td_subsample)
+    if not(opts.internal_ile_td_highpass is None):
+        line += " --td-highpass {} ".format(opts.internal_ile_td_highpass)
+    if not(opts.internal_ile_td_u_svd_tol is None):
+        line += " --td-u-svd-tol {} ".format(opts.internal_ile_td_u_svd_tol)
+    if not(opts.internal_ile_td_acf_cond is None):
+        line += " --td-acf-cond {} ".format(opts.internal_ile_td_acf_cond)
+    if opts.internal_ile_td_calibration_correction_type:
+        line += " --td-calibration-correction-type {} ".format(opts.internal_ile_td_calibration_correction_type)
+    if not(opts.internal_ile_td_calibration_fir_half_length is None):
+        line += " --td-calibration-fir-half-length {} ".format(opts.internal_ile_td_calibration_fir_half_length)
+    if opts.internal_ile_td_whiteness_check:
+        line += " --td-whiteness-check "
+    for _spec in _as_list(opts.internal_ile_td_acf_file):
+        _ifo, _path = _spec.split(":", 1)
+        _path_abs = os.path.abspath(os.path.expanduser(_path))
+        if not os.path.isfile(_path_abs):
+            print(" FAILURE: --internal-ile-td-acf-file {}: no such file {}".format(_ifo, _path_abs))
+            sys.exit(1)
+        opts.ile_additional_files_to_transfer = (
+            (opts.ile_additional_files_to_transfer + "," + _path_abs)
+            if opts.ile_additional_files_to_transfer else _path_abs)
+        _ref = os.path.basename(_path_abs) if opts.use_osg else _path_abs
+        line += " --td-acf-file {}:{} ".format(_ifo, _ref)
+elif (opts.internal_ile_td_gap or opts.internal_ile_glitch_basis or
+      opts.internal_ile_glitch_basis_file or opts.internal_ile_glitch_sigma or
+      opts.internal_ile_td_solver or opts.internal_ile_td_analysis_start is not None or
+      opts.internal_ile_td_analysis_end is not None or opts.internal_ile_td_acf_duration is not None or
+      opts.internal_ile_td_mref is not None or opts.internal_ile_td_piece or
+      opts.internal_ile_td_ifo_time_offset or opts.internal_ile_td_acf_file or
+      opts.internal_ile_td_dense_max_n is not None or opts.internal_ile_td_u_stride is not None or
+      opts.internal_ile_td_u_method or opts.internal_ile_td_acf_cond is not None or
+      opts.internal_ile_td_u_svd_tol is not None or opts.internal_ile_td_highpass is not None or
+      opts.internal_ile_td_whiteness_check or opts.internal_ile_td_subsample is not None or
+      opts.internal_ile_td_calibration_correction_type is not None or
+      opts.internal_ile_td_calibration_fir_half_length is not None):
+    print(" FAILURE: --internal-ile-td-* / --internal-ile-glitch-* require "
+          "--internal-ile-inner-product td-toeplitz or td-gs")
+    sys.exit(1)
 if opts.internal_ile_force_adapt_all:
     line += " --force-adapt-all "
+# NOTE on per-distance export (grid/slices): the --last-iteration-export-*
+# flags are *pipeline-builder* flags (consumed by
+# create_event_parameter_pipeline_*), NOT ILE flags, so they are added to the
+# CEPP command below -- not to this ILE argument string (args_ile.txt).  The
+# args_ile.txt here is the *intrinsic* ILE configuration and intentionally
+# keeps --distance-marginalization (a speedup); lnL mode was already forced
+# above, so --internal-use-lnL is present.  create_event_parameter_pipeline_*
+# strips --distance-marginalization only from the extrinsic (ILE_extr) stage
+# that emits the per-distance output.
 if not(opts.ile_sampler_method is None):
     line += " --sampler-method {} ".format(opts.ile_sampler_method)
 if opts.internal_ile_sky_network_coordinates:
@@ -984,11 +1923,133 @@ if opts.internal_mitigate_fd_J_frame == 'L_frame':
     line += " --internal-waveform-fd-L-frame "
 if opts.internal_ile_inv_spec_trunc_time:
     line = line.replace("inv-spec-trunc-time 0 ","inv-spec-trunc-time {} ".format(opts.internal_ile_inv_spec_trunc_time))
+if (opts.internal_ile_modify_taper):
+    line += " --internal-waveform-taper SIM_INSPIRAL_TAPER_START " # taper start of waveform by default, overrides any settings in the grids
 if opts.internal_ile_srate_internal:
     line += " --srate-internal {} ".format(opts.internal_ile_srate_internal)
 # strictly the next argument only does anything at the extrinsic step, otherwis it is ignored
 if opts.internal_ile_srate_time_resampling:
     line += " --srate-resample-time-marginalization {} ".format(opts.internal_ile_srate_time_resampling)
+# In-loop calibration marginalization (inside the ILE GPU loop).  Engages on the
+# distance-marginalization code path (kept in args_ile.txt); the fused kernel
+# additionally requires GPU and falls back to the loop method otherwise.
+if opts.calmarg_envelope_directory:
+    from RIFT.calmarg.calibration import correction_types_argument
+    _cal_td_gs = opts.internal_ile_inner_product == "td-gs"
+    if _cal_td_gs and opts.calmarg_correction_type is not None:
+        parser.error("td-gs uses --internal-ile-td-calibration-correction-type; "
+                     "--calmarg-correction-type is for the frequency-domain routes")
+    _cal_envelope_type = "template" if _cal_td_gs else opts.calmarg_correction_type
+    cal_types_arg = correction_types_argument(_cal_envelope_type, event_dict["IFOs"])
+    if not _cal_td_gs:
+        line += " --calibration-correction-type {} ".format(cal_types_arg)
+    cal_dir = os.path.abspath(opts.calmarg_envelope_directory)
+    cal_dir_arg = cal_dir
+    if opts.use_osg_file_transfer:
+        # OSG file transfer: the worker has no shared filesystem, so an absolute
+        # --calibration-envelope-directory path is unreachable.  The per-IFO <IFO>.txt
+        # envelope files are transferred FLAT into the job scratch dir, so reference them
+        # relative to '.', and auto-append them to the ILE transfer list (the user should
+        # not have to remember --ile-additional-files-to-transfer for these).
+        cal_dir_arg = '.'
+        _cal_files = ",".join("{}/{}.txt".format(cal_dir, ifo) for ifo in event_dict["IFOs"])
+        opts.ile_additional_files_to_transfer = (opts.ile_additional_files_to_transfer + "," + _cal_files) if opts.ile_additional_files_to_transfer else _cal_files
+    line += " --calibration-envelope-directory {} --calibration-n-realizations {} --calibration-spline-count {} ".format(cal_dir_arg, opts.calmarg_n_realizations, opts.calmarg_spline_count)
+    if opts.calmarg_fused_kernel:
+        line += " --calibration-fused-kernel "
+    if opts.calmarg_burn_in_neff:
+        line += " --calibration-burn-in-neff {} ".format(opts.calmarg_burn_in_neff)
+    if opts.calmarg_export_posterior:
+        # recovered cal posterior columns; harmless on the wide stage (only fires at the
+        # fairdraw/extrinsic stage, which has --save-samples + --resample-time-marginalization).
+        line += " --calibration-export-posterior "
+    if opts.calmarg_pilot:
+        # Option C: wide ILE jobs are SEEDED from the previous iteration's consolidated cal
+        # proposal.  The $(macroiterationprev) condor macro resolves per node; ILE falls
+        # back to the broad prior when the file is absent/invalid (the first iterations).
+        if opts.use_osg_file_transfer:
+            # OSG: no shared FS -> reference the breadcrumb by BASENAME (it is transferred
+            # in from the submit node, produced at runtime by calpilot_{N-1}), and add it to
+            # the ILE transfer list.  Also create a placeholder cal_consolidated_-1.npz so
+            # condor's transfer for the FIRST iteration (prev=-1, never produced) does not
+            # fail.  Write a VALID 'prior' breadcrumb (proposal == prior -> seeding from it ==
+            # cold prior draws, zero weights) rather than a 0-byte file: that way iteration 0
+            # LOADS cleanly even on an older ILE binary that does not guard against an empty
+            # placeholder (belt-and-suspenders; the size-guard in the ILE is the other half).
+            line += " --calibration-proposal-breadcrumb cal_consolidated_$(macroiterationprev).npz "
+            _bc_xfer = os.getcwd() + "/cal_consolidated_$(macroiterationprev).npz"
+            opts.ile_additional_files_to_transfer = (opts.ile_additional_files_to_transfer + "," + _bc_xfer) if opts.ile_additional_files_to_transfer else _bc_xfer
+            _cal_ph_path = os.getcwd() + "/cal_consolidated_-1.npz"
+            try:
+                import RIFT.calmarg.generate_realizations as _genr_ph, RIFT.calmarg.breadcrumbs as _bcr_ph
+                _cal_ph = _genr_ph.prior_cal_breadcrumb_dict(cal_dir, list(event_dict["IFOs"]),
+                              fmin_template, srate/2. - 1., opts.calmarg_spline_count,
+                              correction_types=_cal_envelope_type)
+                _bcr_ph.save(_cal_ph_path, cal=_cal_ph, meta=dict(placeholder=True, iteration=-1))
+            except Exception as _e_calph:
+                print("  WARNING: could not build prior cal placeholder ({}); writing 0-byte placeholder (needs the ILE empty-breadcrumb guard).".format(_e_calph))
+                open(_cal_ph_path, "a").close()
+        else:
+            line += " --calibration-proposal-breadcrumb {}/cal_consolidated_$(macroiterationprev).npz ".format(os.getcwd())
+
+# Extrinsic handoff (independent of calmarg).  Each wide ILE job WRITES its run's extrinsic
+# GMM proposal, and is SEEDED from the previous iteration's consolidated proposal.  Only the
+# GMM sampler builds the seedable gmm_dict, so warn if a different sampler is selected.
+if opts.extrinsic_handoff:
+    if opts.ile_sampler_method != 'GMM':
+        print("  WARNING: --extrinsic-handoff seeds the ensemble (GMM) sampler's gmm_dict, but --ile-sampler-method is {}; the seed is a no-op for that sampler.  Pass --ile-sampler-method GMM.".format(opts.ile_sampler_method))
+    # output: per-event proposal breadcrumb (basename; written relative to the ILE initialdir
+    # on a shared FS, or to job scratch + transferred back on OSG).  $(macroevent) is the
+    # per-node event macro, so each wide ILE job gets a distinct file.
+    line += " --extrinsic-proposal-output extr_proposal_$(macroiteration)_$(macroevent).npz "
+    # seed: from iteration N-1's consolidated proposal.  Mirror the cal breadcrumb path
+    # (OSG basename + transfer + iteration-0 placeholder vs shared-FS absolute path).
+    if opts.use_osg_file_transfer:
+        line += " --extrinsic-proposal-breadcrumb extr_consolidated_$(macroiterationprev).npz "
+        _ext_bc_xfer = os.getcwd() + "/extr_consolidated_$(macroiterationprev).npz"
+        opts.ile_additional_files_to_transfer = (opts.ile_additional_files_to_transfer + "," + _ext_bc_xfer) if opts.ile_additional_files_to_transfer else _ext_bc_xfer
+        # valid EMPTY breadcrumb placeholder (loads cleanly -> extrinsic=None -> no seed/cold),
+        # rather than a 0-byte file that np.load chokes on.
+        _ext_ph_path = os.getcwd() + "/extr_consolidated_-1.npz"
+        try:
+            import RIFT.calmarg.breadcrumbs as _bcr_ph
+            _bcr_ph.save(_ext_ph_path, meta=dict(placeholder=True, iteration=-1))
+        except Exception:
+            open(_ext_ph_path, "a").close()
+    else:
+        line += " --extrinsic-proposal-breadcrumb {}/extr_consolidated_$(macroiterationprev).npz ".format(os.getcwd())
+
+# TIME-MARGINALIZATION QUADRATURE, part 2 of 2: the LAST chance to refuse, and the only place
+# with the whole picture.  This checks the BYTES about to be written, not the parsed options --
+# an earlier version keyed the guard on `opts` and read only the PREREQUISITES from `line`, so it
+# happily approved an args_ile.txt that had never received the flag at all.  Three ways that
+# happens, all ending in a silent fall back to Simpson while the pipeline logs the opposite:
+#
+#   * the helper is invoked by NAME through PATH, so version skew can make an older helper
+#     argparse-error on the new option.  The caller now removes stale generated output and checks
+#     the helper status; this byte check is the independent defence against a successful helper
+#     that nevertheless drops the emission;
+#   * --manual-extra-ile-args is appended AFTER the helper's arguments and optparse takes the
+#     LAST occurrence, so a hand-passed 'simpson' silently overrides the requested value while
+#     the .sub file still shows both;
+#   * any future refactor that drops the emission.
+#
+# It also holds a hand-passed quadrature (manual args, ini) to the same standard, which the
+# opts-keyed version skipped entirely.  Called unconditionally for that reason.
+refuse_unless_time_quadrature_emitted(
+    opts.internal_ile_time_marginalization_quadrature, line, "args_ile.txt")
+# The early --use-jax-ile refusal reads only the pipeline option; a quadrature passed by
+# hand through --manual-extra-ile-args reaches the JAX driver too, so check the bytes.
+if opts.use_jax_ile:
+    refuse_jax_unsupported_time_quadrature(line, "args_ile.txt")
+# Same discipline, same reason, for the Q_lm pregrid factor -- including the forced-cubic-stencil
+# conflict, which can only be checked here: --interpolate-time is resolved and emitted by the
+# helper, so it is not visible to this script until `line` is fully assembled.
+refuse_unless_q_time_pregrid_emitted(
+    opts.internal_ile_q_time_pregrid_factor, line, "args_ile.txt")
+
+if eccentric_phase_pipeline.requested(opts):
+    eccentric_phase_policy.check_final_ile(eccentric_phase_build,line)
 with open('args_ile.txt','w') as f:
         f.write(line)
 
@@ -1029,6 +2090,14 @@ with open ("helper_test_args.txt",'r') as f:
 with open("helper_cip_arg_list.txt",'r') as f:
         raw_lines = f.readlines()
 
+# RF transverse opt-in: the helper may switch an unforced fit to rf. Build the DAG as an
+# explicit --cip-fit-method rf run (flat CIP workers).
+if opts.rf_transverse_spin_coordinates and opts.cip_fit_method is None and any(
+        '--fit-method rf' in ' '.join(line.split()) for line in raw_lines):
+    opts.cip_fit_method = 'rf'
+    npts_it *= 2  # as for explicit rf, above
+    print(" RF transverse-spin: helper selected rf; building as --cip-fit-method rf ")
+
 # MODIFY EXPLODE REQUEST
 if opts.cip_explode_jobs_auto and event_dict["SNR"]:
     snr = event_dict["SNR"]
@@ -1052,7 +2121,19 @@ if opts.cip_explode_jobs_auto:
           opts.cip_explode_job_last = int(opts.n_output_samples_last/300)
           print("  LARGE OUTPUT SAMPLES, CHANGING FINAL EXPLODE to keep n_eff in CIP reasonable ", opts.cip_explode_job_last)
 
-    
+
+# Alt config for transverse-spin tails (opt-in): scale up the CIP worker cohort AFTER the
+# auto-explode block has set the baseline worker count. More workers produce the raised NET
+# sample count (cap-neff/n-output lifted above) while each worker's n_eff stays modest -- the
+# net (combined) posterior is what resolves chi1_perp tails, not any single worker. (transverse-spin study)
+if opts.internal_cip_transverse_tails:
+    _sc = opts.internal_cip_transverse_tails_worker_scale
+    _base = opts.cip_explode_jobs if opts.cip_explode_jobs else 1
+    _base_last = opts.cip_explode_jobs_last if opts.cip_explode_jobs_last else _base
+    opts.cip_explode_jobs = int(np.ceil(_base * _sc))
+    opts.cip_explode_jobs_last = int(np.ceil(_base_last * _sc))
+    print("  [transverse-tails] scaled CIP worker cohort x{}: cip-explode-jobs {} -> {}, -last {} -> {}".format(_sc, _base, opts.cip_explode_jobs, _base_last, opts.cip_explode_jobs_last))
+
 # Add arguments to the file we will use
 instructions_cip = list(map(lambda x: x.rstrip().split(' '), raw_lines))#np.loadtxt("helper_cip_arg_list.txt", dtype=str)
 n_iterations =0
@@ -1115,6 +2196,7 @@ for indx in np.arange(len(instructions_cip)):
     if opts.internal_cip_tripwire:
         line += " --tripwire-fraction {} ".format(opts.internal_cip_tripwire)
     line += prior_args_lookup[opts.spin_magnitude_prior]
+
     if opts.cip_internal_use_eta_in_sampler:
         line = line.replace('parameter delta_mc','parameter eta')
     if opts.cip_fit_method == 'quadratic' or opts.cip_fit_method == 'polynomial':
@@ -1123,15 +2205,20 @@ for indx in np.arange(len(instructions_cip)):
         line = line.replace('parameter delta_mc', 'parameter-implied eta --parameter-nofit delta_mc')     # quadratic or cov fit needs eta coordinate
     if opts.force_lambda_no_linear_init:
         line = line.replace("--prior-lambda-linear", "")  # remove this line, usually used in iteration0
+    if opts.use_mtot_coords:
+        line = line.replace('parameter mc', 'parameter-implied mc --parameter-nofit mtot --parameter-nofit q')
+        line = line.replace('parameter delta_mc', 'parameter-implied delta_mc')
     if opts.hierarchical_merger_prior_1g:
         # Must use mtotal, q coordinates!  Change defaults
         line = line.replace('parameter mc', 'parameter mtot')
         line = line.replace('parameter delta_mc', 'parameter q')
+        line = line.replace('parameter-nofit mc ', 'parameter-nofit mtot ')  # mu1/mu2 fit basis samples mc as nofit
         line += " --prior-tapered-mass-ratio "
     elif opts.hierarchical_merger_prior_2g:
         # Must use mtotal, q coordinates! Change defaults
         line = line.replace('parameter mc', 'parameter mtot')
         line = line.replace('parameter delta_mc', 'parameter q')
+        line = line.replace('parameter-nofit mc ', 'parameter-nofit mtot ')
         line += " --prior-gaussian-mass-ratio --prior-gaussian-spin1-magnitude "   # should require precessing analysis
     elif opts.assume_highq and ('s1z' in line):
         if opts.cip_sampler_method not in {'GMM', 'AV', 'portfolio'}:
@@ -1196,7 +2283,11 @@ for indx in np.arange(len(instructions_cip)):
 
     if opts.fit_save_gp:
         line += " --fit-save-gp my_gp "  # fiducial filename, stored in each iteration
-    if opts.assume_eccentric:
+    if not eccentric_phase_pipeline.requested(opts):
+        line += " --eccentricity-prior {}".format(opts.eccentricity_prior)
+    if opts.use_EOB_parameters:
+        line += " --use-EOB-parameters --parameter a6c --a6c-min {} --a6c-max {} ".format(opts.force_a6c_min,opts.force_a6c_max)
+    if opts.assume_eccentric and not eccentric_phase_pipeline.requested(opts):
         if opts.use_meanPerAno:
             line += " --parameter meanPerAno --use-meanPerAno "
         if opts.use_eccentricity_squared:
@@ -1237,6 +2328,21 @@ for indx in np.arange(len(instructions_cip)):
         if not(opts.force_meanPerAno_min is None):
             meanPerAno_min = opts.force_meanPerAno_min
             line += " --meanPerAno-min {}  ".format(meanPerAno_min)
+    if opts.assume_hyperbolic:
+        line += " --parameter E0 --parameter p_phi0 --use-hyperbolic "
+        # always pass the resolved range: CIP's own defaults are narrower than
+        # the range used to generate the points it is fitting
+        line += " --E0-max {}  --E0-min {}  ".format(hyperbolic_range['E0_max'],hyperbolic_range['E0_min'])
+        line += " --pphi0-max {}  --pphi0-min {}  ".format(hyperbolic_range['pphi0_max'],hyperbolic_range['pphi0_min'])
+
+        if opts.force_scatter_grids:
+            line += " --force-scatter "
+
+        if opts.force_plunge_grids:
+            line += " --force-plunge "
+
+        if opts.force_zoomwhirl_grids:
+            line += " --force-zoomwhirl "
     if not(opts.manual_extra_cip_args is None):
         line += " {} ".format(opts.manual_extra_cip_args)  # embed with space on each side, avoid collisions
     line += "\n"
@@ -1246,7 +2352,7 @@ if opts.cip_quadratic_first:
     lines[0]=lines[0].replace(' --fit-method gp ', ' --fit-method quadratic ')
     lines[0]=lines[0].replace(' --parameter delta_mc ', ' --parameter eta ')   # almost without fail we are using mc, delta_mc, xi  as zeroth layer
 
-if opts.assume_eccentric:
+if opts.assume_eccentric and not eccentric_phase_pipeline.requested(opts):
     # iteration 0 is eccentricity_squared and nofit meanPerAno
     lines[0] = lines[0].replace('--parameter eccentricity ','--parameter eccentricity_squared ')
     if opts.use_meanPerAno:
@@ -1280,9 +2386,49 @@ if opts.internal_use_amr:
         if not(opts.assume_lowlatency_tradeoffs):
             lines[0] += " --intrinsic-param spin2z "
 
-with open("args_cip_list.txt",'w') as f: 
+# Final CIP lines: a retired RF mode from any route (e.g. --manual-extra-cip-args) fails here, not after ILE.
+from RIFT.misc.rf_transverse_spin import retired_problem
+for indx_rf, line_rf in enumerate(lines):
+    if retired_problem(line_rf):
+        raise ValueError('CIP stage {}: {}'.format(indx_rf, retired_problem(line_rf)))
+
+if eccentric_phase_pipeline.requested(opts):
+    eccentric_phase_build=eccentric_phase_policy.finalize_map(opts,eccentric_phase_build,lines)
+    if not opts.skip_reproducibility:
+        with open('reproducibility/the_arguments_used.json','w') as f:
+            json.dump(vars(opts),f)
+    lines = [eccentric_phase_pipeline.stage_arguments(line,
+        opts.eccentric_phase_reference_frequency,opts.eccentric_phase_target_frequency,
+        **eccentric_phase_models.worker_options(opts)) for line in lines]
+    if not any(eccentric_phase_pipeline.FLAG in line for line in lines):
+        raise ValueError('No CIP stage fits native eccentricity/anomaly for the requested effective coordinates')
+
+with open("args_cip_list.txt",'w') as f:
+   if not(opts.internal_truncate_cip_arg_list is None):
+       if opts.internal_truncate_cip_arg_list < 1:
+           parser.error("--internal-truncate-cip-arg-list must be positive")
+       lines = lines[-opts.internal_truncate_cip_arg_list:]  # truncate the cip arg list file
+       n_iterations = sum(1 if line.split()[0] == "Z" else int(line.split()[0].lstrip("G")) for line in lines)
+   if opts.assume_eccentric and not opts.internal_use_amr:
+       lines = configure_eccentricity_prior(lines, opts.eccentricity_prior)
+   # The final CIP group produces both the published posterior and the downstream grid,
+   # so it gets the duplicate-free fair draw (capped at sum(w)/max(w)).  Internal
+   # iterations keep the fair draw with duplicates allowed, so successive iterations feed
+   # an unbiased convergence test.  AMR arg lines drive a different executable that does
+   # not accept the flag, so that path is left untouched.
+   if not(opts.internal_use_amr) and not opts.internal_ile_deduplicate_grid:
+       lines = flag_final_group_unique(lines)
+   if (opts.hierarchical_merger_prior_1g or opts.hierarchical_merger_prior_2g) and not opts.internal_use_amr:
+       # CIP exits 0 with no samples, after ILE has run, if its mass/spin prior lacks its coordinate
+       _needed = {'q', 'chi1'} if opts.hierarchical_merger_prior_2g else {'q'}
+       for indx, line in enumerate(lines):
+           _tokens = ' '.join(line.split()).replace('--parameter=', '--parameter ').replace('--parameter-nofit=', '--parameter-nofit ').split()
+           _sampled = {b for a, b in zip(_tokens, _tokens[1:]) if a in ('--parameter', '--parameter-nofit')}
+           if not _needed <= _sampled or 'mc' in _sampled:
+               print(" FAILURE: hierarchical merger prior needs CIP to sample {} and not mc; CIP line {} samples {}. Other options rewrote the mass coordinates.".format(sorted(_needed), indx, sorted(_sampled)))
+               sys.exit(1)
    for line in lines:
-           f.write(line)
+           f.write(line.rstrip("\n") + "\n")
 
 # Write test file
 # with open("args_test.txt",'w') as f:
@@ -1296,7 +2442,7 @@ with open("args_cip_list.txt",'w') as f:
 
 # Write puff file
 #puff_params = " --parameter mc --parameter delta_mc --parameter chieff_aligned "
-puff_max_it =4
+puff_max_it = opts.internal_force_puff_iterations
 #  Read puff args from file, if present
 try:
     with open("helper_puff_max_it.txt",'r') as f:
@@ -1308,12 +2454,46 @@ instructions_puff = np.loadtxt("helper_puff_args.txt", dtype=str)  # should be o
 puff_params = ' '.join(instructions_puff)
 if opts.internal_puff_transverse:
     puff_params = puff_params.replace('--parameter chieff_aligned', '--parameter s1z_bar --parameter s2z_bar ')
-    puff_params +=  ' --parameter phi1 --parameter phi2 --parameter chi1_perp_u --parameter chi2_perp_u '
+    puff_params +=  ' --parameter phi1 --parameter phi2 --parameter chi1_perp_u --parameter chi2_perp_u --reflect-parameter chi1_perp_u --downselect-parameter chi1_perp_u  --downselect-parameter-range [0,1]  --reflect-parameter chi2_perp_u --downselect-parameter chi2_perp_u  --downselect-parameter-range [0,1] '
+    # s_z_bar past +-1 gives |chi|>1, which the chi1/chi2 downselect would discard: reflect instead.
+    puff_params += ' --reflect-parameter s1z_bar --downselect-parameter s1z_bar --downselect-parameter-range [-1,1] --reflect-parameter s2z_bar --downselect-parameter s2z_bar --downselect-parameter-range [-1,1] '
+if opts.internal_cip_transverse_tails:
+    # transverse TAIL-GUARD (transverse-spin study 2026-07): every puff APPENDS (and shuffles in)
+    # uniformly-random chi1_perp draws (range defaults to [0, chi1-downselect-cap], azimuth also
+    # randomized), so the proposed grid keeps offering transverse-tail coverage even after the
+    # posterior/grid contracts -- the measured tail-starvation feedback that narrows chi1_perp.
+    # Keep the puff active through ALL outer iterations (the nested refinement subdag already
+    # puffs every sub-iteration): a guard that turns off at puff-max-it stops guarding.
+    # These points carry nonzero s1x/s1y, so they are only physical for a precessing analysis;
+    # the bundle is refused above for nonprecessing/zero-spin settings, which is what makes it
+    # safe to append them unconditionally here.
+    puff_params += ' --append-with-random-parameter chi1_perp --append-with-random-fraction {} '.format(opts.internal_cip_transverse_tails_puff_fraction)
+    puff_max_it = max(puff_max_it, 30)
+if eccentric_phase_pipeline.requested(opts):
+    puff_params = eccentric_phase_pipeline.puff_arguments(puff_params,
+        opts.eccentric_phase_reference_frequency,opts.eccentric_phase_target_frequency,
+        **eccentric_phase_models.worker_options(opts))
 if opts.assume_matter:
 #    puff_params += " --parameter LambdaTilde "  # should already be present
     puff_max_it +=5   # make sure we resolve the correlations
+if opts.use_EOB_parameters:
+    puff_params += " --downselect-parameter a6c --downselect-parameter-range [{},{}] ".format(opts.force_a6c_min,opts.force_a6c_max)
 if opts.assume_eccentric:
-        puff_params += " --downselect-parameter eccentricity --downselect-parameter-range [{},{}] ".format(opts.force_ecc_min,opts.force_ecc_max)
+    puff_params += " --downselect-parameter eccentricity --downselect-parameter-range [{},{}] ".format(opts.force_ecc_min,opts.force_ecc_max)
+if opts.assume_hyperbolic:
+#    puff_params += " --parameter E0 "
+    # always downselect to the resolved range (a one-sided override used to
+    # write 'None' into the other end of the range here)
+    puff_params += " --downselect-parameter E0 --downselect-parameter-range [{},{}] ".format(hyperbolic_range['E0_min'],hyperbolic_range['E0_max'])
+#    puff_params += " --parameter p_phi0 "
+    puff_params += " --downselect-parameter p_phi0 --downselect-parameter-range [{},{}] ".format(hyperbolic_range['pphi0_min'],hyperbolic_range['pphi0_max'])
+    if opts.force_scatter_grids:
+        puff_params += ' --force-scatter '
+    if opts.force_plunge_grids:
+        puff_params += ' --force-plunge '
+    if opts.force_zoomwhirl_grids:
+        puff_params += ' --force-zoomwhirl '
+
 if opts.assume_highq:
         puff_params = puff_params.replace(' delta_mc ', ' eta ')  # use natural coordinates in the high q strategy. May want to do this always
         puff_max_it +=3
@@ -1362,6 +2542,19 @@ with open("args_puff.txt",'w') as f:
             puff_args += " {} ".format(opts.manual_extra_puff_args)  # embed with space on each side, avoid collisions
         f.write("X " + puff_args)
 
+if opts.internal_puff_mu_random_transverse:
+    from RIFT.misc import mu_puffball_pipeline
+    # The refinement grid has measured transverse covariance. The early aligned
+    # grid does not: keep its RANDOM transverse discovery out of that covariance.
+    # Each puff line is paired with a CIP batch, including its count/Z/G prefix.
+    # Keep args_puff.txt as the legacy single configuration for other consumers.
+    scheduled_puff_args = mu_puffball_pipeline.stage_arguments(lines, puff_args)
+    with open('args_puff_list.txt', 'w') as f:
+        f.write('\n'.join(scheduled_puff_args) + '\n')
+    # Ensure the first batch can actually puff. Preserve the existing stop
+    # policy for subsequent outer batches; subdags retain their normal policy.
+    puff_max_it = max(puff_max_it, int(lines[0].split()[0].lstrip('G')) - 1)
+
 # Create archive dag.  Based on Udall's experience/code
 #    * if ini file, use it
 #    * PSD files: will need to convert from XML.  Will need wrapper to generate this (not raw pesummary call).. Not now.
@@ -1389,11 +2582,50 @@ if opts.internal_force_iterations:
 # Overwrite grid if needed
 if not (opts.manual_initial_grid is None):
     if opts.manual_initial_grid_supplements:
+        if _use_hpip_pp:
+            # ligolw_add is XML-only -- the equivalent for hyperpipeline is
+            # the head-line + cat | sort | uniq | shuf shell pattern from
+            # the BasicIteration join_grids.sh.  We refuse rather than
+            # silently produce a broken proposed-grid.
+            raise SystemExit(
+                "pseudo_pipe: --manual-initial-grid-supplements is XML-only "
+                "(uses ligolw_add); incompatible with RIFT_HYPERPIPELINE_FORMAT. "
+                "Pre-merge your supplements into a single .dat grid and pass it "
+                "via --manual-initial-grid instead.")
         cmd_add = '{}ligolw_add {} proposed-grid.xml.gz --output tmp.xml.gz'.format(ligolw_prefix,opts.manual_initial_grid)
         os.system(cmd_add)
         shutil.copyfile('tmp.xml.gz', "proposed-grid.xml.gz")
     else:
-        shutil.copyfile(opts.manual_initial_grid, "proposed-grid.xml.gz")
+        # shutil.copyfile is format-agnostic: works for either .xml.gz or
+        # .dat as long as the source matches the active mode.
+        shutil.copyfile(opts.manual_initial_grid, "proposed-grid." + grid_suffix_pp)
+
+# Transverse-spin seed climb, setup-time variant: append seeds to the proposed grid
+if opts.transverse_seed_climb == "setup":
+    if _use_hpip_pp:
+        raise SystemExit("pseudo_pipe: --transverse-seed-climb writes sim_inspiral XML; incompatible with RIFT_HYPERPIPELINE_FORMAT")
+    cmd_climb = "util_TransverseSeedClimb.py --ile-args args_ile.txt --inj-file proposed-grid.xml.gz --inj-file-out proposed-grid --append-to-input --output-json seed_climb.json --output-dat seed_climb_history.dat " + opts.transverse_seed_climb_args
+    # local.cache is staged into the run directory only later in this script
+    if not os.path.exists("local.cache") and opts.fake_data_cache and "--cache" not in opts.transverse_seed_climb_args:
+        cmd_climb += " --cache {} ".format(opts.fake_data_cache)
+    if "--psd-file" not in opts.transverse_seed_climb_args:
+        with open("args_ile.txt") as f:
+            _toks = shlex.split(f.read())
+        _psds = []
+        for _k, _tok in enumerate(_toks):
+            if _tok in ("--psd-file", "-p") and _k + 1 < len(_toks):
+                _psds.append(_toks[_k + 1])
+            elif _tok.startswith("--psd-file="):
+                _psds.append(_tok.split("=", 1)[1])
+            elif _tok.startswith("-p") and not _tok.startswith("--") and len(_tok) > 2:
+                _psds.append(_tok[2:])
+        _missing = [_psd.split("=", 1)[1] for _psd in _psds
+                    if not os.path.exists(_psd.split("=", 1)[1])]
+        if _missing:
+            raise SystemExit("pseudo_pipe: --transverse-seed-climb setup needs the PSD files {} in the run directory at setup time; pass --psd-file IFO=/abs/path in --transverse-seed-climb-args, or use 'dag' mode".format(_missing))
+    print(" Transverse seed climb (setup): ", cmd_climb)
+    if os.system(cmd_climb) != 0:
+        raise SystemExit("pseudo_pipe: util_TransverseSeedClimb.py failed; see output above")
 
 # override npts_it if needed
 if opts.internal_n_evaluations_per_iteration:
@@ -1412,19 +2644,111 @@ if opts.internal_cip_request_memory:
 cepp = "create_event_parameter_pipeline_BasicIteration"
 if opts.use_subdags:
     cepp = "create_event_parameter_pipeline_AlternateIteration"
-cmd =cepp+ "  --ile-n-events-to-analyze {} --input-grid proposed-grid.xml.gz --ile-exe  `which integrate_likelihood_extrinsic_batchmode`   --ile-args `pwd`/args_ile.txt --cip-args-list args_cip_list.txt --test-args args_test.txt --request-memory-CIP {} --request-memory-ILE {} --n-samples-per-job ".format(n_jobs_per_worker,cip_mem,ile_mem) + str(npts_it) + " --working-directory `pwd` --n-iterations " + str(n_iterations) + " --n-iterations-subdag-max {} ".format(opts.internal_n_iterations_subdag_max) + "  --n-copies {} ".format(opts.ile_copies) + "   --ile-retries "+ str(opts.ile_retries) + " --general-retries " + str(opts.general_retries)
-if opts.assume_matter or opts.assume_eccentric:
+if opts.approx_extra and not opts.pipeline_builder:
+    # asking for more than one waveform model IS asking for the cross-model
+    # builder; make the user say it twice only if they disagree
+    opts.pipeline_builder = "BasicMultiApproxIteration"
+use_multiapprox = (opts.pipeline_builder == "BasicMultiApproxIteration")
+if use_multiapprox and not opts.approx_extra:
+    print(" --pipeline-builder BasicMultiApproxIteration needs at least one --approx-extra ")
+    sys.exit(1)
+# The builder itself accepts pseudo_pipe's option surface and refuses the parts
+# it does not implement, so there is no allow-list to maintain here.
+if opts.pipeline_builder:  # explicit override wins, for clean side-by-side A/B testing of the two builders
+    if opts.use_subdags and opts.pipeline_builder != "AlternateIteration":
+        # use_subdags is set either by the user or force-set by --internal-use-amr (which REQUIRES the Alternate builder)
+        print(" WARNING: --pipeline-builder {} overrides --use-subdags routing; AMR/subdag runs require AlternateIteration ".format(opts.pipeline_builder))
+    cepp = "create_event_parameter_pipeline_" + opts.pipeline_builder
+print(" Pipeline builder (create_event_parameter_pipeline_*): ", cepp)
+# Resolve the ILE executable: --use-jax-ile wins (mutual exclusion with --ile-exe was
+# already enforced above), then an explicit --ile-exe, then the historical default.
+if opts.use_jax_ile:
+    resolved_ile_exe = "`which integrate_likelihood_extrinsic_jax`"
+elif opts.ile_exe:
+    resolved_ile_exe = "'{}'".format(opts.ile_exe)
+else:
+    resolved_ile_exe = "`which integrate_likelihood_extrinsic_batchmode`"
+cmd =cepp+ "  --ile-n-events-to-analyze {} --input-grid proposed-grid.{} --ile-exe  {}   --ile-args `pwd`/args_ile.txt --cip-args-list args_cip_list.txt --test-args args_test.txt --request-memory-CIP {} --request-memory-ILE {} --n-samples-per-job ".format(n_jobs_per_worker,grid_suffix_pp,resolved_ile_exe,cip_mem,ile_mem) + str(npts_it) + " --working-directory `pwd` --n-iterations " + str(n_iterations) + ("" if use_multiapprox else " --n-iterations-subdag-max {} ".format(opts.internal_n_iterations_subdag_max)) + "  --n-copies {} ".format(opts.ile_copies) + "   --ile-retries "+ str(opts.ile_retries) + " --general-retries " + str(opts.general_retries)
+if opts.use_ini:
+    from RIFT.compression.config import enabled as auto_fit_enabled
+    if auto_fit_enabled(opts.use_ini):
+        if cepp != "create_event_parameter_pipeline_BasicIteration":
+            raise ValueError("auto-fit is currently supported by BasicIteration; use the standalone executable for other generators")
+        cmd += " --auto-fit-config " + shlex.quote(os.path.abspath(opts.use_ini))
+if use_multiapprox:
+    # Every model on the SAME grid.  --approx is the primary; --approx-extra the
+    # rest.  The builder marginalizes over them point by point in the loop and
+    # forks per model at the terminal stage.
+    for _ap in [opts.approx] + list(opts.approx_extra):
+        cmd += " --approx {} ".format(_ap)
+    # Forward the generator ROUTE per model.  Without this the builder never sees
+    # --approx-gwsignal, so it does not strip the global --use-gwsignal and every
+    # model is sent through gwsignal -- where the phenom family cannot be
+    # generated at all, its ILE jobs contribute zero rows, and the run silently
+    # degrades to a single model.
+    _gw = []
+    if opts.use_gwsignal:
+        _gw.append(opts.approx)                      # the primary is what --use-gwsignal meant
+    _gw += list(opts.approx_extra_gwsignal or [])
+    for _m in _gw:
+        if _m not in [opts.approx] + list(opts.approx_extra):
+            print(" --approx-extra-gwsignal names {}, which is not among the models {}".format(
+                _m, [opts.approx] + list(opts.approx_extra))); sys.exit(1)
+        cmd += " --approx-gwsignal {} ".format(_m)
+    for _pr in (opts.approx_prior or []):
+        cmd += " --approx-prior '{}' ".format(_pr)
+    if opts.require_all_approx:
+        cmd += " --require-all-approx "
+if opts.ile_jobs_per_worker_first:
+    cmd += " --ile-n-events-to-analyze-first {} ".format(opts.ile_jobs_per_worker_first)
+if opts.assume_matter or opts.assume_eccentric or opts.assume_hyperbolic:
     cmd +=  " --convert-args `pwd`/helper_convert_args.txt "
 if not(opts.ile_runtime_max_minutes is None):
     cmd += " --ile-runtime-max-minutes {} ".format(opts.ile_runtime_max_minutes)
 if not(opts.internal_use_amr) or opts.internal_use_amr_puff:
-    cmd+= " --puff-exe `which util_ParameterPuffball.py` --puff-cadence 1 --puff-max-it " + str(puff_max_it)+ " --puff-args `pwd`/args_puff.txt "
+    if opts.internal_puff_mu_random_transverse:
+        cmd += " --puff-exe `which util_ParameterPuffball.py` --puff-cadence 1 --puff-max-it {} --puff-args-list `pwd`/args_puff_list.txt ".format(puff_max_it)
+    else:
+        cmd+= " --puff-exe `which util_ParameterPuffball.py` --puff-cadence 1 --puff-max-it " + str(puff_max_it)+ " --puff-args `pwd`/args_puff.txt "
+if opts.use_EOB_parameters:
+    cmd += " --use-EOB-parameters "
+if opts.calmarg_pilot:
+    cmd += " --calmarg-pilot --calmarg-pilot-cadence {} --calmarg-pilot-max-it {} --calmarg-pilot-top-fraction {} --calmarg-pilot-max-points {} ".format(
+        opts.calmarg_pilot_cadence, opts.calmarg_pilot_max_it, opts.calmarg_pilot_top_fraction, opts.calmarg_pilot_max_points)
+    if opts.use_osg_file_transfer:
+        # Graceful degradation for the OSG file-transfer regime.  The wide ILE jobs (and the
+        # last-iteration EXTRINSIC ILE jobs) list cal_consolidated_$(macroiterationprev).npz in
+        # transfer_input_files; condor HARD-HOLDS (HoldReasonCode 13) if that source file is
+        # absent on the submit node.  A calpilot only produces cal_consolidated_<it>.npz for
+        # iterations it<=--calmarg-pilot-max-it on-cadence, so any wide/extrinsic iteration
+        # whose seed was never produced (e.g. --calmarg-pilot-max-it 1 but 5 wide iterations)
+        # would dead-hold.  Pre-seed a VALID prior-breadcrumb placeholder (a copy of the always
+        # -present cal_consolidated_-1.npz iteration-0 seed) for EVERY iteration index a wide or
+        # extrinsic job can reference.  A real calpilot OVERWRITES its placeholder at runtime via
+        # transfer_output_files (the DAG seed barrier guarantees ordering), so behavior is
+        # unchanged whenever the learned seed IS produced; a missing seed now falls back to the
+        # prior (the placeholder == proposal==prior -> zero-weight prior cal draws) instead of
+        # dead-holding.  skip-if-exists preserves real seeds across a DAG rescue/resume.
+        _cal_ph_seed = os.getcwd() + "/cal_consolidated_-1.npz"
+        if os.path.exists(_cal_ph_seed):
+            # wide it in [it_start, n_iterations-1] references prev=it-1; the extrinsic stage
+            # (it=n_iterations) references prev=n_iterations-1 -> indices 0 .. n_iterations-1.
+            for _kit in range(0, int(n_iterations)):
+                _cal_ph_dst = os.getcwd() + "/cal_consolidated_{}.npz".format(_kit)
+                if not os.path.exists(_cal_ph_dst):
+                    shutil.copyfile(_cal_ph_seed, _cal_ph_dst)
+        else:
+            print("  WARNING: cal_consolidated_-1.npz placeholder absent; cannot pre-seed missing cal proposal breadcrumbs (wide/extrinsic ILE may hard-hold if a calpilot stage is skipped).")
+if opts.extrinsic_handoff:
+    cmd += " --extrinsic-handoff --extrinsic-handoff-select {} ".format(opts.extrinsic_handoff_select)
 if opts.assume_eccentric:
     cmd += " --use-eccentricity "
     if opts.sample_eccentricity_squared:
         cmd += " --use-eccentricity-squared-sampling "
     if opts.use_meanPerAno:
         cmd += " --use-meanPerAno "
+if opts.assume_hyperbolic:
+    cmd += " --use-hyperbolic "
 if opts.calibration_reweighting and (not opts.bilby_pickle_file):
     cmd += " --calibration-reweighting --calibration-reweighting-exe `which calibration_reweighting.py` --bilby-ini-file {} --bilby-pickle-exe `which bilby_pipe_generation` ".format(str(opts.bilby_ini_file))
     if opts.calibration_reweighting_count:
@@ -1437,7 +2761,7 @@ if opts.calibration_reweighting and (not opts.bilby_pickle_file):
         cmd += " --calibration-reweighting-osg "
         opts.calibration_reweighting_initial_extra_args += " --use_local_cal_files "
     if opts.calibration_reweighting_initial_extra_args:
-        cmd += " --calibration-reweighting-initial-extra-args '{}' ".format(opts.calibration_reweighting_initial_extra_args)
+        cmd += " --calibration-reweighting-initial-extra-args {} ".format(shlex.quote(opts.calibration_reweighting_initial_extra_args))
 elif opts.calibration_reweighting and opts.bilby_pickle_file:
     cmd += " --calibration-reweighting --calibration-reweighting-exe `which calibration_reweighting.py` --bilby-pickle-file {} ".format(str(opts.bilby_pickle_file))
     if opts.calibration_reweighting_count:
@@ -1448,15 +2772,43 @@ elif opts.calibration_reweighting and opts.bilby_pickle_file:
         cmd += " --calibration-reweighting-osg "
         opts.calibration_reweighting_initial_extra_args += " --use_local_cal_files "
     if opts.calibration_reweighting_initial_extra_args:
-        cmd += " --calibration-reweighting-initial-extra-args '{}' ".format(opts.calibration_reweighting_initial_extra_args)
+        cmd += " --calibration-reweighting-initial-extra-args {} ".format(shlex.quote(opts.calibration_reweighting_initial_extra_args))
 if opts.internal_tabular_eos_file:
     cmd += " --use-tabular-eos-file "
 if opts.distance_reweighting:
     cmd += " --comov-distance-reweighting --comov-distance-reweighting-exe `which make_uni_comov_skymap.py` --convert-ascii2h5-exe `which convert_output_format_ascii2h5.py` "
 if opts.use_gauss_early:
     cmd += " --cip-exe-G `which util_ConstructIntrinsicPosterior_GaussianResampling.py ` "
+if opts.first_iteration_jumpstart:
+    cmd += " --first-iteration-jumpstart "
+if opts.transverse_seed_climb in ("dag", "parallel", "composite"):
+    if cepp != "create_event_parameter_pipeline_BasicIteration":
+        raise SystemExit("pseudo_pipe: --transverse-seed-climb dag is wired only for BasicIteration (got {}); use 'setup'".format(cepp))
+    with open("seed_climb_args.txt", "w") as f:
+        f.write("X " + opts.transverse_seed_climb_args)
+    cmd += " --seed-climb-exe {} --seed-climb-args `pwd`/seed_climb_args.txt --seed-climb-n-max {} ".format(opts.transverse_seed_climb_exe or "`which util_TransverseSeedClimb.py`", opts.transverse_seed_climb_n_max)
+    _sc_image = opts.transverse_seed_climb_singularity_image or os.environ.get("SINGULARITY_RIFT_SEED_CLIMB_IMAGE")
+    if _sc_image:
+        cmd += " --seed-climb-singularity-image {} ".format(_sc_image)
+    if opts.transverse_seed_climb_condor_commands:
+        cmd += " --seed-climb-condor-commands {} ".format(os.path.abspath(opts.transverse_seed_climb_condor_commands))
+    cmd += " --seed-climb-mode {} ".format({"dag": "prepend"}.get(opts.transverse_seed_climb, opts.transverse_seed_climb))
+    if opts.transverse_seed_climb_request_gpu:
+        cmd += " --seed-climb-request-gpu "
 if opts.internal_use_amr:
     print(" AMR prototype: Using hardcoded aligned-spin settings, assembling grid, requires coinc!")
+    if _use_hpip_pp and opts.manual_initial_grid is None:
+        # The AMR seed-grid generators (util_AMRGrid.py /
+        # util_GridSubsetOfTemplateBank.py) emit XML and have not been
+        # converted to hyperpipeline.  Per the project policy of
+        # operating cohesively in one mode or the other, we refuse
+        # rather than producing a proposed-grid.xml.gz the rest of the
+        # hyperpipeline workflow can't consume.
+        raise SystemExit(
+            "pseudo_pipe: --internal-use-amr seed-grid auto-generation is "
+            "XML-only and incompatible with RIFT_HYPERPIPELINE_FORMAT.  "
+            "Stage your initial grid as a hyperpipeline .dat and pass it "
+            "via --manual-initial-grid, or run without RIFT_HYPERPIPELINE_FORMAT.")
     cmd += " --cip-exe `which util_AMRGrid.py ` "
     coinc_file = "coinc.xml"
     if not(os.path.exists("coinc.xml")) and not(opts.use_coinc):
@@ -1528,15 +2880,23 @@ if opts.add_extrinsic:
     if opts.internal_last_iteration_extrinsic_samples_per_ile:
         cmd += " --last-iteration-extrinsic-samples-per-ile {}".format(opts.internal_last_iteration_extrinsic_samples_per_ile)
     if opts.internal_last_iteration_extrinsic_samples_per_ile_internal:
-        cmd += " --last-iteration-extrinsic-samples-per-ile-internal {}".format(opts.internal_last_iteration_extrinsic_samples_per_ile_internal)        
+        cmd += " --last-iteration-extrinsic-samples-per-ile-internal {}".format(opts.internal_last_iteration_extrinsic_samples_per_ile_internal)
     if opts.add_extrinsic_time_resampling:
         cmd+= " --last-iteration-extrinsic-time-resampling "
 if opts.batch_extrinsic:
     cmd += " --last-iteration-extrinsic-batched-convert "
 if opts.internal_ile_request_disk:
     cmd += " --ile-request-disk {} ".format(opts.internal_ile_request_disk)
+if opts.internal_ile_deduplicate_grid:
+    cmd += " --ile-deduplicate-grid "
+if opts.internal_cip_singularity_image:
+    cmd += " --cip-singularity-image {} ".format(shlex.quote(opts.internal_cip_singularity_image))
+if opts.internal_cip_request_gpus:
+    cmd += " --request-gpus-CIP {} ".format(opts.internal_cip_request_gpus)
+if opts.internal_cip_require_gpus:
+    cmd += " --require-gpus-CIP {} ".format(shlex.quote(opts.internal_cip_require_gpus))
 if opts.internal_cip_request_disk:
-    cmd += " --cip-request-disk {} ".format(opts.internal_ile_request_disk)
+    cmd += " --cip-request-disk {} ".format(opts.internal_cip_request_disk)
 if opts.internal_general_request_disk:
     cmd += " --general-request-disk {} ".format(opts.internal_general_request_disk)
 if opts.use_ile_subdags:
@@ -1545,11 +2905,17 @@ if opts.cip_explode_jobs_dag:  # note name does not match name used in next leve
     cmd += " --cip-explode-jobs-subdag --cip-explode-jobs-dag --cip-explode-jobs 2 "  
 if opts.cip_explode_jobs:
    cmd+= " --cip-explode-jobs  " + str(opts.cip_explode_jobs) + " --cip-explode-jobs-dag "  # use dag workers
-   if opts.cip_fit_method and not(opts.cip_fit_method == 'gp'):
+   if opts.cip_fit_method and opts.cip_fit_method not in ('gp', 'gp-matern'):
        # if we are not using default GP fit, so all fit instances are equal
-       cmd += " --cip-explode-jobs-flat "  
+       cmd += " --cip-explode-jobs-flat "
    if opts.cip_explode_jobs_last:
        cmd += " --cip-explode-jobs-last {} ".format(opts.cip_explode_jobs_last)
+# Effective phase coordinates need flat workers for EVERY fit method, including the default gp:
+# CIP refuses stored fits (--fit-load-gp) with these coordinates, so each exploded worker must
+# compute its own fresh fit.  Either explode route above creates workers.
+if eccentric_phase_pipeline.requested(opts) and (opts.cip_explode_jobs or opts.cip_explode_jobs_dag) \
+   and ' --cip-explode-jobs-flat ' not in cmd:
+    cmd += " --cip-explode-jobs-flat "
 if opts.make_bw_psds:
     cmd+= " --use-bw-psd --bw-exe `which BayesWave` --bw-post-exe `which BayesWavePost` "
 if opts.use_osg:
@@ -1558,14 +2924,8 @@ if opts.use_osg:
         cmd += " --use-osg-cip "
     if not(opts.use_osg_file_transfer):
         cmd += " --use-cvmfs-frames "
-    elif not(opts.internal_truncate_files_for_osg_file_transfer):  # attempt to make copies of frame files, and set up to transfer them with *every* job (!)
-        os.system("util_ForOSG_MakeTruncatedLocalFramesDir.sh .")
-        # if environment variable active, check that frames were created! Fail otherwise
-        if 'RIFT_TRUNCATE_CHECK' in os.environ:
-            fnames_gwf = os.listdir('./frames_dir/')
-            if len(fnames_gwf)< len(event_dict["IFOs"]):
-                raise Exception(" Pipeline build failure: Problem generating truncated frames for OSG")
-            
+    elif (opts.internal_truncate_files_for_osg_file_transfer):  # attempt to make copies of frame files, and set up to transfer them with *every* job (!)
+        # Frame staging is performed once, with checked failure handling, below.
 #        os.system("echo ../frames_dir >> helper_transfer_files.txt")
         cmd += " --frames-dir `pwd`/frames_dir "
     elif opts.use_osg_file_transfer:
@@ -1581,7 +2941,7 @@ if opts.condor_local_nonworker:
 if opts.condor_nogrid_nonworker:
     cmd += " --condor-nogrid-nonworker "
 if opts.use_osg_simple_requirements:
-    cmd += " --use-osg-simple-reqirements "
+    cmd += " --use-osg-simple-requirements "
 if opts.archive_pesummary_label:
 #    cmd += " --plot-exe `which summarypages` --plot-args  args_plot.txt "
     cmd += " --plot-exe summarypages --plot-args  args_plot.txt "
@@ -1598,40 +2958,66 @@ if opts.calibration_reweighting:
         my_extra_string += " --use-eccentricity "
     if opts.manual_extra_ile_args:
          print(" calmarg: Parsing  ", opts.manual_extra_ile_args)
-         my_str_list = opts.manual_extra_ile_args.lstrip().split("--")
-         my_revised_args = []
-         # MANUAL PARSING, SO STUPID, but argparse does not do what I want
-         for arg_item in my_str_list:
-             if 'internal-waveform-extra-lalsuite-args' in arg_item:
-                 my_revised_args += ['--internal-waveform-extra-lalsuite-args', arg_item.replace('internal-waveform-extra-lalsuite-args', '')]
-             if 'internal-waveform-extra-kwargs' in arg_item:
-                 my_revised_args += ['--internal-waveform-extra-kwargs', arg_item.replace('internal-waveform-extra-kwargs', '')]
-        
-         # Parse string for waveform arguments
-         # Currently: fork off the lmax_nyquist (the most common scenario), leave the rest to a unified dictionary to pass on
-         # ISSUE: argparse parsing does not seem to work, fall back to optparse
-         my_parser=argparse.ArgumentParser()
-         my_parser.add_argument("--internal-waveform-extra-lalsuite-args",type=str,default=None)
-         my_parser.add_argument("--internal-waveform-extra-kwargs",type=str, default=None)
-         my_opts, unknown_opts =my_parser.parse_known_args(my_revised_args )
+         # Preserve shell argument boundaries, including nested dictionaries
+         # whose string values contain '--', apostrophes or double quotes.
+         my_parser = argparse.ArgumentParser()
+         my_parser.add_argument("--use-gwsignal", action='store_true')
+         my_parser.add_argument("--gwsignal-mode-conditioning", choices=("legacy", "native"), default="legacy")
+         my_parser.add_argument("--use-gwsignal-lmax-nyquist", type=int, default=None)
+         my_parser.add_argument("--internal-waveform-fd-L-frame", action='store_true')
+         my_parser.add_argument("--internal-waveform-fd-no-condition", action='store_true')
+         my_parser.add_argument("--internal-waveform-extra-lalsuite-args", type=str, default=None)
+         my_parser.add_argument("--internal-waveform-extra-kwargs", type=str, default=None)
+         my_opts, unknown_opts = my_parser.parse_known_args(shlex.split(opts.manual_extra_ile_args))
          print(' calmarg: parsed args ', my_opts, " and others ", unknown_opts)
+         effective_gwsignal = opts.use_gwsignal or my_opts.use_gwsignal
+         if my_opts.use_gwsignal and not opts.use_gwsignal:
+             my_extra_string += ' --use-gwsignal '
+         if my_opts.internal_waveform_fd_L_frame:
+             my_extra_string += ' --internal-waveform-fd-L-frame '
+         if my_opts.internal_waveform_fd_no_condition:
+             my_extra_string += ' --internal-waveform-fd-no-condition '
+         if effective_gwsignal and my_opts.internal_waveform_extra_lalsuite_args is not None:
+             my_parser.error("--internal-waveform-extra-lalsuite-args cannot be used with --use-gwsignal; "
+                             "use --internal-waveform-extra-kwargs for GWSignal backend options")
          my_extra_args = {}
-         if my_opts.internal_waveform_extra_kwargs:
-             my_arg_dict = eval(my_opts.internal_waveform_extra_kwargs)
-             # due to quoting, might not evaluate to a dictionary
-             if not(isinstance(my_arg_dict, dict)):
-                 my_arg_dict = eval(my_arg_dict)
-             if 'lmax_nyquist' in my_arg_dict:
-                 my_extra_string+= " --use-gwsignal-lmax-nyquist {} ".format(my_arg_dict['lmax_nyquist'])
-                 del my_arg_dict['lmax_nyquist'] # remove key
-             my_extra_args.update(my_arg_dict)
+         if my_opts.gwsignal_mode_conditioning == "native" and not effective_gwsignal:
+             my_parser.error("--gwsignal-mode-conditioning native requires --use-gwsignal")
+         if my_opts.gwsignal_mode_conditioning == 'native' and my_opts.internal_waveform_fd_no_condition:
+             my_parser.error('--gwsignal-mode-conditioning native conflicts with --internal-waveform-fd-no-condition')
+         if effective_gwsignal:
+             my_extra_args['gwsignal_mode_conditioning'] = my_opts.gwsignal_mode_conditioning
+         gwsignal_lmax_nyquist = my_opts.use_gwsignal_lmax_nyquist
+         if gwsignal_lmax_nyquist is not None and not effective_gwsignal:
+             # ILE does not select GWSignal merely because lmax was set.
+             # Keep the option in native wrapper kwargs to match that route.
+             my_extra_args['lmax_nyquist'] = gwsignal_lmax_nyquist
          if my_opts.internal_waveform_extra_lalsuite_args:
              my_arg_dict = eval(my_opts.internal_waveform_extra_lalsuite_args)
-             if not(isinstance(my_arg_dict, dict)):
+             if isinstance(my_arg_dict, str):
                  my_arg_dict = eval(my_arg_dict)
-             my_extra_args.update(my_arg_dict)
+             if not isinstance(my_arg_dict, dict):
+                 raise TypeError("--internal-waveform-extra-lalsuite-args must be a dictionary")
+             my_extra_args['extra_waveform_args'] = my_arg_dict
+         if my_opts.internal_waveform_extra_kwargs:
+             my_arg_dict = eval(my_opts.internal_waveform_extra_kwargs)
+             if isinstance(my_arg_dict, str):
+                 my_arg_dict = eval(my_arg_dict)
+             if not isinstance(my_arg_dict, dict):
+                 raise TypeError("--internal-waveform-extra-kwargs must be a dictionary")
+             if effective_gwsignal:
+                 my_extra_args['gwsignal_extra_kwargs'] = my_arg_dict
+                 # Also pass lmax_nyquist as the dedicated flag, as before: calibration
+                 # containers older than gwsignal_extra_kwargs read only that flag.
+                 # The dictionary value wins, as it does in ILE.
+                 if 'lmax_nyquist' in my_arg_dict:
+                     gwsignal_lmax_nyquist = my_arg_dict['lmax_nyquist']
+             else:
+                 my_extra_args.update(my_arg_dict)
+         if gwsignal_lmax_nyquist is not None and effective_gwsignal:
+             my_extra_string += ' --use-gwsignal-lmax-nyquist {} '.format(gwsignal_lmax_nyquist)
          if my_extra_args:
-            my_extra_string += ' --extra-waveform-kwargs "{}" '.format(my_extra_args)
+             my_extra_string += ' --extra-waveform-kwargs {} '.format(shlex.quote(repr(my_extra_args)))
 #         my_extra_string += ' ' + opts.manual_extra_ile_args + ' '
     if opts.use_ini:
         fref = unsafe_config_get(config,['engine','fref'])
@@ -1640,20 +3026,24 @@ if opts.calibration_reweighting:
         my_extra_string += ' --internal-waveform-fd-L-frame '
     if opts.calibration_reweighting_initial_extra_args:
         my_extra_string+= ' {} '.format(opts.calibration_reweighting_initial_extra_args) # make sure to add spaces/padding
-    cmd +=" --calibration-reweighting-initial-extra-args='  {}' ".format(my_extra_string)
+    cmd += " --calibration-reweighting-initial-extra-args={} ".format(
+        shlex.quote('  ' + my_extra_string))
 #if opts.internal_mitigate_fd_J_frame =="L_frame" and opts.use_gwsignal and not(opts.manual_extra_ile_args):
 #    cmd +=" --calibration-reweighting-initial-extra-args='--internal-waveform-fd-L-frame --use-gwsignal' "
 if opts.condor_local_nonworker_igwn_prefix:
     cmd += " --condor-local-nonworker-igwn-prefix "
 
-# Make copy of local.cache for use in file transfer
-if opts.use_osg_file_transfer and opts.internal_truncate_files_for_osg_file_transfer and os.path.exists('local.cache'):
-    shutil.copyfile('local.cache', 'local_orig.cache')
-    # Move contents of ile_pre.sh here
-    os.system("cat local.cache > awk '{print $1, $2, $3, $4}' > local_stripped.cache")
-    os.system('for i in `ls frames_dir/*.gwf`; do echo frames_local/${i} ; done > base_paths.dat') # yes probably easier to do the ls myself
-    os.system("paste local_stripped.cache base_paths.dat > local_relative.cache ")
-    os.system("cp local_relative.cache local.cache")
+# Stage frames before emitting jobs: a truncation failure must not leave a
+# seemingly launchable DAG or replace the cache with an empty file.
+if opts.use_osg_file_transfer and opts.internal_truncate_files_for_osg_file_transfer:
+    if opts.fake_data_cache:
+        shutil.copyfile(opts.fake_data_cache, "local.cache")
+    subprocess.run(["util_ForOSG_MakeTruncatedLocalFramesDir.sh", "."], check=True)
+    # Check only after the helper-produced or explicit cache has been staged.
+    if 'RIFT_TRUNCATE_CHECK' in os.environ:
+        fnames_gwf = [name for name in os.listdir('frames_dir') if name.endswith('.gwf')]
+        if len(fnames_gwf) < len(event_dict["IFOs"]):
+            raise RuntimeError("Pipeline build failure: Problem generating truncated frames for OSG")
 
 if not(ile_condor_commands is None):
     # create file
@@ -1661,20 +3051,45 @@ if not(ile_condor_commands is None):
         for key, val in ile_condor_commands:
             f.write(key+ '  ' + val + '\n')
     cmd += " --ile-condor-commands `pwd`/ile_condor_commands.txt "
-    
+
+# Per-distance likelihood export on the extrinsic stage. These are
+# pipeline-builder flags consumed by create_event_parameter_pipeline_*, so
+# they are added to the CEPP command (not the ILE args). They only take effect
+# when the extrinsic stage exists (--add-extrinsic).
+if opts.export_marginal_distance_grid:
+    cmd += " --last-iteration-export-marginal-distance-grid "
+if opts.export_distance_slices and opts.export_distance_slices > 0:
+    cmd += " --last-iteration-export-distance-slices {} ".format(opts.export_distance_slices)
+    if opts.export_distance_slices_all_fresh:
+        cmd += " --last-iteration-export-distance-slices-all-fresh "
+    if opts.export_distance_slices_randomize:
+        cmd += " --last-iteration-export-distance-slices-randomize "
+    if opts.export_distance_slices_wing_neff is not None:
+        cmd += " --last-iteration-export-distance-slices-wing-neff {} ".format(opts.export_distance_slices_wing_neff)
+    if opts.export_distance_slices_wing_nmax is not None:
+        cmd += " --last-iteration-export-distance-slices-wing-nmax {} ".format(opts.export_distance_slices_wing_nmax)
+    if opts.export_distance_slices_n_core:
+        cmd += " --last-iteration-export-distance-slices-n-core {} ".format(opts.export_distance_slices_n_core)
+    if opts.export_distance_slices_n_wing:
+        cmd += " --last-iteration-export-distance-slices-n-wing {} ".format(opts.export_distance_slices_n_wing)
+    if opts.export_distance_slices_wing_delta_lnL is not None:
+        cmd += " --last-iteration-export-distance-slices-wing-delta-lnL {} ".format(opts.export_distance_slices_wing_delta_lnL)
+    if opts.export_distance_slices_skip_threshold is not None:
+        cmd += " --last-iteration-export-distance-slices-skip-threshold {} ".format(opts.export_distance_slices_skip_threshold)
+
 print(cmd)
-os.system(cmd)
+_rc = os.system(cmd)
+if _rc != 0:
+    # A failed builder used to leave pseudo_pipe reporting success with no DAG in
+    # the run directory -- the args_*.txt are all there, so it looks finished.
+    print(" pseudo_pipe: the pipeline builder FAILED (exit {}); no DAG was written. "
+          "See the output above.".format(_rc >> 8 if _rc > 255 else _rc))
+    sys.exit(1)
 
 if opts.internal_ile_check_good_enough:
     # Populate 'ile_check_good_enough' through all subdirectories
     cmd_enough = r"find . -name 'iter*ile' -type d -exec touch {}/ile_good_enough \; "
-    os.system(cmd)
-
-if opts.use_osg_file_transfer and opts.internal_truncate_files_for_osg_file_transfer:
-    if opts.fake_data_cache:
-        shutil.copyfile(opts.fake_data_cache, 'local.cache')
-    # build truncated frames.  Note this parses ILE arguments, so must be done last
-    os.system("util_ForOSG_MakeTruncatedLocalFramesDir.sh .")
+    os.system(cmd_enough)   # was os.system(cmd): re-ran the pipeline builder
 
 ## RUNMON
 try:

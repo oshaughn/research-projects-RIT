@@ -67,10 +67,10 @@ except:
     print(" - No multiprocessing - ")
 
 try:
-	import NRWaveformCatalogManager3 as nrwf
-	hasNR =True
-except:
-	hasNR=False
+    from RIFT.physics._nrwf_loader import get_nrwf as _rift_get_nrwf
+    nrwf, hasNR = _rift_get_nrwf()
+except ImportError:
+    nrwf = None; hasNR = False
 try:
     hasEOB=True
     import RIFT.physics.EOBTidalExternal as eobwf
@@ -245,7 +245,14 @@ parser.add_argument("--inj-file-out", default=None, help="For compatibility with
 parser.add_argument("--verbose", action="store_true",default=False, help="Extra warnings")
 parser.add_argument("--extra-verbose", action="store_true",default=False, help="Lots of messages")
 parser.add_argument("--save-plots",default=False,action='store_true', help="Write plots to file (only useful for OSX, where interactive is default")
+parser.add_argument('--force-scatter',default=False,action='store_true',help='For hyperbolic analyses forces only scatter grid points.')
+parser.add_argument('--force-plunge',default=False,action='store_true',help='For hyperbolic analyses forces only scatter grid points.')
+parser.add_argument('--force-zoomwhirl',default=False,action='store_true',help='For hyperbolic analyses forces only scatter grid points.')
 opts=  parser.parse_args()
+
+force_options = [opts.force_scatter, opts.force_plunge, opts.force_zoomwhirl]  # Add more if needed
+if sum(bool(x) for x in force_options) > 1:
+    parser.error("CANNOT use multiple --force-X options at the same time!")
 if opts.inj_file_out:
     opts.fname = opts.inj_file_out.replace(".xml.gz","")
 
@@ -366,6 +373,39 @@ def evaluate_overlap_on_grid(hfbase,param_names, grid):
         for param in downselect_dict:
             if Pgrid.extract_param(param) < downselect_dict[param][0] or Pgrid.extract_param(param) > downselect_dict[param][1]:
                 include_item =False
+        if opts.force_scatter:
+            if include_item==False:
+                # no need to evaluate if the point is already downselected out
+                pass
+            else:
+                # removes non-scatter points from the hyperbolic grid
+                hypclass = Pgrid.extract_param('hypclass')
+                if hypclass == 'scatter':
+                    include_item = True
+                else:
+                    include_item = False
+        if opts.force_plunge:
+            if include_item==False:
+                # no need to evaluate if the point is already downselected out
+                pass
+            else:
+                # removes non-scatter points from the hyperbolic grid
+                hypclass = Pgrid.extract_param('hypclass')
+                if hypclass == 'plunge':
+                    include_item = True
+                else:
+                    include_item = False
+        if opts.force_zoomwhirl:
+            if include_item==False:
+                # no need to evaluate if the point is already downselected out
+                pass
+            else:
+                # removes non-scatter points from the hyperbolic grid
+                hypclass = Pgrid.extract_param('hypclass')
+                if hypclass == 'zoomwhirl':
+                    include_item = True
+                else:
+                    include_item = False
         if include_item:
          grid_revised.append(line)
          if Pgrid.m2 <= Pgrid.m1:  # do not add grid elements with m2> m1, to avoid possible code pathologies !
@@ -439,7 +479,7 @@ if opts.inj:
     filename = opts.inj
     event = opts.event_id
     xmldoc = utils.load_filename(filename, verbose = True,contenthandler =lalsimutils.cthdler)
-    sim_inspiral_table = lsctables.Table.get_table(xmldoc, lsctables.SimInspiralTable.tableName)
+    sim_inspiral_table = lsctables.SimInspiralTable.get_table(xmldoc)
     P.copy_sim_inspiral(sim_inspiral_table[int(event)])
     P.fmin =opts.fmin
     if opts.approx:
@@ -754,7 +794,7 @@ if not (opts.random_parameter is None) and not(opts.parameter is None):
     grid_extra = np.zeros( (len(grid),len(opts.random_parameter)) )
 #    print grid_extra.shape
     for indx in np.arange(len(opts.random_parameter)):
-        range_here = np.array(param_ranges[ indx_base+indx])
+        range_here = np.array(param_ranges[ indx_base+indx], dtype=float)
         if param_names[indx_base+indx] in ['mc','mtot','m1','m2']:
             range_here *= lal.MSUN_SI
         print(opts.random_parameter_exponent)
@@ -773,7 +813,7 @@ elif opts.parameter is None:
     print(param_names, param_ranges)
     grid = np.zeros( (opts.grid_cartesian_npts,len(opts.random_parameter)) )
     for indx in np.arange(len(opts.random_parameter)):
-        range_here = np.array(param_ranges[ indx])
+        range_here = np.array(param_ranges[ indx], dtype=float)
         if param_names[indx] in ['mc','mtot','m1','m2']:
             range_here *= lal.MSUN_SI
         grid[:,indx] = np.random.uniform( range_here[0],range_here[1],size=len(grid))

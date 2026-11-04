@@ -28,6 +28,7 @@ import lalsimulation as lalsim
 import lal
 import functools
 import itertools
+import json
 
 
 from igwn_ligolw import lsctables, utils, ligolw
@@ -48,16 +49,40 @@ parser.add_argument("--no-correlation", type=str,action='append', help="Pairs of
 #parser.add_argument("--parameter-implied", action='append', help="Parameter used in fit, but not independently varied for Monte Carlo")
 parser.add_argument("--random-parameter", action='append',help="These parameters are specified at random over the entire range, uncorrelated with the grid used for other parameters.  Use for variables which correlate weakly with others; helps with random exploration")
 parser.add_argument("--random-parameter-range", action='append', type=str,help="Add a range (pass as a string evaluating to a python 2-element list): --parameter-range '[0.,1000.]'   MUST specify ALL parameter ranges (min and max) in order if used.  ")
+parser.add_argument("--append-with-random-parameter", action='append', help="APPEND extra copies of randomly-chosen output points with this parameter re-drawn uniformly at random (unlike --random-parameter, which REPLACES the value on every point).  Guarantees the proposed grid keeps offering coverage in that coordinate (e.g. the chi1_perp transverse tail) even after the posterior/grid has contracted: the tail-starvation feedback behind narrow low-mass chi1_perp posteriors (transverse-spin study 2026-07).  For chi1_perp/chi2_perp the azimuth is also re-drawn and the magnitude capped so |chi| respects the chi1/chi2 downselect bound.  Repeatable; ranges via --append-with-random-parameter-range (defaults exist for chi1_perp/chi2_perp).  The combined output rows are SHUFFLED so ordered/truncated downstream reads cannot silently drop the appended points.")
+parser.add_argument("--append-with-random-parameter-range", action='append', type=str, help="Range for each --append-with-random-parameter, as a string '[lo,hi]', in order.  Optional for chi1_perp/chi2_perp (default [0,chi-cap]); required for anything else.")
+parser.add_argument("--append-with-random-fraction", default=0.3, type=float, help="Number of appended randomized points, as a fraction of the (post-downselect) puff output size.  Default 0.3.")
 parser.add_argument("--mc-range",default=None,help="Chirp mass range [mc1,mc2]. Important if we have a low-mass object, to avoid wasting time sampling elsewhere.")
 parser.add_argument("--eta-range",default=None,help="Eta range. Important if we have a BNS or other item that has a strong constraint.")
 parser.add_argument("--mtot-range",default=None,help="Chirp mass range [mc1,mc2]. Important if we have a low-mass object, to avoid wasting time sampling elsewhere.")
 parser.add_argument("--downselect-parameter",action='append', help='Name of parameter to be used to eliminate grid points. Note mc-range, eta-range,mtot-range are syntactic sugar for this usage ')
 parser.add_argument("--downselect-parameter-range",action='append',type=str)
+parser.add_argument("--reflect-parameter",action='append',type=str)
 parser.add_argument("--enforce-duration-bound",default=None,type=float,help="If present, enforce a duration bound. Used to prevent grid placement for obscenely long signals, when the window size is prescribed")
 parser.add_argument("--regularize",action='store_true',help="Add some ad-hoc terms based on priors, to help with nearly-singular matricies")
-parser.add_argument("--reflect-parameter", action='append', default=[],
-                    help="Reflect this puff coordinate into its downselect interval")
+parser.add_argument('--force-scatter',default=False,action='store_true',help='For hyperbolic analyses forces only scatter grid points.')
+parser.add_argument('--force-plunge',default=False,action='store_true',help='For hyperbolic analyses forces only plunge grid points.')
+parser.add_argument('--force-zoomwhirl',default=False,action='store_true',help='For hyperbolic analyses forces only zoomwhirl grid points.')
+from RIFT.misc import eccentric_phase_models
+eccentric_phase_models.add_arguments(parser)
+parser.add_argument("--eccentric-phase-coordinates",action='store_true',help="Puff in an effective PN eccentric phase and invert to the original waveform anomaly; no waveform or prior redefinition")
+parser.add_argument("--eccentric-phase-reference-frequency",type=float,default=10.,help="Frequency label for the effective coordinate only, in Hz; does not change fref/fmin")
+parser.add_argument("--eccentric-phase-target-frequency",type=float,default=20.,help="Target frequency label for the effective coordinate only, in Hz")
+parser.add_argument("--internal-scalar-spin-downselect",action='store_true',help="Test spin downselects per point after assignment, and read eccentric-path downselect values per point (for testing)")
+parser.add_argument("--random-seed",type=int,default=None,help="Optional reproducible seed for puff draws")
+parser.add_argument("--puff-coordinate-system", choices=['mu-random-transverse'], default=None,
+                    help="Opt-in fixed mu1,mu2,q,s2z covariance puff with independent RANDOM transverse spins; omit --parameter. Default: legacy puff.")
+parser.add_argument("--mu-puff-transverse-max", type=float, default=1.,
+                    help="Maximum random transverse radius for each spin in mu mode (default 1); further bounded by sqrt(1-siz^2). Independent of --puff-factor.")
+parser.add_argument("--mu-puff-n-proposals", type=int, default=None,
+                    help="Attempted proposal budget in mu mode; default: number of input seeds. No retries after rejection.")
 opts=  parser.parse_args()
+if opts.random_seed is not None:
+    np.random.seed(opts.random_seed)
+
+force_options = [opts.force_scatter, opts.force_plunge, opts.force_zoomwhirl]  # Add more if needed
+if sum(bool(x) for x in force_options) > 1:
+    parser.error("CANNOT use multiple --force-X options at the same time!")
 
 if opts.random_parameter is None:
     opts.random_parameter = []
@@ -67,10 +92,44 @@ log_coord_names = ['lambda1', 'lambda2', 'LambdaTilde']
     
 # Extract parameter names
 coord_names = opts.parameter # Used  in fit
+if opts.puff_coordinate_system:
+    incompatible = [name for name in (
+        'parameter', 'no_correlation', 'random_parameter',
+        'append_with_random_parameter', 'eccentric_phase_coordinates',
+        'regularize', 'force_away', 'force_scatter', 'force_plunge', 'force_zoomwhirl')
+        if getattr(opts, name)]
+    if incompatible:
+        parser.error('mu-random-transverse does not support ' + ', '.join(
+            '--' + name.replace('_', '-') for name in incompatible))
+    if any(name not in ('q', 's2z') for name in opts.reflect_parameter or []):
+        parser.error('mu puff --reflect-parameter supports only q and s2z; physical bounds are used, narrowed by native downselection')
+    if not np.isfinite(opts.puff_factor) or opts.puff_factor < 0:
+        parser.error('mu puff requires a finite nonnegative --puff-factor')
+    if not np.isfinite(opts.mu_puff_transverse_max) or not 0 <= opts.mu_puff_transverse_max <= 1:
+        parser.error('--mu-puff-transverse-max must lie in [0,1]')
+    if opts.mu_puff_n_proposals is not None and opts.mu_puff_n_proposals < 1:
+        parser.error('--mu-puff-n-proposals must be positive')
+    coord_names = []  # fixed chart; no legacy extraction or sequential assignment
+elif opts.mu_puff_n_proposals is not None or opts.mu_puff_transverse_max != 1.:
+    parser.error('--mu-puff-* options require --puff-coordinate-system mu-random-transverse')
 #if opts.parameter_nofit:
 #    coord_names = coord_names + opts.parameter_nofit
 if coord_names is None:
     sys.exit(0)
+if opts.eccentric_phase_coordinates:
+    from RIFT.misc import eccentric_phase, eccentric_phase_puff
+    if (coord_names.count('meanPerAno') != 1 or
+            sum(name in coord_names for name in eccentric_phase.ECCENTRICITY_NAMES) != 1):
+        raise ValueError('Effective eccentric-phase puffing requires meanPerAno and exactly one eccentricity coordinate')
+    if len(coord_names) != len(set(coord_names)):
+        raise ValueError('Effective eccentric-phase puff coordinates must be unique')
+    if 'meanPerAno' in (opts.reflect_parameter or []):
+        raise ValueError('Effective phase puffing cannot reflect native meanPerAno bounds in the effective angular chart; use native downselection instead')
+    if opts.random_parameter:
+        raise ValueError('Effective eccentric-phase puffing does not support independent random-parameter overrides')
+    eccentric_phase.phase_advance(1.,1.,0.,opts.eccentric_phase_reference_frequency,
+                                  opts.eccentric_phase_target_frequency)
+    eccentric_phase_models.freeze(opts,opts.eccentric_phase_reference_frequency,opts.eccentric_phase_target_frequency)
 
 # match up pairs in --no-correlation
 corr_list = None
@@ -90,6 +149,7 @@ if not(opts.no_correlation is None):
 #    print opts.no_correlation, coord_names, corr_list
 
 downselect_dict = {}
+reflect_dict={}
 
 # Add some pre-built downselects, to avoid common out-of-range-error problems
 # Don't add full spin constraint unless called for. If so, we need to retain transverse values!  That will be done AT END
@@ -117,18 +177,69 @@ if len(dlist) != len(dlist_ranges):
 for indx in np.arange(len(dlist_ranges)):
     downselect_dict[dlist[indx]] = dlist_ranges[indx]
 
+indx_reflect=[]
+rlist=[]
+if opts.reflect_parameter and not opts.puff_coordinate_system:
+    rlist  = opts.reflect_parameter
+    indx_reflect = [coord_names.index(param) for param in opts.reflect_parameter]
+if len(rlist) > len(coord_names):
+    print(" reflection parameters inconsistent", rlist, coord_names)
+    raise Exception(" Reflection only allowed for coordinates ")
+for indx in np.arange(len(rlist)):
+    if not(rlist[indx] in coord_names):
+        raise Exception(" Reflection only allowed for coordinates (--parameter) ")
+    if not(rlist[indx] in downselect_dict):
+        raise Exception(" Reflection requires parameter range specified as a downselection ")
+    reflect_dict[rlist[indx]] = downselect_dict[rlist[indx]]
 
 
 
-# Reflect bounded native coordinates before physical conversion and selection.
-reflection_ranges = {}
-for name in opts.reflect_parameter:
-    if name not in coord_names or name not in downselect_dict:
-        raise ValueError("Reflection needs a puff coordinate and a matching downselect interval: " + name)
-    reflection_ranges[name] = downselect_dict[name]
+# ----------------------------------------------------------------------
+# Hyperpipeline ASCII grid I/O (opt-in via env var or auto-detected on
+# read).  When active, --inj-file is read as a hyperpipeline .dat instead
+# of XML, and --inj-file-out is written in the same format below.  The
+# input file's column header is preserved on output so puffball is a
+# format pass-through (perturbed rows, same columns).
+# ----------------------------------------------------------------------
+from RIFT.misc import hyperpipeline_io as _hpio
+_hpip_in = _hpio.is_active() or _hpio.sniff(opts.inj_file)
+if _hpip_in:
+    print(" Hyperpipeline ASCII input detected for --inj-file ", opts.inj_file)
+    P_list, _hpip_in_columns = _hpio.read_grid_to_P_list(
+        opts.inj_file,
+        P_factory=lalsimutils.ChooseWaveformParams,
+        lal_module=lal,
+        valid_params=lalsimutils.valid_params)
+else:
+    _hpip_in_columns = None
+    # Load data
+    P_list = lalsimutils.xml_to_ChooseWaveformParams_array(opts.inj_file)
 
-# Load data
-P_list = lalsimutils.xml_to_ChooseWaveformParams_array(opts.inj_file)
+if opts.puff_coordinate_system:
+    from RIFT.misc import mu_puffball
+    if len(dlist) != len(dlist_ranges):
+        parser.error('mu puff requires one range for every downselect parameter')
+    P_out, summary = mu_puffball.waveform_proposals(
+        P_list, count=opts.mu_puff_n_proposals, scale=opts.puff_factor,
+        transverse_max=opts.mu_puff_transverse_max, rng=opts.random_seed,
+        reflect_parameters=opts.reflect_parameter,
+        downselect=downselect_dict, fref=opts.fref, fmin=opts.fmin,
+        duration_bound=opts.enforce_duration_bound)
+    print(' Mu/random-transverse puff:', json.dumps(summary, sort_keys=True))
+    if opts.fail_if_empty and not P_out:
+        raise ValueError('mu/random-transverse puff has no surviving proposals')
+    if _hpip_in or _hpio.is_active():
+        columns = _hpip_in_columns if _hpip_in_columns is not None else _hpio.build_column_list()
+        _hpio.write_grid_from_P_list(opts.inj_file_out, P_out, columns,
+                                    lal_module=lal, lalsimutils_module=lalsimutils)
+    else:
+        # An empty export must not refer to a nonexistent last proposed object.
+        output_fref = opts.fref if opts.fref is not None else P_list[0].fref
+        lalsimutils.ChooseWaveformParams_array_to_xml(
+            P_out, fname=opts.inj_file_out, fref=output_fref)
+    with open(opts.inj_file_out + '_mu_puff.json', 'w') as f:
+        json.dump(dict(summary, random_seed=opts.random_seed), f, indent=2)
+    sys.exit(0)
 
 # extract parameters to measure the coordinates. 
 dat_out = []
@@ -152,6 +263,17 @@ for P in P_list:
 # relabel data
 dat_out = np.array(dat_out)
 X =dat_out[:,0:len(coord_names)]
+if opts.eccentric_phase_coordinates:
+    phase_column = coord_names.index('meanPerAno')
+    theta = eccentric_phase.forward(
+        np.array([p.m1/lal.MSUN_SI for p in P_list]),
+        np.array([p.m2/lal.MSUN_SI for p in P_list]),
+        np.array([p.eccentricity for p in P_list]),X[:,phase_column],
+        reference_frequency=opts.eccentric_phase_reference_frequency,
+        target_frequency=opts.eccentric_phase_target_frequency,
+        s1z=np.array([p.s1z for p in P_list]),s2z=np.array([p.s2z for p in P_list]),
+        **eccentric_phase_models.worker_options(opts))
+    X[:,phase_column], phase_center = eccentric_phase_puff.centered_angles(theta)
 
 # Perform log transformation on variables
 for indx, name  in enumerate(coord_names):
@@ -165,7 +287,7 @@ if len(coord_names) >1:
     cov = cov_in*opts.puff_factor*opts.puff_factor
 
     # Check for singularities
-    if np.min(np.linalg.eig(cov)[0])<1e-10:
+    if np.min(np.linalg.eig(cov)[0])<1e-10 and not (opts.eccentric_phase_coordinates and opts.puff_factor==0):
         print(" ===> WARNING: SINGULAR MATRIX: are you sure you varied this parameters? <=== ")
         icov_pseudo = np.linalg.pinv(cov)
         # Prior range for each parameter is 1000, so icov diag terms are 10^(-6)
@@ -188,6 +310,18 @@ if len(coord_names) >1:
     rv = scipy.stats.multivariate_normal(mean=np.zeros(len(coord_names)), cov=cov,allow_singular=True)  # they are just complaining about dynamic range of parameters, usually
     delta_X = rv.rvs(size=len(X))
     X_out = X+delta_X
+    # Reflection
+    for indx in indx_reflect:
+        param = coord_names[indx]
+        # put in range [0,2 L]
+        tmp = reflect_dict[param][0] + np.mod(X_out[:,indx] - reflect_dict[param][0], 2*(reflect_dict[param][1] - reflect_dict[param][0]) )
+        # final reflection
+        tmp = np.where( tmp > reflect_dict[param][1], 2*reflect_dict[param][1] - tmp, tmp)
+        X_out[:,indx] = tmp
+        # DELETE parameter from downselet_dict : no longer needed
+        del downselect_dict[param]
+
+    # perform manual requirement
     if 'eta' in coord_names:
         indx_eta = coord_names.index('eta')
         X_out[:,indx_eta] = np.where(X_out[:,indx_eta] > 1/4, 1/2- X_out[:,indx_eta], X_out[:,indx_eta]) # reflection boundary condition, preserve points
@@ -201,18 +335,13 @@ else:
         indx_eta = coord_names.index('eta')
         X_out[:,indx_eta] = np.where(X_out[:,indx_eta] > 1/4, 1/2- X_out[:,indx_eta], X_out[:,indx_eta]) # reflection boundary condition, preserve points
         X_out[:,indx_eta] = np.where(X_out[:,indx_eta] < 0, -X_out[:,indx_eta], X_out[:,indx_eta]) # reflection on other side
-
+        
 # Undo natural logarithm
 for indx, name  in enumerate(coord_names):
     if name in log_coord_names:
         print(" undoing log transform for ", name)
         X_out[:,indx] = np.exp(X_out[:,indx])
 
-
-from RIFT.misc.eccentric_defaults import reflect_into
-for name, limits in reflection_ranges.items():
-    index = coord_names.index(name)
-    X_out[:, index] = reflect_into(X_out[:, index], *limits)
 
 # Sanity check parameters
 #for indx in np.arange(len(coord_names)):
@@ -225,26 +354,102 @@ for name, limits in reflection_ranges.items():
 
 # Apply downselect constraints, using conversion utility for speed
 #   WARNING: For spin, we are NOT retaining transverse DOF by default!
-names_downselect = list(downselect_dict.keys())
-x_out_down = lalsimutils.convert_waveform_coordinates(X_out, coord_names=names_downselect, low_level_coord_names=coord_names)
+names_downselect = list(set(downselect_dict.keys()) - set(rlist))
+# chieff_aligned holds each point's own s1z, s2z difference, which the converter (fresh spin-free P
+# per row) cannot see.  Test spin-dependent ranges on the assigned point instead, below.
+names_downselect_late = []
+if 'chieff_aligned' in coord_names:
+    spin_names = ['chi1', 'chi2', 's1z', 's2z', 's1z_bar', 's2z_bar', 'xi', 'chiz_plus', 'chiz_minus',
+                  'chi1_perp', 'chi2_perp', 'cos_theta1', 'cos_theta2', 'theta1', 'theta2']
+    names_downselect_late = [p for p in names_downselect if p in spin_names and p not in coord_names]
+    names_downselect = [p for p in names_downselect if p not in names_downselect_late]
+if opts.eccentric_phase_coordinates:
+    P_list, X_native = eccentric_phase_puff.native_proposals(
+        P_list,X_out,coord_names,opts.eccentric_phase_reference_frequency,
+        opts.eccentric_phase_target_frequency,**eccentric_phase_models.worker_options(opts))
+    # Each candidate already holds the spins the loop below writes, unless a mass coordinate follows
+    # chieff_aligned or a coordinate outside this list has its own spin setter.
+    mass_names = ['mc', 'delta_mc', 'eta', 'm1', 'm2', 'mtot', 'q']
+    if names_downselect_late and not opts.internal_scalar_spin_downselect and \
+            all(coord_names.index(p) < coord_names.index('chieff_aligned') for p in coord_names if p in mass_names) and \
+            set(coord_names) <= set(mass_names) | {'chieff_aligned', 'eccentricity', 'meanPerAno', 'lambda1', 'lambda2',
+                                                   'LambdaTilde', 'DeltaLambdaTilde', 'a6c', 'E0', 'p_phi0', 'dist'}:
+        names_downselect += names_downselect_late
+        names_downselect_late = []
+    # Mass and Cartesian-spin names convert in one pass; the rest are read from each candidate.
+    names_cart = [p for p in names_downselect if not opts.internal_scalar_spin_downselect and
+                  (p in mass_names + ['chi1', 'chi2', 's1z', 's2z'] or (p == 'xi' and lalsimutils.spin_convention == 'L'))]
+    x_cart = lalsimutils.convert_waveform_coordinates(
+        np.array([[p.m1/lal.MSUN_SI, p.m2/lal.MSUN_SI, p.s1x, p.s1y, p.s1z, p.s2x, p.s2y, p.s2z] for p in P_list]).reshape(-1, 8),
+        coord_names=names_cart, low_level_coord_names=['m1', 'm2', 's1x', 's1y', 's1z', 's2x', 's2y', 's2z'])
+    x_out_down = np.array([[p.extract_param(name)/(lal.MSUN_SI if name in ['mc','m1','m2','mtot'] else 1.)
+                            if name not in names_cart else 0. for name in names_downselect] for p in P_list]).reshape(-1, len(names_downselect))
+    for indx, name in enumerate(names_cart):
+        x_out_down[:, names_downselect.index(name)] = x_cart[:, indx]
+else:
+    X_native = X_out
+    x_out_down = lalsimutils.convert_waveform_coordinates(X_out, coord_names=names_downselect, low_level_coord_names=coord_names)
 indx_ok = np.ones(len(x_out_down),dtype=bool)
+if opts.eccentric_phase_coordinates:
+    indx_ok &= np.all(np.isfinite(X_native),axis=1)
 for indx, name in enumerate(names_downselect):
     indx_ok = np.logical_and(indx_ok,  np.logical_not(np.isnan(x_out_down[:,indx])))
     indx_ok = np.logical_and(indx_ok,  x_out_down[:,indx]<= downselect_dict[name][1] )
     indx_ok = np.logical_and(indx_ok,  x_out_down[:,indx]>= downselect_dict[name][0] )
     print('   Increment downselect : {} {} '.format(name, np.sum(indx_ok) ))
+# Vectorized form of the late spin test: when a mass pair assigned before chieff_aligned fixes the
+# masses, the written s1z, s2z follow from X_native and each P's current spins.  Rows whose mass
+# assignment the loop below skips, other coordinate sets, and other names keep the per-point test.
+late_rows = np.ones(len(X_native), dtype=bool)
+names_late_rows_only = []
+names_vec = [p for p in names_downselect_late
+             if p in ['chi1', 'chi2', 's1z', 's2z'] or (p == 'xi' and lalsimutils.spin_convention == 'L')]
+others = [p for p in coord_names if p != 'chieff_aligned']
+pair = [p for p in others if p in ['mc', 'delta_mc', 'eta', 'm1', 'm2']]
+if names_vec and not opts.eccentric_phase_coordinates and not opts.internal_scalar_spin_downselect and \
+        set(pair) in [{'mc', 'delta_mc'}, {'mc', 'eta'}, {'m1', 'm2'}] and \
+        max(coord_names.index(p) for p in pair) < coord_names.index('chieff_aligned') and \
+        set(others) - set(pair) <= {'lambda1', 'lambda2', 'LambdaTilde', 'DeltaLambdaTilde', 'eccentricity', 'a6c', 'E0', 'p_phi0', 'dist'}:
+    m12 = lalsimutils.convert_waveform_coordinates(X_native[:, [coord_names.index(p) for p in pair]],
+                                                   coord_names=['m1', 'm2'], low_level_coord_names=pair)
+    spins = np.array([[p.s1x, p.s1y, p.s1z, p.s2x, p.s2y, p.s2z] for p in P_list]).reshape(-1, 6)
+    spins[:, 2], spins[:, 5] = lalsimutils.chieff_aligned_spins(m12[:, 0], m12[:, 1], spins[:, 2], spins[:, 5],
+                                                                X_native[:, coord_names.index('chieff_aligned')])
+    x_spin = lalsimutils.convert_waveform_coordinates(np.c_[m12, spins], coord_names=names_vec,
+                                                      low_level_coord_names=['m1', 'm2', 's1x', 's1y', 's1z', 's2x', 's2y', 's2z'])
+    if 'delta_mc' in pair:
+        dmc = X_native[:, coord_names.index('delta_mc')]
+        late_rows = (dmc < 0) | (dmc > 1)
+    elif 'eta' in pair:
+        eta = X_native[:, coord_names.index('eta')]
+        late_rows = (eta < 1e-5) | (eta > 0.25)
+    else:
+        late_rows = np.zeros(len(X_native), dtype=bool)
+    for indx, name in enumerate(names_vec):
+        val = x_spin[:, indx]
+        indx_ok &= late_rows | ((val >= downselect_dict[name][0]) & (val <= downselect_dict[name][1]))
+        print('   Increment downselect : {} {} '.format(name, np.sum(indx_ok)))
+    names_downselect_late = [p for p in names_downselect_late if p not in names_vec]
+    names_late_rows_only = names_vec
 print(" Range downselect : ", np.sum(indx_ok), len(indx_ok))
 X_out = X_out[indx_ok]
+X_native = X_native[indx_ok]
+late_rows = late_rows[indx_ok]
 P_list = list(itertools.compress(P_list, indx_ok))  # https://stackoverflow.com/questions/18665873/filtering-a-list-based-on-a-list-of-booleans
 
 # Discard points which are 'close' to the original data set
 #   - there are MUCH faster codes eg in scipy which should do this
 if opts.force_away > 0:
     icov= np.linalg.pinv(cov_orig)
-    Y = np.min(scipy.spatial.distance.cdist(X,X_out, metric='mahalanobis',VI=icov),axis=0)
+    if opts.eccentric_phase_coordinates:
+        Y = eccentric_phase_puff.minimum_periodic_distances(X,X_out,icov,phase_column)
+    else:
+        Y = np.min(scipy.spatial.distance.cdist(X,X_out, metric='mahalanobis',VI=icov),axis=0)
     Y_id = Y > opts.force_away
     print(" Puffball distance rejection size change " , np.sum(Y_id), len(Y_id))
     X_out = X_out[Y_id]
+    X_native = X_native[Y_id]
+    late_rows = late_rows[Y_id]
     P_list = list(itertools.compress(P_list, Y_id))  # https://stackoverflow.com/questions/18665873/filtering-a-list-based-on-a-list-of-booleans
 
 
@@ -290,10 +495,10 @@ for indx_P in np.arange(len(P_list)):
         if coord_names[indx] in ['mc','m1','m2','mtot']:
             fac = lal.MSUN_SI
         if coord_names[indx] in lalsimutils.periodic_params:
-            X_out[indx_P,indx] = np.mod(X_out[indx_P,indx], lalsimutils.periodic_params[coord_names[indx]])
-        P_list[indx_P].assign_param( coord_names[indx], X_out[indx_P,indx]*fac)
+            X_native[indx_P,indx] = np.mod(X_native[indx_P,indx], lalsimutils.periodic_params[coord_names[indx]])
+        P_list[indx_P].assign_param( coord_names[indx], X_native[indx_P,indx]*fac)
 
-    if np.isnan(P.m1) or np.isnan(P.m2):  # don't allow nan mass
+    if not np.all(np.isfinite([P.m1, P.m2, P.s1x, P.s1y, P.s1z, P.s2x, P.s2y, P.s2z])):  # don't allow nan mass or spin
         continue
 
     if not(opts.enforce_duration_bound is None):
@@ -302,6 +507,10 @@ for indx_P in np.arange(len(P_list)):
     # Apply unit spin magnitude constraint, which can ONLY be applied with the P_list construction, which has all spin information
     if P_list[indx_P].extract_param('chi1')>1 or P_list[indx_P].extract_param('chi2')>1:
         include_item =False
+    for param in names_downselect_late + (names_late_rows_only if late_rows[indx_P] else []):
+        val = P.extract_param(param)
+        if not (downselect_dict[param][0] <= val <= downselect_dict[param][1]):
+            include_item = False
     # for param in downselect_dict:
     #     val = P.extract_param(param)
     #     if np.isnan(val):
@@ -311,6 +520,39 @@ for indx_P in np.arange(len(P_list)):
     #         val = val/ lal.MSUN_SI
     #     if val < downselect_dict[param][0] or val > downselect_dict[param][1]:
     #         include_item =False
+    if opts.force_scatter:
+        if include_item==False:
+            # no need to evaluate if the point is already downselected out
+            pass
+        else:
+            # removes non-scatter points from the hyperbolic grid
+            hypclass = P.extract_param('hypclass')
+            if hypclass == 'scatter':
+                include_item = True
+            else:
+                include_item = False
+    if opts.force_plunge:
+        if include_item==False:
+            # no need to evaluate if the point is already downselected out
+            pass
+        else:
+            # removes non-scatter points from the hyperbolic grid
+            hypclass = P.extract_param('hypclass')
+            if hypclass == 'plunge':
+                include_item = True
+            else:
+                include_item = False
+    if opts.force_zoomwhirl:
+        if include_item==False:
+            # no need to evaluate if the point is already downselected out
+            pass
+        else:
+            # removes non-scatter points from the hyperbolic grid
+            hypclass = P.extract_param('hypclass')
+            if hypclass == 'zoomwhirl':
+                include_item = True
+            else:
+                include_item = False
     if include_item:
         P_out.append(P)
 
@@ -332,13 +574,97 @@ if len(opts.random_parameter) >0:
             val = val* lal.MSUN_SI
         P.assign_param(param,val)
 
+# APPEND-mode randomized coverage ("tail-guard").  Placed AFTER all puff/downselect/
+# randomize logic so the appended points are extra rows on top of the normal output.
+if opts.append_with_random_parameter:
+  if len(P_out) < 1:
+    print(" append-with-random: no base points survived the puff; nothing to append")
+  else:
+    _app_params = opts.append_with_random_parameter
+    # spin-magnitude caps: reuse the pipeline's own chi1/chi2 downselect bounds if given
+    _chi1_cap = downselect_dict['chi1'][1] if 'chi1' in downselect_dict else 1.0
+    _chi2_cap = downselect_dict['chi2'][1] if 'chi2' in downselect_dict else 1.0
+    _app_default_range = {'chi1_perp': [0., _chi1_cap], 'chi2_perp': [0., _chi2_cap]}
+    _app_ranges = {}
+    for _indx, _param in enumerate(_app_params):
+        if opts.append_with_random_parameter_range and _indx < len(opts.append_with_random_parameter_range):
+            _app_ranges[_param] = np.array(eval(opts.append_with_random_parameter_range[_indx]))
+        elif _param in _app_default_range:
+            _app_ranges[_param] = np.array(_app_default_range[_param])
+        else:
+            raise Exception(" --append-with-random-parameter {} requires --append-with-random-parameter-range".format(_param))
+    _n_extra = int(np.ceil(opts.append_with_random_fraction * len(P_out)))
+    P_extra = []
+    for _indx_base in np.random.randint(0, len(P_out), size=_n_extra):
+        P = P_out[_indx_base].manual_copy()
+        _ok = True
+        for _param in _app_params:
+            _lo, _hi = _app_ranges[_param]
+            if _param in ['chi1_perp', 'chi2_perp']:
+                # re-draw the transverse magnitude AND azimuth (azimuth is undefined for
+                # aligned points, which dominate contracted grids), capping so the total
+                # spin magnitude respects the chi bound
+                _sz = P.s1z if _param == 'chi1_perp' else P.s2z
+                _cap = _chi1_cap if _param == 'chi1_perp' else _chi2_cap
+                _hi_eff = min(_hi, np.sqrt(max(_cap**2 - _sz**2, 0.)))
+                if _hi_eff <= _lo:
+                    _ok = False; break
+                _R = np.random.uniform(_lo, _hi_eff)
+                _ph = np.random.uniform(0, 2*np.pi)
+                if _param == 'chi1_perp':
+                    P.s1x = _R*np.cos(_ph); P.s1y = _R*np.sin(_ph)
+                else:
+                    P.s2x = _R*np.cos(_ph); P.s2y = _R*np.sin(_ph)
+            else:
+                _val = np.random.uniform(_lo, _hi)
+                if _param in ['mc', 'm1', 'm2', 'mtot']:
+                    _val = _val*lal.MSUN_SI
+                P.assign_param(_param, _val)
+        if not _ok:
+            continue
+        if np.isnan(P.m1) or np.isnan(P.m2):
+            continue
+        if P.extract_param('chi1') > _chi1_cap or P.extract_param('chi2') > _chi2_cap:
+            continue
+        if not(opts.enforce_duration_bound is None):
+            if lalsimutils.estimateWaveformDuration(P) > opts.enforce_duration_bound:
+                continue
+        P_extra.append(P)
+    print(" append-with-random: appended {} randomized points ({} requested) in {}".format(len(P_extra), _n_extra, _app_params))
+    P_out = P_out + P_extra
+    # SHUFFLE the combined rows: downstream consumers may read grids in order and/or
+    # truncate to the first N rows; without a shuffle the appended tail-coverage points
+    # sit at the END and can be silently dropped, defeating the tail-guard.
+    _perm = np.random.permutation(len(P_out))
+    P_out = [P_out[_i] for _i in _perm]
+
 print(" The number of exported points is ", len(P_out))
+if opts.eccentric_phase_coordinates:
+    with open(opts.inj_file_out+'_eccentric_phase.json','w') as f:
+        json.dump(dict(coordinate='effective_eccentric_phase',
+            reference_frequency=opts.eccentric_phase_reference_frequency,
+            target_frequency=opts.eccentric_phase_target_frequency,
+            **eccentric_phase_models.worker_options(opts),
+            circular_chart_center=phase_center,exported_points=len(P_out),
+            original_waveform_parameters=['eccentricity','meanPerAno'],
+            prior_change=False),f,indent=2)
 
 if opts.fail_if_empty and len(P_out)<1:
     raise Exception(" Puff file will be empty ! Fail  without output ! You probably have settings which lead to either (a) a singular puff matrix (eg., duplicated coordinates or unused variables) or (b) your puff is far too large")
 
 # Export
-lalsimutils.ChooseWaveformParams_array_to_xml(P_out,fname=opts.inj_file_out,fref=P.fref)
+# Hyperpipeline ASCII output mirrors the input schema (so puff is a
+# format-preserving operation: perturb rows, keep columns).  When the
+# input was XML but the env var is set, we still emit hyperpipeline using
+# the default 10-column schema.
+if _hpip_in or _hpio.is_active():
+    _cols_out = _hpip_in_columns if _hpip_in_columns is not None \
+        else _hpio.build_column_list()
+    _hpio.write_grid_from_P_list(opts.inj_file_out, P_out, _cols_out,
+                                 lal_module=lal,
+                                 lalsimutils_module=lalsimutils)
+else:
+    lalsimutils.ChooseWaveformParams_array_to_xml(P_out,fname=opts.inj_file_out,fref=P.fref)
 
     
 
