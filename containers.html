@@ -423,9 +423,10 @@ the fallback image and the <code class="docutils literal notranslate"><span clas
 attribute names, the <code class="docutils literal notranslate"><span class="pre">require_gpus</span></code> floor (matching a compatible GPU and
 excluding an incompatible one), the <code class="docutils literal notranslate"><span class="pre">$$()</span></code> match-time image selection, and
 tolerance of the empty-result case for a manifest that mixes CVMFS and
-<code class="docutils literal notranslate"><span class="pre">osdf</span></code> entries.  The remaining item for a first real OSG run is that the
-pilot evaluates the expression-valued <code class="docutils literal notranslate"><span class="pre">MY.SingularityImage</span></code> and honors a
-relative <code class="docutils literal notranslate"><span class="pre">./name.sif</span></code> produced by it.</p>
+<code class="docutils literal notranslate"><span class="pre">osdf</span></code> entries.  The container-universe mode is additionally verified end to
+end on an OSPool glidein (image selected, fetched and entered; job exit 0).  The
+expression-valued <code class="docutils literal notranslate"><span class="pre">MY.SingularityImage</span></code> is <em>not</em> OSPool-safe (see
+<a class="reference internal" href="#osg-container-modes"><span class="std std-ref">Choosing a delivery mode (legacy vs container universe)</span></a>); use <code class="docutils literal notranslate"><span class="pre">RIFT_CONTAINER_UNIVERSE=1</span></code> there.</p>
 </div>
 </section>
 <section id="building-a-container-family">
