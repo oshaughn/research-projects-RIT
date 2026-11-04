@@ -1107,10 +1107,11 @@ def eta_prior(x,norm_factor=1.44):
 def delta_mc_prior(x,norm_factor=1.44):
     """
     delta_mc = sqrt(1-4eta)  <-> eta = 1/4(1-delta^2)
-    Transform the prior above
+    Transform the prior above: |d eta/d delta| = delta/2, and the 1/sqrt(1-4eta) = 1/delta
+    of eta_prior cancels the delta, leaving eta^(-6/5)/(2 norm_factor)
     """
     eta_here = 0.25*(1 -x*x)
-    return 2./np.power(eta_here, 6./5.)/norm_factor
+    return 0.5/np.power(eta_here, 6./5.)/norm_factor
 
 def m_prior(x):
     return 1/(1e3-1.)  # uniform in mass, use a square.  Should always be used as m1,m2 in pairs. Note this does NOT restrict m1>m2.
