@@ -1,0 +1,5 @@
+# The pinned Rimsky 0.1.0rc1 / 2621d15 settings module imports FrameSink
+# from sgnligo.sinks.frame_sink. sgn-ligo 0.9 no longer provides that import.
+# 0.8.0 is the last version qualified by the Rimsky-to-RIFT integration gate.
+# Revisit with a Rimsky upgrade that supports the new SGN API.
+sgn-ligo==0.8.0
