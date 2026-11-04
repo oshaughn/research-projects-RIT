@@ -258,7 +258,7 @@ optp.add_option("-L", "--save-deltalnL", type=float, default=float("Inf"), help=
 optp.add_option("-P", "--save-P", type=float,default=0.1, help="Threshold on cumulative probability for points preserved in output file.  Requires --output-file to be defined")
 optp.add_option("--e-freq", type=int,default=1, help="Used specifically for TEOBResumS to define when eccentricity either at periapstron (0), average (1), o\r apastron (2) initial frequency")
 optp.add_option("--internal-hard-fail-on-error",action='store_true',help='If true, fails with exit code 1 if any point is unsuccessful')
-optp.add_option("--internal-soft-fail-on-cuda-error",action='store_true',help='If true, returns with exit code 0 on any CUDA error. Use with care (e.g., if many jobs failing)')
+optp.add_option("--internal-soft-fail-on-cuda-error",action='store_true',help='Legacy soft failure for unclassified CUDA errors. Recognized GPU/library/resource failures always abort the worker.')
 optp.add_option("--internal-make-empty-file-on-error",action='store_true',help='If true, failed points generate empty output file. Protects against OSG workflow problems')
 optp.add_option("--internal-waveform-fd-L-frame",action='store_true',help='If true, passes extra_waveform_kwargs = {fd_L_frame=True} to lalsimutils hlmoft. Impacts outputs of ChooseFDWaveform calls only.')
 optp.add_option("--internal-waveform-fd-no-condition",action='store_true',help='If true, adds extra_waveform_kwargs = {no_condition=True} to lalsimutils hlmoft. Impacts outputs of ChooseFDWaveform calls only. Provided to enable controlled tests of conditioning impact on PE')
@@ -2576,6 +2576,10 @@ for indx in numpy.arange(len(P_list)):
       pinned_params.update({"force_no_adapt":True,"save_intg":False, "igrand_threshold_deltalnL":20})  # massively reduce memory usage in logic branch, don't save all. Highly redundant sequence to self-document all related logic branches
  except Exception as exception_failure:
   if isinstance(exception_failure, QTimePregridError):
+    raise
+  if factored_likelihood.time_quad.is_gpu_resource_error(exception_failure):
+    # A broken GPU context must never become a skipped intrinsic point or a
+    # successful empty product, including under legacy soft-failure options.
     raise
   print( "  ===> FAILED ANALYSIS <==== ")
   print( exception_failure)
