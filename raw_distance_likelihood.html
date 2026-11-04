@@ -1,0 +1,267 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="./">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Raw distance likelihood contracts &mdash; RIFT &#34;2022, Richard O&#39;Shaughnessy et al&#34; documentation</title>
+      <link rel="stylesheet" type="text/css" href="_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="_static/css/theme.css?v=9edc463e" />
+      <link rel="stylesheet" type="text/css" href="_static/custom.css?v=82021441" />
+
+  
+      <script src="_static/jquery.js?v=5d32c60e"></script>
+      <script src="_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="_static/documentation_options.js?v=911654a9"></script>
+      <script src="_static/doctools.js?v=9bcbadda"></script>
+      <script src="_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="genindex.html" />
+    <link rel="search" title="Search" href="search.html" />
+    <link rel="next" title="RIFT pipeline examples: the ini file" href="examples-ini.html" />
+    <link rel="prev" title="Posterior compression" href="posterior_compression.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="index.html" class="icon icon-home">
+            RIFT
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Contents:</span></p>
+<ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="architecture.html">RIFT Architecture</a></li>
+<li class="toctree-l1"><a class="reference internal" href="overview.html">RIFT Overview</a></li>
+<li class="toctree-l1"><a class="reference internal" href="installation.html">Installation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="getting-data.html">Getting data for RIFT</a></li>
+<li class="toctree-l1"><a class="reference internal" href="data_formats.html">Data Formats</a></li>
+<li class="toctree-l1"><a class="reference internal" href="using-pipeline.html">Using the pipeline</a></li>
+<li class="toctree-l1"><a class="reference internal" href="posterior_compression.html">Posterior compression</a></li>
+<li class="toctree-l1 current"><a class="current reference internal" href="#">Raw distance likelihood contracts</a></li>
+<li class="toctree-l1"><a class="reference internal" href="examples-ini.html">RIFT pipeline examples: the ini file</a></li>
+<li class="toctree-l1"><a class="reference internal" href="examples-noini.html">RIFT pipeline examples: command-line</a></li>
+<li class="toctree-l1"><a class="reference internal" href="osg.html">Using the OSG</a></li>
+<li class="toctree-l1"><a class="reference internal" href="containers.html">Containers and multi-architecture deployment</a></li>
+<li class="toctree-l1"><a class="reference internal" href="injections.html">Signal Injections</a></li>
+<li class="toctree-l1"><a class="reference internal" href="plotting.html">Plotting with RIFT</a></li>
+<li class="toctree-l1"><a class="reference internal" href="demos.html">Demos</a></li>
+<li class="toctree-l1"><a class="reference internal" href="nr_best_effort.html">Evidence-weighted NR intrinsic and extrinsic posteriors</a></li>
+<li class="toctree-l1"><a class="reference internal" href="hyperpipe.html">HyperPipe</a></li>
+<li class="toctree-l1"><a class="reference internal" href="troubleshooting.html">General Troubleshooting</a></li>
+<li class="toctree-l1"><a class="reference internal" href="api_samples_utils.html">Samples Utilities</a></li>
+<li class="toctree-l1"><a class="reference internal" href="gp_likelihood_export.html">Differentiable GP likelihood export and validation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="cip-distance-slices.html">CIP and distance-slice operator workflow</a></li>
+<li class="toctree-l1"><a class="reference internal" href="executables/index.html">Executables</a></li>
+<li class="toctree-l1"><a class="reference internal" href="physics/index.html">Waveform Generation</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">RIFT API Reference:</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="api_reference/index.html">API Reference</a></li>
+<li class="toctree-l1"><a class="reference internal" href="api_reference/index.html#indices-and-tables">Indices and tables</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="index.html">RIFT</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="index.html" class="icon icon-home" aria-label="Home"></a></li>
+      <li class="breadcrumb-item active">Raw distance likelihood contracts</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="_sources/raw_distance_likelihood.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="raw-distance-likelihood-contracts">
+<h1>Raw distance likelihood contracts<a class="headerlink" href="#raw-distance-likelihood-contracts" title="Link to this heading"></a></h1>
+<p><code class="docutils literal notranslate"><span class="pre">RIFT.compression.distance</span></code> evaluates raw distance exports. It is separate
+from <a class="reference internal" href="posterior_compression.html"><span class="doc">Posterior compression</span></a>, whose reconstructed likelihood has an
+arbitrary event constant. Existing compression executables, INI options and
+pipeline defaults are unchanged. No catalog tail model is enabled by this API.</p>
+<section id="normalization">
+<h2>Normalization<a class="headerlink" href="#normalization" title="Link to this heading"></a></h2>
+<p><code class="docutils literal notranslate"><span class="pre">DistanceLikelihood</span></code> requires schema <code class="docutils literal notranslate"><span class="pre">rift-raw-distance-v1</span></code> and quantity
+<code class="docutils literal notranslate"><span class="pre">raw_log_likelihood</span></code>. Its core predictor must return offset-restored native
+log likelihood, not a posterior density, normalized conditional, or the
+hybrid that preserves an earlier intrinsic marginal. Numerical overflow offsets
+must be restored before fitting. No event or intrinsic-state re-zeroing occurs.</p>
+<p>The contract records:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">features</span></code>: the exported <code class="docutils literal notranslate"><span class="pre">FEATURES</span></code> tuple, in that order;</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">spin_frame</span></code>, <code class="docutils literal notranslate"><span class="pre">reference_frequency_hz</span></code>, <code class="docutils literal notranslate"><span class="pre">spin_caps</span></code> and source provenance;</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">intrinsic_bounds</span></code>: lower and upper eight-coordinate support arrays;</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">distance_support_mpc</span></code> and <code class="docutils literal notranslate"><span class="pre">distance_scale_mpc</span></code>;</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">normalization</span></code>: native measure, provenance, restored-offset declaration,
+and a noise baseline;</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">validation_status</span></code> and optional tail overlap/validation provenance.</p></li>
+</ul>
+<p>The native measure records the effective time grid, window, quadrature and
+nuisance-prior mass. A constant baseline uses <code class="docutils literal notranslate"><span class="pre">kind</span> <span class="pre">=</span> <span class="pre">constant</span></code> and explicit
+<code class="docutils literal notranslate"><span class="pre">raw_zero_signal_log_likelihood</span></code>. A state-dependent baseline uses
+<code class="docutils literal notranslate"><span class="pre">kind</span> <span class="pre">=</span> <span class="pre">state_evaluator</span></code> and <code class="docutils literal notranslate"><span class="pre">evaluator_id</span></code>. Supply its predictor and matching
+identity to the constructor. A missing baseline is an error, never a default
+zero. The ratio is <code class="docutils literal notranslate"><span class="pre">raw_log_likelihood</span> <span class="pre">-</span> <span class="pre">native_zero_signal_log_likelihood</span></code>;
+the raw quantity can carry an unnormalized time-quadrature volume even when
+the noise ratio has a unit zero-signal limit.</p>
+<p><code class="docutils literal notranslate"><span class="pre">save_contract</span></code> and <code class="docutils literal notranslate"><span class="pre">load_contract</span></code> round-trip JSON metadata. Backend model
+serialization remains backend-owned; these functions do not save predictors or
+deserialize executable objects. Load a matching raw core predictor explicitly.
+<code class="docutils literal notranslate"><span class="pre">load_contract</span></code> rejects experimental metadata unless
+<code class="docutils literal notranslate"><span class="pre">allow_experimental=True</span></code>; the constructor does not check the status. The
+status field is a producer declaration, not independent scientific
+certification.</p>
+</section>
+<section id="conditioning-provenance">
+<h2>Conditioning provenance<a class="headerlink" href="#conditioning-provenance" title="Link to this heading"></a></h2>
+<p>For physical exports, <code class="docutils literal notranslate"><span class="pre">source_provenance</span></code> must bind the native implementation
+name, version and source identity. Record conditioning separately for each
+detector: the raw PSD table hash and frequency band, data-window and PSD-window
+definitions, sample counts, and their evaluated mean-square factors. Record the
+formula and numerical factor that convert the raw table into the effective PSD
+used by the likelihood. Include runtime overrides, their evidence, and any
+unverified assumptions. Equal raw PSD hashes do not establish equal weighting.</p>
+<p>For example, <code class="docutils literal notranslate"><span class="pre">S_effective</span> <span class="pre">=</span> <span class="pre">S_raw</span> <span class="pre">*</span> <span class="pre">mean(w_data**2)</span></code> differs from
+<code class="docutils literal notranslate"><span class="pre">S_effective</span> <span class="pre">=</span> <span class="pre">S_raw</span></code>. A producer that uses the ratio of data-window and
+PSD-window powers must record both factors. Window shape parameters alone omit
+finite-length and implementation differences. Resolve these quantities from
+the event’s deployed implementation and runtime; no package-version default is
+chosen by this evaluator.</p>
+<p>Keep this record in <code class="docutils literal notranslate"><span class="pre">source_provenance[&quot;conditioning&quot;]</span></code> so contract persistence
+and prepared snapshots retain it with the model. The validator requires source
+provenance but does not audit this record or certify native-likelihood parity.
+Raw/noise normalization controls test accounting separately from conditioning.
+A constant time-prior normalization cancels in normalized PE; preserve its
+measure when exporting absolute raw likelihoods.</p>
+</section>
+<section id="evaluation-and-caching">
+<h2>Evaluation and caching<a class="headerlink" href="#evaluation-and-caching" title="Link to this heading"></a></h2>
+<p>The intrinsic chart is natural log detector-frame chirp mass in solar masses,
+<code class="docutils literal notranslate"><span class="pre">delta</span> <span class="pre">=</span> <span class="pre">(m1-m2)/(m1+m2)</span></code>, followed by all six Cartesian component spins.
+Component ordering is <code class="docutils literal notranslate"><span class="pre">m1</span> <span class="pre">&gt;=</span> <span class="pre">m2</span></code>. Spins retain the declared frame and reference
+frequency. The core’s ninth feature is <code class="docutils literal notranslate"><span class="pre">distance_scale_mpc</span> <span class="pre">/</span> <span class="pre">dL_Mpc</span></code>.</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">RIFT.compression.distance</span><span class="w"> </span><span class="kn">import</span> <span class="n">DistanceLikelihood</span><span class="p">,</span> <span class="n">intrinsic_coordinates</span>
+
+<span class="c1"># contract.json and raw_core belong to the same validated export/backend.</span>
+<span class="n">fit</span> <span class="o">=</span> <span class="n">DistanceLikelihood</span><span class="o">.</span><span class="n">load_contract</span><span class="p">(</span><span class="s2">"contract.json"</span><span class="p">,</span> <span class="n">raw_core</span><span class="p">,</span>
+                                      <span class="n">allow_experimental</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<span class="n">x</span> <span class="o">=</span> <span class="n">intrinsic_coordinates</span><span class="p">(</span><span class="n">m1_detector</span><span class="p">,</span> <span class="n">m2_detector</span><span class="p">,</span> <span class="n">cartesian_spins</span><span class="p">,</span>
+                          <span class="n">mass_frame</span><span class="o">=</span><span class="s2">"detector"</span><span class="p">)</span>
+<span class="n">prepared</span> <span class="o">=</span> <span class="n">fit</span><span class="o">.</span><span class="n">prepare</span><span class="p">(</span><span class="n">x</span><span class="p">)</span>
+<span class="n">raw</span> <span class="o">=</span> <span class="n">prepared</span><span class="o">.</span><span class="n">raw_log_likelihood</span><span class="p">(</span><span class="n">distance_nodes_mpc</span><span class="p">)</span>
+<span class="n">ratio</span> <span class="o">=</span> <span class="n">prepared</span><span class="o">.</span><span class="n">log_noise_ratio</span><span class="p">(</span><span class="n">distance_nodes_mpc</span><span class="p">)</span>
+</pre></div>
+</div>
+<p>Outputs are <code class="docutils literal notranslate"><span class="pre">(N,K)</span></code> for <code class="docutils literal notranslate"><span class="pre">N</span></code> intrinsic states and a shared <code class="docutils literal notranslate"><span class="pre">(K,)</span></code> distance
+grid. Per-state <code class="docutils literal notranslate"><span class="pre">(N,K)</span></code> grids are also supported. A 1-D input is always a
+shared grid, even when <code class="docutils literal notranslate"><span class="pre">K</span> <span class="pre">=</span> <span class="pre">N</span></code>; pass one distance per state as <code class="docutils literal notranslate"><span class="pre">(N,1)</span></code>.
+Scalars represent one
+distance node. Queries outside declared support are rejected. The separate
+<code class="docutils literal notranslate"><span class="pre">raw_zero_signal_log_likelihood()</span></code> returns the recorded baseline without
+extending accepted finite-distance support to infinity.</p>
+<p>RF-only evaluation is the default. To enable a candidate tail, provide a
+predictor returning <code class="docutils literal notranslate"><span class="pre">(N,degree)</span></code> coefficient arrays and pass
+<code class="docutils literal notranslate"><span class="pre">enable_tail=True</span></code>. A prepared batch predicts coefficients once per unique
+intrinsic state, including nonadjacent duplicates, and reuses them across
+distance calls. Preparation snapshots metadata and captures its core predictor.
+Do not refit predictors in place while prepared batches remain in use; create
+new predictor objects and prepare new batches for a changed fit.
+The tail is the recorded baseline plus a zero-intercept
+polynomial in inverse distance. Its required <code class="docutils literal notranslate"><span class="pre">tail.distance_scale_mpc</span></code> binds
+the coefficient basis independently of the core’s distance feature scale.
+<code class="docutils literal notranslate"><span class="pre">tail.degree</span></code> declares the coefficient count, ordered from power one upward.
+Coefficients fitted in <code class="docutils literal notranslate"><span class="pre">anchor_mpc</span> <span class="pre">/</span> <span class="pre">dL</span></code> use that anchor as their tail scale;
+they must not be interpreted in a different inverse-distance basis.
+Its overlap must be explicit and inside
+accepted support; smoothstep blends raw log likelihood over that interval.
+No pilot overlap or cosmology is a framework default.</p>
+</section>
+<section id="source-masses-and-prior-integration">
+<h2>Source masses and prior integration<a class="headerlink" href="#source-masses-and-prior-integration" title="Link to this heading"></a></h2>
+<p><code class="docutils literal notranslate"><span class="pre">intrinsic_coordinates(...,</span> <span class="pre">mass_frame=&quot;source&quot;,</span> <span class="pre">redshift=z)</span></code> converts source
+masses using explicit redshifts. Obtain these from the analysis cosmology,
+including an inherited compression <code class="docutils literal notranslate"><span class="pre">CosmologyContext</span></code> where appropriate.
+Scalar likelihood transformations add no density Jacobian. Integration weights
+must include the population/reference measure and the appropriate Jacobian.</p>
+<p>A prepared state fixes detector-frame intrinsic coordinates. At fixed source
+masses, varying distance changes detector-frame masses: prepare those changed
+states instead of reusing one detector-frame cache. No hidden-spin reduction
+occurs. A reduced population likelihood must integrate the declared conditional
+nuisance prior and its proposal quotient; that operation is separate from
+distance evaluation.</p>
+<p>For reference distance prior <code class="docutils literal notranslate"><span class="pre">pi_ref</span></code>, a conditional density is proportional
+to <code class="docutils literal notranslate"><span class="pre">exp(raw)</span> <span class="pre">*</span> <span class="pre">pi_ref</span></code> with its distance integral divided out. Its density
+measure and bounds must be explicit. Combining that conditional with an older
+intrinsic shape preserves the older amplitude convention; neither quantity is
+the raw likelihood or its noise ratio.</p>
+</section>
+<section id="validation-scope">
+<h2>Validation scope<a class="headerlink" href="#validation-scope" title="Link to this heading"></a></h2>
+<p>Known-polynomial tests cover baseline subtraction, the smoothstep overlap,
+coefficient reuse, metadata round-trip, source-mass conversion, and the
+metadata, support and shape guards. They do not validate finite-distance strain
+likelihoods or a learned tail.
+Grouped held-out intrinsic states, blind likelihood checks, overlap accuracy,
+backend round-trip and converged population integrals remain required before
+adopting a new fitted representation. Keep the RF fallback available.</p>
+</section>
+</section>
+
+
+           </div>
+          </div>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="posterior_compression.html" class="btn btn-neutral float-left" title="Posterior compression" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="examples-ini.html" class="btn btn-neutral float-right" title="RIFT pipeline examples: the ini file" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2022, K Wagner.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

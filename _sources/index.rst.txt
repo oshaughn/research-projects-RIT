@@ -18,6 +18,8 @@ Rapid inference via Iterative FiTting: this algorithm provides a framework for e
    getting-data
    data_formats
    using-pipeline
+   posterior_compression
+   raw_distance_likelihood
    examples-ini
    examples-noini
    osg
@@ -25,6 +27,7 @@ Rapid inference via Iterative FiTting: this algorithm provides a framework for e
    injections
    plotting
    demos
+   nr_best_effort
    hyperpipe
    troubleshooting
    api_samples_utils

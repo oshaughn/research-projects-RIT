@@ -51,6 +51,8 @@
 <li class="toctree-l1"><a class="reference internal" href="../getting-data.html">Getting data for RIFT</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../data_formats.html">Data Formats</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../using-pipeline.html">Using the pipeline</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../posterior_compression.html">Posterior compression</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../raw_distance_likelihood.html">Raw distance likelihood contracts</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../examples-ini.html">RIFT pipeline examples: the ini file</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../examples-noini.html">RIFT pipeline examples: command-line</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../osg.html">Using the OSG</a></li>
@@ -58,6 +60,7 @@
 <li class="toctree-l1"><a class="reference internal" href="../injections.html">Signal Injections</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../plotting.html">Plotting with RIFT</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../demos.html">Demos</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../nr_best_effort.html">Evidence-weighted NR intrinsic and extrinsic posteriors</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../hyperpipe.html">HyperPipe</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../troubleshooting.html">General Troubleshooting</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../api_samples_utils.html">Samples Utilities</a></li>
@@ -207,6 +210,92 @@
 <section id="output-details">
 <h2>Output Details<a class="headerlink" href="#output-details" title="Link to this heading"></a></h2>
 <p>The tool prints the updated covariance matrix and the final count of exported points. The output is a standard <cite>ligolw</cite> XML file containing the “puffed” parameter set.</p>
+</section>
+<section id="opt-in-to-mu-coordinates-and-random-transverse-discovery">
+<h2>Opt in to mu coordinates and random transverse discovery<a class="headerlink" href="#opt-in-to-mu-coordinates-and-random-transverse-discovery" title="Link to this heading"></a></h2>
+<p>For an initially aligned precessing-BBH grid, use a covariance puff in
+<code class="docutils literal notranslate"><span class="pre">mu1,</span> <span class="pre">mu2,</span> <span class="pre">q=m2/m1,</span> <span class="pre">s2z</span></code> and an independent <strong>random redraw</strong> of both
+transverse spins. Transverse coordinates are never included in the fitted
+covariance: an aligned seed grid has no transverse variance. This mode does
+not use the legacy singular-covariance fallback. Genuine zero directions in
+the four-dimensional covariance remain zero.</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>util_ParameterPuffball.py<span class="w"> </span>--inj-file<span class="w"> </span>selected-grid.xml.gz<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--inj-file-out<span class="w"> </span>puff-mu<span class="w"> </span>--puff-coordinate-system<span class="w"> </span>mu-random-transverse<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--puff-factor<span class="w"> </span><span class="m">1</span><span class="w"> </span>--mu-puff-n-proposals<span class="w"> </span><span class="m">1000</span><span class="w"> </span>--random-seed<span class="w"> </span><span class="m">448</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--downselect-parameter<span class="w"> </span>chi1<span class="w"> </span>--downselect-parameter-range<span class="w"> </span><span class="s1">'[0,0.99]'</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--downselect-parameter<span class="w"> </span>chi2<span class="w"> </span>--downselect-parameter-range<span class="w"> </span><span class="s1">'[0,0.99]'</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--fail-if-empty
+</pre></div>
+</div>
+<p>Omit <code class="docutils literal notranslate"><span class="pre">--parameter</span></code>: this mode uses a fixed chart. Input seeds should already
+be selected using likelihood results; this executable does not rank them.
+The default budget makes one attempt per input seed, preserving seed-branch
+coverage. An explicit proposal count instead selects parents uniformly.
+Each attempt perturbs the joint mass/aligned coordinates by <code class="docutils literal notranslate"><span class="pre">--puff-factor</span></code>
+times their measured covariance factor. An atomic vectorized inverse reconstructs both masses and aligned
+spins together. The inverse uses the existing mu coordinate convention
+(<code class="docutils literal notranslate"><span class="pre">tools.fref=200</span> <span class="pre">Hz</span></code>), independently of waveform <code class="docutils literal notranslate"><span class="pre">--fref</span></code>.</p>
+<p>For each body the transverse radius is uniform between zero and
+<code class="docutils literal notranslate"><span class="pre">min(mu_puff_transverse_max,</span> <span class="pre">sqrt(1-siz**2))</span></code>; azimuth is uniform on
+<code class="docutils literal notranslate"><span class="pre">[0,2*pi)</span></code>. Both spins are redrawn independently, even when
+<code class="docutils literal notranslate"><span class="pre">--puff-factor</span> <span class="pre">0</span></code> leaves the mass/aligned coordinates fixed. The optional
+<code class="docutils literal notranslate"><span class="pre">--mu-puff-transverse-max</span></code> defaults to 1. This is an exploration distribution,
+not an isotropic-spin prior, and not an additive Gaussian transverse puff.</p>
+<p><code class="docutils literal notranslate"><span class="pre">--mu-puff-n-proposals</span></code> is an attempted budget, defaulting to the input row
+count. Invalid inverses and failed native downselections are discarded without
+retries or clipping. Other waveform fields are copied from the selected parent.
+Both XML and hyperpipeline ASCII grids are supported; ASCII columns are
+preserved. A <code class="docutils literal notranslate"><span class="pre">&lt;output&gt;_mu_puff.json</span></code> sidecar records the attempted, inverse-
+accepted and exported counts, random seed and proposal settings.</p>
+<p>The prototype supports native mass/spin downselection, frequency overrides and
+duration bounds. It refuses legacy <code class="docutils literal notranslate"><span class="pre">--parameter</span></code>, <code class="docutils literal notranslate"><span class="pre">--reflect-parameter</span></code>,
+<code class="docutils literal notranslate"><span class="pre">--no-correlation</span></code>, <code class="docutils literal notranslate"><span class="pre">--force-away</span></code>, random/append overrides, effective
+eccentric-phase puffing and hyperbolic force modes instead of ignoring them.
+There is no automatic pipeline behavior change without the opt-in below.</p>
+<section id="select-discovery-by-cip-batch">
+<h3>Select discovery by CIP batch<a class="headerlink" href="#select-discovery-by-cip-batch" title="Link to this heading"></a></h3>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>util_RIFT_pseudo_pipe.py<span class="w"> </span><span class="o">[</span>usual<span class="w"> </span>precessing<span class="w"> </span>BBH<span class="w"> </span>arguments<span class="o">]</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--internal-puff-mu-random-transverse
+</pre></div>
+</div>
+<p>This BasicIteration opt-in enables the existing <code class="docutils literal notranslate"><span class="pre">internal_puff_transverse</span></code>
+procedure and writes <code class="docutils literal notranslate"><span class="pre">args_puff_list.txt</span></code> paired line-for-line with the final
+<code class="docutils literal notranslate"><span class="pre">args_cip_list.txt</span></code>. Only the first finite CIP batch uses mu/random-transverse
+discovery; every later batch uses the existing reflected transverse covariance
+puff. A <code class="docutils literal notranslate"><span class="pre">Z</span></code> refinement subdag inherits its own stage’s ordinary puff settings,
+not the discovery configuration. The first puff follows the first CIP and its
+points are scored by the next iteration’s ILE puff jobs; this does not alter
+the initial grid before iteration-zero ILE.</p>
+<p>The first batch’s count determines the discovery duration. Existing cadence
+and stop settings govern when puff jobs run; the opt-in ensures <code class="docutils literal notranslate"><span class="pre">puff-max-it</span></code>
+covers the first batch. It retains helper bounds, frequency settings, duration
+limits and puff factor. Early discovery omits legacy force-away exclusion:
+mass/aligned proximity does not make a random transverse orientation redundant.
+Later stages retain it. <code class="docutils literal notranslate"><span class="pre">args_puff.txt</span></code> remains the ordinary single-stage
+configuration. With the opt-in absent, the old argument files and job routing
+are unchanged. The initial prototype rejects nonprecessing, matter, eccentric,
+hyperbolic, AMR, Alternate/MultiApprox and transverse-tail-bundle combinations.</p>
+<p>BasicIteration also accepts a manually supplied <code class="docutils literal notranslate"><span class="pre">--puff-args-list</span></code> with the
+same count/<code class="docutils literal notranslate"><span class="pre">G</span></code>/<code class="docutils literal notranslate"><span class="pre">Z</span></code> prefixes and number of lines as <code class="docutils literal notranslate"><span class="pre">--cip-args-list</span></code>:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="mi">2</span> <span class="o">--</span><span class="n">puff</span><span class="o">-</span><span class="n">coordinate</span><span class="o">-</span><span class="n">system</span> <span class="n">mu</span><span class="o">-</span><span class="n">random</span><span class="o">-</span><span class="n">transverse</span> <span class="o">--</span><span class="n">puff</span><span class="o">-</span><span class="n">factor</span> <span class="mi">1</span>
+<span class="mi">3</span> <span class="o">--</span><span class="n">parameter</span> <span class="n">mc</span> <span class="o">--</span><span class="n">parameter</span> <span class="n">delta_mc</span> <span class="o">--</span><span class="n">parameter</span> <span class="n">s1z</span> <span class="o">--</span><span class="n">parameter</span> <span class="n">s2z</span>
+<span class="n">Z</span> <span class="o">--</span><span class="n">parameter</span> <span class="n">mc</span> <span class="o">--</span><span class="n">parameter</span> <span class="n">delta_mc</span> <span class="o">--</span><span class="n">parameter</span> <span class="n">s1z</span> <span class="o">--</span><span class="n">parameter</span> <span class="n">s2z</span>
+</pre></div>
+</div>
+<p>Pass it with <code class="docutils literal notranslate"><span class="pre">--puff-cadence</span></code> and <code class="docutils literal notranslate"><span class="pre">--puff-max-it</span></code>. It is mutually exclusive
+with the legacy <code class="docutils literal notranslate"><span class="pre">--puff-args</span></code>. Stage selection uses the builder’s actual CIP
+batch expansion, including repeated and final-extended stages. A <code class="docutils literal notranslate"><span class="pre">Z</span></code> child
+receives a single ordinary <code class="docutils literal notranslate"><span class="pre">--puff-args</span></code> file for its selected stage.</p>
+</section>
+<section id="qualification">
+<h3>Qualification<a class="headerlink" href="#qualification" title="Link to this heading"></a></h3>
+<p>The vectorized inverse was checked against forward mu coordinates, including
+negative mu1, equal masses, near-Kerr spins and invalid proposals. Earlier
+PP005 retrospective support tests motivated the mu chart; those tests used
+Gaussian transverse floors and do not establish likelihood yield for this
+random-redraw proposal. Re-score candidates with production ILE before using
+them in inference. No posterior or evidence weights come from these coordinates.</p>
+</section>
 </section>
 </section>
 

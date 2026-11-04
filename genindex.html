@@ -48,6 +48,8 @@
 <li class="toctree-l1"><a class="reference internal" href="getting-data.html">Getting data for RIFT</a></li>
 <li class="toctree-l1"><a class="reference internal" href="data_formats.html">Data Formats</a></li>
 <li class="toctree-l1"><a class="reference internal" href="using-pipeline.html">Using the pipeline</a></li>
+<li class="toctree-l1"><a class="reference internal" href="posterior_compression.html">Posterior compression</a></li>
+<li class="toctree-l1"><a class="reference internal" href="raw_distance_likelihood.html">Raw distance likelihood contracts</a></li>
 <li class="toctree-l1"><a class="reference internal" href="examples-ini.html">RIFT pipeline examples: the ini file</a></li>
 <li class="toctree-l1"><a class="reference internal" href="examples-noini.html">RIFT pipeline examples: command-line</a></li>
 <li class="toctree-l1"><a class="reference internal" href="osg.html">Using the OSG</a></li>
@@ -55,6 +57,7 @@
 <li class="toctree-l1"><a class="reference internal" href="injections.html">Signal Injections</a></li>
 <li class="toctree-l1"><a class="reference internal" href="plotting.html">Plotting with RIFT</a></li>
 <li class="toctree-l1"><a class="reference internal" href="demos.html">Demos</a></li>
+<li class="toctree-l1"><a class="reference internal" href="nr_best_effort.html">Evidence-weighted NR intrinsic and extrinsic posteriors</a></li>
 <li class="toctree-l1"><a class="reference internal" href="hyperpipe.html">HyperPipe</a></li>
 <li class="toctree-l1"><a class="reference internal" href="troubleshooting.html">General Troubleshooting</a></li>
 <li class="toctree-l1"><a class="reference internal" href="api_samples_utils.html">Samples Utilities</a></li>
@@ -582,6 +585,8 @@
 </li>
         <li><a href="api_reference/integrators/index.html#RIFT.integrators.unreliable_oracle.FisherGaussianOracle.add_parameter">(RIFT.integrators.unreliable_oracle.FisherGaussianOracle method)</a>
 </li>
+        <li><a href="api_reference/integrators/index.html#RIFT.integrators.unreliable_oracle.LadderClimbingOracle.add_parameter">(RIFT.integrators.unreliable_oracle.LadderClimbingOracle method)</a>
+</li>
         <li><a href="api_reference/integrators/index.html#RIFT.integrators.unreliable_oracle.PuffballOracle.add_parameter">(RIFT.integrators.unreliable_oracle.PuffballOracle method)</a>
 </li>
         <li><a href="api_reference/integrators/index.html#RIFT.integrators.unreliable_oracle.ResamplingOracle.add_parameter">(RIFT.integrators.unreliable_oracle.ResamplingOracle method)</a>
@@ -623,6 +628,8 @@
         <li><a href="api_reference/physics/PrecessingFisherMatrix.html#RIFT.physics.PrecessingFisherMatrix.array_to_symmetric_matrix">(in module RIFT.physics.PrecessingFisherMatrix)</a>
 </li>
       </ul></li>
+      <li><a href="RIFT/likelihood/factored_likelihood.html#RIFT.likelihood.factored_likelihood.AssertCalibrationSelfTermInnerProductSupported">AssertCalibrationSelfTermInnerProductSupported() (in module RIFT.likelihood.factored_likelihood)</a>, <a href="api_reference/likelihood/index.html#RIFT.likelihood.factored_likelihood.AssertCalibrationSelfTermInnerProductSupported">[1]</a>
+</li>
       <li><a href="RIFT/misc/xmlutils.html#RIFT.misc.xmlutils.assign_id">assign_id() (in module RIFT.misc.xmlutils)</a>, <a href="api_reference/misc/index.html#RIFT.misc.xmlutils.assign_id">[1]</a>
 </li>
       <li><a href="api_reference/lalsimutils.html#RIFT.lalsimutils.ChooseWaveformParams.assign_param">assign_param() (RIFT.lalsimutils.ChooseWaveformParams method)</a>
@@ -731,6 +738,8 @@
 </li>
       <li><a href="RIFT/likelihood/factored_likelihood.html#RIFT.likelihood.factored_likelihood.CalibrationSelfTermCrossTermsFromBasis">CalibrationSelfTermCrossTermsFromBasis() (in module RIFT.likelihood.factored_likelihood)</a>, <a href="api_reference/likelihood/index.html#RIFT.likelihood.factored_likelihood.CalibrationSelfTermCrossTermsFromBasis">[1]</a>
 </li>
+      <li><a href="RIFT/likelihood/factored_likelihood.html#RIFT.likelihood.factored_likelihood.CalibrationSelfTermInnerProductSupported">CalibrationSelfTermInnerProductSupported() (in module RIFT.likelihood.factored_likelihood)</a>, <a href="api_reference/likelihood/index.html#RIFT.likelihood.factored_likelihood.CalibrationSelfTermInnerProductSupported">[1]</a>
+</li>
       <li><a href="api_reference/integrators/index.html#RIFT.integrators.mcsampler.MCSampler.cdf_function">cdf_function() (RIFT.integrators.mcsampler.MCSampler method)</a>
 
       <ul>
@@ -767,6 +776,8 @@
 </li>
       <li><a href="RIFT/misc/amrlib.html#RIFT.misc.amrlib.check_tau0tau3">check_tau0tau3() (in module RIFT.misc.amrlib)</a>, <a href="api_reference/misc/index.html#RIFT.misc.amrlib.check_tau0tau3">[1]</a>
 </li>
+      <li><a href="api_reference/lalsimutils.html#RIFT.lalsimutils.chieff_aligned_spins">chieff_aligned_spins() (in module RIFT.lalsimutils)</a>
+</li>
       <li><a href="api_reference/lalsimutils.html#RIFT.lalsimutils.ChooseWaveformParams">ChooseWaveformParams (class in RIFT.lalsimutils)</a>
 </li>
       <li><a href="api_reference/lalsimutils.html#RIFT.lalsimutils.ChooseWaveformParams_array_to_hdf5">ChooseWaveformParams_array_to_hdf5() (in module RIFT.lalsimutils)</a>
@@ -790,6 +801,8 @@
 </li>
       </ul></li>
       <li><a href="api_reference/integrators/index.html#RIFT.integrators.mcsamplerPortfolio.MCSampler.clear_warm_state">clear_warm_state() (RIFT.integrators.mcsamplerPortfolio.MCSampler method)</a>
+</li>
+      <li><a href="api_reference/integrators/index.html#RIFT.integrators.unreliable_oracle.LadderClimbingOracle.climb">climb() (RIFT.integrators.unreliable_oracle.LadderClimbingOracle method)</a>
 </li>
       <li><a href="api_reference/integrators/index.html#RIFT.integrators.unreliable_oracle.ClimbingOracle">ClimbingOracle (class in RIFT.integrators.unreliable_oracle)</a>
 </li>
@@ -817,15 +830,19 @@
 </li>
       <li><a href="api_reference/lalsimutils.html#RIFT.lalsimutils.complex_norm_hoff">complex_norm_hoff() (in module RIFT.lalsimutils)</a>
 </li>
-      <li><a href="RIFT/likelihood/factored_likelihood.html#RIFT.likelihood.factored_likelihood.ComplexAntennaFactor">ComplexAntennaFactor() (in module RIFT.likelihood.factored_likelihood)</a>, <a href="RIFT/likelihood/factored_likelihood.html#id40">[1]</a>, <a href="api_reference/likelihood/index.html#RIFT.likelihood.factored_likelihood.ComplexAntennaFactor">[2]</a>
+      <li><a href="RIFT/likelihood/factored_likelihood.html#RIFT.likelihood.factored_likelihood.ComplexAntennaFactor">ComplexAntennaFactor() (in module RIFT.likelihood.factored_likelihood)</a>, <a href="RIFT/likelihood/factored_likelihood.html#id44">[1]</a>, <a href="api_reference/likelihood/index.html#RIFT.likelihood.factored_likelihood.ComplexAntennaFactor">[2]</a>
 </li>
       <li><a href="api_reference/lalsimutils.html#RIFT.lalsimutils.ComplexIP">ComplexIP (class in RIFT.lalsimutils)</a>
 </li>
       <li><a href="api_reference/lalsimutils.html#RIFT.lalsimutils.ComplexOverlap">ComplexOverlap (class in RIFT.lalsimutils)</a>
 </li>
+      <li><a href="RIFT/likelihood/factored_likelihood.html#RIFT.likelihood.factored_likelihood.TimeIndexedCrossTermsSVD.component_matrices">component_matrices() (RIFT.likelihood.factored_likelihood.TimeIndexedCrossTermsSVD method)</a>, <a href="api_reference/likelihood/index.html#RIFT.likelihood.factored_likelihood.TimeIndexedCrossTermsSVD.component_matrices">[1]</a>
+</li>
+      <li><a href="RIFT/likelihood/factored_likelihood.html#RIFT.likelihood.factored_likelihood.compress_time_indexed_cross_terms">compress_time_indexed_cross_terms() (in module RIFT.likelihood.factored_likelihood)</a>, <a href="api_reference/likelihood/index.html#RIFT.likelihood.factored_likelihood.compress_time_indexed_cross_terms">[1]</a>
+</li>
       <li><a href="api_reference/integrators/index.html#RIFT.integrators.mcsamplerGPU.MCSampler.compute_hist">compute_hist() (RIFT.integrators.mcsamplerGPU.MCSampler method)</a>
 </li>
-      <li><a href="RIFT/likelihood/factored_likelihood.html#RIFT.likelihood.factored_likelihood.ComputeArrivalTimeAtDetector">ComputeArrivalTimeAtDetector() (in module RIFT.likelihood.factored_likelihood)</a>, <a href="RIFT/likelihood/factored_likelihood.html#id42">[1]</a>, <a href="api_reference/likelihood/index.html#RIFT.likelihood.factored_likelihood.ComputeArrivalTimeAtDetector">[2]</a>
+      <li><a href="RIFT/likelihood/factored_likelihood.html#RIFT.likelihood.factored_likelihood.ComputeArrivalTimeAtDetector">ComputeArrivalTimeAtDetector() (in module RIFT.likelihood.factored_likelihood)</a>, <a href="RIFT/likelihood/factored_likelihood.html#id46">[1]</a>, <a href="api_reference/likelihood/index.html#RIFT.likelihood.factored_likelihood.ComputeArrivalTimeAtDetector">[2]</a>
 </li>
       <li><a href="RIFT/likelihood/factored_likelihood.html#RIFT.likelihood.factored_likelihood.ComputeArrivalTimeAtDetectorWithoutShift">ComputeArrivalTimeAtDetectorWithoutShift() (in module RIFT.likelihood.factored_likelihood)</a>, <a href="api_reference/likelihood/index.html#RIFT.likelihood.factored_likelihood.ComputeArrivalTimeAtDetectorWithoutShift">[1]</a>
 </li>
@@ -833,13 +850,13 @@
 </li>
       <li><a href="api_reference/likelihood/index.html#RIFT.likelihood.vectorized_lal_tools.ComputeDetAMResponsePrecomputed">ComputeDetAMResponsePrecomputed() (in module RIFT.likelihood.vectorized_lal_tools)</a>
 </li>
-      <li><a href="RIFT/likelihood/factored_likelihood.html#RIFT.likelihood.factored_likelihood.ComputeModeCrossTermIP">ComputeModeCrossTermIP() (in module RIFT.likelihood.factored_likelihood)</a>, <a href="RIFT/likelihood/factored_likelihood.html#id39">[1]</a>, <a href="api_reference/likelihood/index.html#RIFT.likelihood.factored_likelihood.ComputeModeCrossTermIP">[2]</a>
+      <li><a href="RIFT/likelihood/factored_likelihood.html#RIFT.likelihood.factored_likelihood.ComputeModeCrossTermIP">ComputeModeCrossTermIP() (in module RIFT.likelihood.factored_likelihood)</a>, <a href="RIFT/likelihood/factored_likelihood.html#id43">[1]</a>, <a href="api_reference/likelihood/index.html#RIFT.likelihood.factored_likelihood.ComputeModeCrossTermIP">[2]</a>
 </li>
       <li><a href="RIFT/likelihood/factored_likelihood.html#RIFT.likelihood.factored_likelihood.ComputeModeCrossTermIPCal">ComputeModeCrossTermIPCal() (in module RIFT.likelihood.factored_likelihood)</a>, <a href="api_reference/likelihood/index.html#RIFT.likelihood.factored_likelihood.ComputeModeCrossTermIPCal">[1]</a>
 </li>
-      <li><a href="RIFT/likelihood/factored_likelihood.html#RIFT.likelihood.factored_likelihood.ComputeModeIPTimeSeries">ComputeModeIPTimeSeries() (in module RIFT.likelihood.factored_likelihood)</a>, <a href="RIFT/likelihood/factored_likelihood.html#id37">[1]</a>, <a href="api_reference/likelihood/index.html#RIFT.likelihood.factored_likelihood.ComputeModeIPTimeSeries">[2]</a>
+      <li><a href="RIFT/likelihood/factored_likelihood.html#RIFT.likelihood.factored_likelihood.ComputeModeIPTimeSeries">ComputeModeIPTimeSeries() (in module RIFT.likelihood.factored_likelihood)</a>, <a href="RIFT/likelihood/factored_likelihood.html#id41">[1]</a>, <a href="api_reference/likelihood/index.html#RIFT.likelihood.factored_likelihood.ComputeModeIPTimeSeries">[2]</a>
 </li>
-      <li><a href="RIFT/likelihood/factored_likelihood.html#RIFT.likelihood.factored_likelihood.ComputeYlms">ComputeYlms() (in module RIFT.likelihood.factored_likelihood)</a>, <a href="RIFT/likelihood/factored_likelihood.html#id41">[1]</a>, <a href="api_reference/likelihood/index.html#RIFT.likelihood.factored_likelihood.ComputeYlms">[2]</a>
+      <li><a href="RIFT/likelihood/factored_likelihood.html#RIFT.likelihood.factored_likelihood.ComputeYlms">ComputeYlms() (in module RIFT.likelihood.factored_likelihood)</a>, <a href="RIFT/likelihood/factored_likelihood.html#id45">[1]</a>, <a href="api_reference/likelihood/index.html#RIFT.likelihood.factored_likelihood.ComputeYlms">[2]</a>
 </li>
       <li><a href="RIFT/likelihood/factored_likelihood.html#RIFT.likelihood.factored_likelihood.ComputeYlmsArray">ComputeYlmsArray() (in module RIFT.likelihood.factored_likelihood)</a>, <a href="api_reference/likelihood/index.html#RIFT.likelihood.factored_likelihood.ComputeYlmsArray">[1]</a>
 </li>
@@ -877,14 +894,14 @@
       </ul></li>
       <li><a href="api_reference/physics/EOSManager.html#RIFT.physics.EOSManager.QueryLS_EOS.convert">convert() (RIFT.physics.EOSManager.QueryLS_EOS method)</a>
 </li>
+  </ul></td>
+  <td style="width: 33%; vertical-align: top;"><ul>
       <li><a href="RIFT/misc/modules.html#RIFT.misc.modules.convert_cfg_section_to_cmd_line">convert_cfg_section_to_cmd_line() (in module RIFT.misc.modules)</a>, <a href="api_reference/misc/index.html#RIFT.misc.modules.convert_cfg_section_to_cmd_line">[1]</a>
 </li>
       <li><a href="RIFT/misc/modules.html#RIFT.misc.modules.convert_dict_string_to_dict">convert_dict_string_to_dict() (in module RIFT.misc.modules)</a>, <a href="api_reference/misc/index.html#RIFT.misc.modules.convert_dict_string_to_dict">[1]</a>
 </li>
       <li><a href="RIFT/misc/modules.html#RIFT.misc.modules.convert_dict_to_cmd_line">convert_dict_to_cmd_line() (in module RIFT.misc.modules)</a>, <a href="api_reference/misc/index.html#RIFT.misc.modules.convert_dict_to_cmd_line">[1]</a>
 </li>
-  </ul></td>
-  <td style="width: 33%; vertical-align: top;"><ul>
       <li><a href="RIFT/misc/modules.html#RIFT.misc.modules.convert_injections_txt_to_objects">convert_injections_txt_to_objects() (in module RIFT.misc.modules)</a>, <a href="api_reference/misc/index.html#RIFT.misc.modules.convert_injections_txt_to_objects">[1]</a>
 </li>
       <li><a href="RIFT/misc/modules.html#RIFT.misc.modules.convert_list_string_to_dict">convert_list_string_to_dict() (in module RIFT.misc.modules)</a>, <a href="api_reference/misc/index.html#RIFT.misc.modules.convert_list_string_to_dict">[1]</a>
@@ -1124,10 +1141,10 @@
 </li>
       <li><a href="api_reference/lalsimutils.html#RIFT.lalsimutils.deltalamtilde_of_eta_lam1_lam2">deltalamtilde_of_eta_lam1_lam2() (in module RIFT.lalsimutils)</a>
 </li>
-  </ul></td>
-  <td style="width: 33%; vertical-align: top;"><ul>
       <li><a href="RIFT/misc/amrlib.html#RIFT.misc.amrlib.deserialize_grid_cells">deserialize_grid_cells() (in module RIFT.misc.amrlib)</a>, <a href="api_reference/misc/index.html#RIFT.misc.amrlib.deserialize_grid_cells">[1]</a>
 </li>
+  </ul></td>
+  <td style="width: 33%; vertical-align: top;"><ul>
       <li><a href="api_reference/interpolators/index.html#RIFT.interpolators.jax_gp.applications.export_at_scale.detect_net_layout">detect_net_layout() (in module RIFT.interpolators.jax_gp.applications.export_at_scale)</a>
 </li>
       <li><a href="api_reference/integrators/index.html#RIFT.integrators.mcsamplerAdaptiveVolume.dilate_bins">dilate_bins() (in module RIFT.integrators.mcsamplerAdaptiveVolume)</a>
@@ -1186,6 +1203,8 @@
         <li><a href="api_reference/integrators/index.html#RIFT.integrators.unreliable_oracle.ClimbingOracle.draw_simplified">(RIFT.integrators.unreliable_oracle.ClimbingOracle method)</a>
 </li>
         <li><a href="api_reference/integrators/index.html#RIFT.integrators.unreliable_oracle.FisherGaussianOracle.draw_simplified">(RIFT.integrators.unreliable_oracle.FisherGaussianOracle method)</a>
+</li>
+        <li><a href="api_reference/integrators/index.html#RIFT.integrators.unreliable_oracle.LadderClimbingOracle.draw_simplified">(RIFT.integrators.unreliable_oracle.LadderClimbingOracle method)</a>
 </li>
         <li><a href="api_reference/integrators/index.html#RIFT.integrators.unreliable_oracle.PuffballOracle.draw_simplified">(RIFT.integrators.unreliable_oracle.PuffballOracle method)</a>
 </li>
@@ -1356,9 +1375,9 @@
 <h2 id="F">F</h2>
 <table style="width: 100%" class="indextable genindextable"><tr>
   <td style="width: 33%; vertical-align: top;"><ul>
-      <li><a href="RIFT/likelihood/factored_likelihood.html#RIFT.likelihood.factored_likelihood.FactoredLogLikelihood">FactoredLogLikelihood() (in module RIFT.likelihood.factored_likelihood)</a>, <a href="RIFT/likelihood/factored_likelihood.html#id35">[1]</a>, <a href="api_reference/likelihood/index.html#RIFT.likelihood.factored_likelihood.FactoredLogLikelihood">[2]</a>
+      <li><a href="RIFT/likelihood/factored_likelihood.html#RIFT.likelihood.factored_likelihood.FactoredLogLikelihood">FactoredLogLikelihood() (in module RIFT.likelihood.factored_likelihood)</a>, <a href="RIFT/likelihood/factored_likelihood.html#id39">[1]</a>, <a href="api_reference/likelihood/index.html#RIFT.likelihood.factored_likelihood.FactoredLogLikelihood">[2]</a>
 </li>
-      <li><a href="RIFT/likelihood/factored_likelihood.html#RIFT.likelihood.factored_likelihood.FactoredLogLikelihoodTimeMarginalized">FactoredLogLikelihoodTimeMarginalized() (in module RIFT.likelihood.factored_likelihood)</a>, <a href="RIFT/likelihood/factored_likelihood.html#id36">[1]</a>, <a href="api_reference/likelihood/index.html#RIFT.likelihood.factored_likelihood.FactoredLogLikelihoodTimeMarginalized">[2]</a>
+      <li><a href="RIFT/likelihood/factored_likelihood.html#RIFT.likelihood.factored_likelihood.FactoredLogLikelihoodTimeMarginalized">FactoredLogLikelihoodTimeMarginalized() (in module RIFT.likelihood.factored_likelihood)</a>, <a href="RIFT/likelihood/factored_likelihood.html#id40">[1]</a>, <a href="api_reference/likelihood/index.html#RIFT.likelihood.factored_likelihood.FactoredLogLikelihoodTimeMarginalized">[2]</a>
 </li>
       <li><a href="RIFT/likelihood/factored_likelihood.html#RIFT.likelihood.factored_likelihood.FactoredLogLikelihoodViaArray">FactoredLogLikelihoodViaArray() (in module RIFT.likelihood.factored_likelihood)</a>, <a href="api_reference/likelihood/index.html#RIFT.likelihood.factored_likelihood.FactoredLogLikelihoodViaArray">[1]</a>
 </li>
@@ -1739,7 +1758,7 @@
 </li>
       <li><a href="RIFT/likelihood/factored_likelihood.html#RIFT.likelihood.factored_likelihood.InterpolateRholm">InterpolateRholm() (in module RIFT.likelihood.factored_likelihood)</a>, <a href="api_reference/likelihood/index.html#RIFT.likelihood.factored_likelihood.InterpolateRholm">[1]</a>
 </li>
-      <li><a href="RIFT/likelihood/factored_likelihood.html#RIFT.likelihood.factored_likelihood.InterpolateRholms">InterpolateRholms() (in module RIFT.likelihood.factored_likelihood)</a>, <a href="RIFT/likelihood/factored_likelihood.html#id38">[1]</a>, <a href="api_reference/likelihood/index.html#RIFT.likelihood.factored_likelihood.InterpolateRholms">[2]</a>
+      <li><a href="RIFT/likelihood/factored_likelihood.html#RIFT.likelihood.factored_likelihood.InterpolateRholms">InterpolateRholms() (in module RIFT.likelihood.factored_likelihood)</a>, <a href="RIFT/likelihood/factored_likelihood.html#id42">[1]</a>, <a href="api_reference/likelihood/index.html#RIFT.likelihood.factored_likelihood.InterpolateRholms">[2]</a>
 </li>
       <li><a href="RIFT/misc/amrlib.html#RIFT.misc.amrlib.Cell.intersects">intersects() (RIFT.misc.amrlib.Cell method)</a>, <a href="api_reference/misc/index.html#RIFT.misc.amrlib.Cell.intersects">[1]</a>
 </li>
@@ -1833,6 +1852,8 @@
 <h2 id="L">L</h2>
 <table style="width: 100%" class="indextable genindextable"><tr>
   <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="api_reference/integrators/index.html#RIFT.integrators.unreliable_oracle.LadderClimbingOracle">LadderClimbingOracle (class in RIFT.integrators.unreliable_oracle)</a>
+</li>
       <li><a href="RIFT/likelihood/factored_likelihood.html#RIFT.likelihood.factored_likelihood.lalF">lalF() (in module RIFT.likelihood.factored_likelihood)</a>, <a href="api_reference/likelihood/index.html#RIFT.likelihood.factored_likelihood.lalF">[1]</a>
 </li>
       <li><a href="RIFT/likelihood/factored_likelihood.html#RIFT.likelihood.factored_likelihood.lalT">lalT() (in module RIFT.likelihood.factored_likelihood)</a>, <a href="api_reference/likelihood/index.html#RIFT.likelihood.factored_likelihood.lalT">[1]</a>
@@ -2258,7 +2279,11 @@
   <td style="width: 33%; vertical-align: top;"><ul>
       <li><a href="api_reference/integrators/index.html#RIFT.integrators.mcsampler.NanOrInf">NanOrInf</a>, <a href="api_reference/integrators/index.html#RIFT.integrators.mcsamplerAdaptiveVolume.NanOrInf">[1]</a>, <a href="api_reference/integrators/index.html#RIFT.integrators.mcsamplerEnsemble.NanOrInf">[2]</a>, <a href="api_reference/integrators/index.html#RIFT.integrators.mcsamplerGPU.NanOrInf">[3]</a>, <a href="api_reference/integrators/index.html#RIFT.integrators.mcsamplerPortfolio.NanOrInf">[4]</a>
 </li>
+      <li><a href="RIFT/likelihood/factored_likelihood.html#RIFT.likelihood.factored_likelihood.TimeIndexedCrossTermsSVD.ndim">ndim (RIFT.likelihood.factored_likelihood.TimeIndexedCrossTermsSVD property)</a>, <a href="api_reference/likelihood/index.html#RIFT.likelihood.factored_likelihood.TimeIndexedCrossTermsSVD.ndim">[1]</a>
+</li>
       <li><a href="RIFT/misc/amrlib.html#RIFT.misc.amrlib.ndim_offsets">ndim_offsets() (in module RIFT.misc.amrlib)</a>, <a href="api_reference/misc/index.html#RIFT.misc.amrlib.ndim_offsets">[1]</a>
+</li>
+      <li><a href="api_reference/integrators/index.html#RIFT.integrators.unreliable_oracle.LadderClimbingOracle.near_peak">near_peak() (RIFT.integrators.unreliable_oracle.LadderClimbingOracle method)</a>
 </li>
       <li><a href="api_reference/simulation_manager/database.html#RIFT.simulation_manager.database.StatusRecord.needs_more_work">needs_more_work() (RIFT.simulation_manager.database.StatusRecord method)</a>
 </li>
@@ -2411,6 +2436,8 @@
       <li><a href="api_reference/physics/PrecessingFisherMatrix.html#RIFT.physics.PrecessingFisherMatrix.PhaseSequenceLeadingOrder">PhaseSequenceLeadingOrder() (in module RIFT.physics.PrecessingFisherMatrix)</a>
 </li>
       <li><a href="RIFT/misc/rotations.html#RIFT.misc.sky_rotations.physical_to_network">physical_to_network() (in module RIFT.misc.sky_rotations)</a>, <a href="api_reference/misc/index.html#RIFT.misc.sky_rotations.physical_to_network">[1]</a>
+</li>
+      <li><a href="api_reference/integrators/index.html#RIFT.integrators.unreliable_oracle.LadderClimbingOracle.place">place() (RIFT.integrators.unreliable_oracle.LadderClimbingOracle method)</a>
 </li>
       <li><a href="api_reference/lalsimutils.html#RIFT.lalsimutils.polar_angles_in_frame">polar_angles_in_frame() (in module RIFT.lalsimutils)</a>
 </li>
@@ -3187,6 +3214,8 @@
 </li>
       <li><a href="api_reference/lalsimutils.html#RIFT.lalsimutils.rotation_matrix">rotation_matrix() (in module RIFT.lalsimutils)</a>
 </li>
+      <li><a href="api_reference/integrators/index.html#RIFT.integrators.unreliable_oracle.LadderClimbingOracle.run">run() (RIFT.integrators.unreliable_oracle.LadderClimbingOracle method)</a>
+</li>
       <li><a href="RIFT/misc/modules.html#RIFT.misc.modules.run_cmd">run_cmd() (in module RIFT.misc.modules)</a>, <a href="api_reference/misc/index.html#RIFT.misc.modules.run_cmd">[1]</a>
 </li>
       <li><a href="api_reference/interpolators/index.html#RIFT.interpolators.jax_gp.applications.export_at_scale.run_one">run_one() (in module RIFT.interpolators.jax_gp.applications.export_at_scale)</a>
@@ -3328,6 +3357,8 @@
 </li>
         <li><a href="api_reference/integrators/index.html#RIFT.integrators.unreliable_oracle.FisherGaussianOracle.setup">(RIFT.integrators.unreliable_oracle.FisherGaussianOracle method)</a>
 </li>
+        <li><a href="api_reference/integrators/index.html#RIFT.integrators.unreliable_oracle.LadderClimbingOracle.setup">(RIFT.integrators.unreliable_oracle.LadderClimbingOracle method)</a>
+</li>
         <li><a href="api_reference/integrators/index.html#RIFT.integrators.unreliable_oracle.PuffballOracle.setup">(RIFT.integrators.unreliable_oracle.PuffballOracle method)</a>
 </li>
         <li><a href="api_reference/integrators/index.html#RIFT.integrators.unreliable_oracle.ResamplingOracle.setup">(RIFT.integrators.unreliable_oracle.ResamplingOracle method)</a>
@@ -3339,7 +3370,13 @@
 </li>
       <li><a href="api_reference/integrators/index.html#RIFT.integrators.mcsamplerGPU.MCSampler.setup_hist_single_param">setup_hist_single_param() (RIFT.integrators.mcsamplerGPU.MCSampler method)</a>
 </li>
+      <li><a href="RIFT/likelihood/factored_likelihood.html#RIFT.likelihood.factored_likelihood.TimeIndexedCrossTermsSVD.shape">shape (RIFT.likelihood.factored_likelihood.TimeIndexedCrossTermsSVD property)</a>, <a href="api_reference/likelihood/index.html#RIFT.likelihood.factored_likelihood.TimeIndexedCrossTermsSVD.shape">[1]</a>
+</li>
       <li><a href="api_reference/simulation_manager/database.html#RIFT.simulation_manager.database.Archive.sim_dir">sim_dir() (RIFT.simulation_manager.database.Archive method)</a>
+</li>
+      <li><a href="RIFT/likelihood/factored_likelihood.html#RIFT.likelihood.factored_likelihood.simpson_function">simpson_function() (in module RIFT.likelihood.factored_likelihood)</a>, <a href="api_reference/likelihood/index.html#RIFT.likelihood.factored_likelihood.simpson_function">[1]</a>
+</li>
+      <li><a href="RIFT/likelihood/factored_likelihood.html#RIFT.likelihood.factored_likelihood.simpson_weights">simpson_weights() (in module RIFT.likelihood.factored_likelihood)</a>, <a href="api_reference/likelihood/index.html#RIFT.likelihood.factored_likelihood.simpson_weights">[1]</a>
 </li>
       <li><a href="api_reference/simulation_manager/BaseManager.html#RIFT.simulation_manager.BaseManager.SimulationArchive.simulation_exists_q">simulation_exists_q() (RIFT.simulation_manager.BaseManager.SimulationArchive method)</a>
 
@@ -3483,15 +3520,21 @@
 </li>
       <li><a href="RIFT/likelihood/factored_likelihood.html#RIFT.likelihood.factored_likelihood.TIME_QUADRATURE_DEFAULT">TIME_QUADRATURE_DEFAULT (in module RIFT.likelihood.factored_likelihood)</a>, <a href="api_reference/likelihood/index.html#RIFT.likelihood.factored_likelihood.TIME_QUADRATURE_DEFAULT">[1]</a>
 </li>
+      <li><a href="RIFT/likelihood/factored_likelihood.html#RIFT.likelihood.factored_likelihood.time_quadrature_rule">time_quadrature_rule() (in module RIFT.likelihood.factored_likelihood)</a>, <a href="api_reference/likelihood/index.html#RIFT.likelihood.factored_likelihood.time_quadrature_rule">[1]</a>
+</li>
       <li><a href="api_reference/likelihood/index.html#RIFT.likelihood.vectorized_lal_tools.TimeDelayFromEarthCenter">TimeDelayFromEarthCenter() (in module RIFT.likelihood.vectorized_lal_tools)</a>
 </li>
       <li><a href="api_reference/likelihood/index.html#RIFT.likelihood.vectorized_lal_tools.TimeDelayFromEarthCenterPrecomputed">TimeDelayFromEarthCenterPrecomputed() (in module RIFT.likelihood.vectorized_lal_tools)</a>
+</li>
+      <li><a href="RIFT/likelihood/factored_likelihood.html#RIFT.likelihood.factored_likelihood.TimeIndexedCrossTermsSVD">TimeIndexedCrossTermsSVD (class in RIFT.likelihood.factored_likelihood)</a>, <a href="api_reference/likelihood/index.html#RIFT.likelihood.factored_likelihood.TimeIndexedCrossTermsSVD">[1]</a>
 </li>
       <li><a href="api_reference/integrators/index.html#RIFT.integrators.mcsampler.to_host">to_host() (in module RIFT.integrators.mcsampler)</a>
 </li>
       <li><a href="api_reference/lalsimutils.html#RIFT.lalsimutils.ChooseWaveformParams.to_lal_dict">to_lal_dict() (RIFT.lalsimutils.ChooseWaveformParams method)</a>
 </li>
       <li><a href="api_reference/lalsimutils.html#RIFT.lalsimutils.ChooseWaveformParams.to_lal_dict_extended">to_lal_dict_extended() (RIFT.lalsimutils.ChooseWaveformParams method)</a>
+</li>
+      <li><a href="RIFT/likelihood/factored_likelihood.html#RIFT.likelihood.factored_likelihood.TimeIndexedCrossTermsSVD.to_xpy">to_xpy() (RIFT.likelihood.factored_likelihood.TimeIndexedCrossTermsSVD method)</a>, <a href="api_reference/likelihood/index.html#RIFT.likelihood.factored_likelihood.TimeIndexedCrossTermsSVD.to_xpy">[1]</a>
 </li>
       <li><a href="api_reference/lalsimutils.html#RIFT.lalsimutils.ChooseWaveformParams.TotalAngularMomentumAtReference">TotalAngularMomentumAtReference() (RIFT.lalsimutils.ChooseWaveformParams method)</a>
 </li>
@@ -3649,6 +3692,8 @@
 </li>
       <li><a href="api_reference/likelihood/index.html#RIFT.likelihood.rift_priors.unscaled_eta_prior_cdf">unscaled_eta_prior_cdf() (in module RIFT.likelihood.rift_priors)</a>
 </li>
+      <li><a href="api_reference/integrators/index.html#RIFT.integrators.mcsamplerAdaptiveVolume.unseen_fraction">unseen_fraction() (in module RIFT.integrators.mcsamplerAdaptiveVolume)</a>
+</li>
       <li><a href="api_reference/simulation_manager/database.html#RIFT.simulation_manager.database.Archive.unstick">unstick() (RIFT.simulation_manager.database.Archive method)</a>
 </li>
       <li><a href="api_reference/simulation_manager/database.html#RIFT.simulation_manager.database.Archive.unstick_all">unstick_all() (RIFT.simulation_manager.database.Archive method)</a>
@@ -3681,6 +3726,8 @@
         <li><a href="api_reference/integrators/index.html#RIFT.integrators.unreliable_oracle.ClimbingOracle.update_sampling_prior">(RIFT.integrators.unreliable_oracle.ClimbingOracle method)</a>
 </li>
         <li><a href="api_reference/integrators/index.html#RIFT.integrators.unreliable_oracle.FisherGaussianOracle.update_sampling_prior">(RIFT.integrators.unreliable_oracle.FisherGaussianOracle method)</a>
+</li>
+        <li><a href="api_reference/integrators/index.html#RIFT.integrators.unreliable_oracle.LadderClimbingOracle.update_sampling_prior">(RIFT.integrators.unreliable_oracle.LadderClimbingOracle method)</a>
 </li>
         <li><a href="api_reference/integrators/index.html#RIFT.integrators.unreliable_oracle.PuffballOracle.update_sampling_prior">(RIFT.integrators.unreliable_oracle.PuffballOracle method)</a>
 </li>

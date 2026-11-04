@@ -50,6 +50,8 @@
 <li class="toctree-l1"><a class="reference internal" href="../getting-data.html">Getting data for RIFT</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../data_formats.html">Data Formats</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../using-pipeline.html">Using the pipeline</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../posterior_compression.html">Posterior compression</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../raw_distance_likelihood.html">Raw distance likelihood contracts</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../examples-ini.html">RIFT pipeline examples: the ini file</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../examples-noini.html">RIFT pipeline examples: command-line</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../osg.html">Using the OSG</a></li>
@@ -57,6 +59,7 @@
 <li class="toctree-l1"><a class="reference internal" href="../injections.html">Signal Injections</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../plotting.html">Plotting with RIFT</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../demos.html">Demos</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../nr_best_effort.html">Evidence-weighted NR intrinsic and extrinsic posteriors</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../hyperpipe.html">HyperPipe</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../troubleshooting.html">General Troubleshooting</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../api_samples_utils.html">Samples Utilities</a></li>
@@ -755,7 +758,7 @@ spin_convention == radiation:</p>
 <dt class="sig sig-object py" id="RIFT.lalsimutils.Yagi13_fit_barlamdel">
 <span class="sig-prename descclassname"><span class="pre">RIFT.lalsimutils.</span></span><span class="sig-name descname"><span class="pre">Yagi13_fit_barlamdel</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">barlam2</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">ell</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.lalsimutils.Yagi13_fit_barlamdel" title="Link to this definition"></a></dt>
 <dd><p>Yagi 2013 fits for multipolar
-$bar{lambda}_ell$ = 2 <a href="#id7"><span class="problematic" id="id8">k_</span></a>ell/(C^{2ell+1} (2ell-1)!!)$
+$bar{lambda}_ell$ = 2 <a href="#id9"><span class="problematic" id="id10">k_</span></a>ell/(C^{2ell+1} (2ell-1)!!)$
 Eq.(10),(61); Tab.I; Fig.8 <a class="reference external" href="http://arxiv.org/abs/1311.0872">http://arxiv.org/abs/1311.0872</a></p>
 </dd></dl>
 
@@ -763,7 +766,7 @@ Eq.(10),(61); Tab.I; Fig.8 <a class="reference external" href="http://arxiv.org/
 <dt class="sig sig-object py" id="RIFT.lalsimutils.Yagi13_fitcoefs">
 <span class="sig-prename descclassname"><span class="pre">RIFT.lalsimutils.</span></span><span class="sig-name descname"><span class="pre">Yagi13_fitcoefs</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">ell</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.lalsimutils.Yagi13_fitcoefs" title="Link to this definition"></a></dt>
 <dd><p>Coefficients of Yagi 2013 fits for multipolar
-$bar{lambda}_ell = 2 <a href="#id9"><span class="problematic" id="id10">k_</span></a>ell/(C^{2ell+1} (2ell-1)!!)$
+$bar{lambda}_ell = 2 <a href="#id11"><span class="problematic" id="id12">k_</span></a>ell/(C^{2ell+1} (2ell-1)!!)$
 Tab.I (NS) <a class="reference external" href="http://arxiv.org/abs/1311.0872">http://arxiv.org/abs/1311.0872</a></p>
 </dd></dl>
 
@@ -778,6 +781,14 @@ Assume $q=M_A/M_B&gt;=1$</p>
 <dt class="sig sig-object py" id="RIFT.lalsimutils.check_FD_pending">
 <span class="sig-prename descclassname"><span class="pre">RIFT.lalsimutils.</span></span><span class="sig-name descname"><span class="pre">check_FD_pending</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">code</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.lalsimutils.check_FD_pending" title="Link to this definition"></a></dt>
 <dd></dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.lalsimutils.chieff_aligned_spins">
+<span class="sig-prename descclassname"><span class="pre">RIFT.lalsimutils.</span></span><span class="sig-name descname"><span class="pre">chieff_aligned_spins</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">m1</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">m2</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">s1z</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">s2z</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">xi</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.lalsimutils.chieff_aligned_spins" title="Link to this definition"></a></dt>
+<dd><p>s1z, s2z with xi = (m1 s1z + m2 s2z)/M and chiminus = (m2 s1z - m1 s2z)/M held from the inputs.</p>
+<p>The inverse used by assign_param(‘chieff_aligned’); accepts arrays.  Exchange-antisymmetric; for large
+mass ratio s1z -&gt; xi, s2z -&gt; -chiminus.  Can give <a href="#id5"><span class="problematic" id="id6">|s_iz|</span></a> &gt; 1.</p>
+</dd></dl>
 
 <dl class="py function">
 <dt class="sig sig-object py" id="RIFT.lalsimutils.complex_hoff">
@@ -843,13 +854,14 @@ fwdplan=lal.CreateForwardCOMPLEX16FFTPlan(TDlen,0)</p>
 
 <dl class="py function">
 <dt class="sig sig-object py" id="RIFT.lalsimutils.convert_waveform_coordinates">
-<span class="sig-prename descclassname"><span class="pre">RIFT.lalsimutils.</span></span><span class="sig-name descname"><span class="pre">convert_waveform_coordinates</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">x_in</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">coord_names</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">['mc',</span> <span class="pre">'eta']</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">low_level_coord_names</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">['m1',</span> <span class="pre">'m2']</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">enforce_kerr</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">source_redshift</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.lalsimutils.convert_waveform_coordinates" title="Link to this definition"></a></dt>
+<span class="sig-prename descclassname"><span class="pre">RIFT.lalsimutils.</span></span><span class="sig-name descname"><span class="pre">convert_waveform_coordinates</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">x_in</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">coord_names</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">['mc',</span> <span class="pre">'eta']</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">low_level_coord_names</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">['m1',</span> <span class="pre">'m2']</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">enforce_kerr</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">source_redshift</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">fref</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.lalsimutils.convert_waveform_coordinates" title="Link to this definition"></a></dt>
 <dd><p>A wrapper for ChooseWaveformParams() ‘s coordinate tools (extract_param, assign_param) providing array-formatted coordinate changes.  BE VERY CAREFUL, because coordinates may be defined inconsistently (e.g., holding different variables constant: M and eta, or mc and q).  Note that if ChooseWaveformParam structuers are built ,the loops can be quite slow</p>
 <dl class="simple">
 <dt>Special cases:</dt><dd><ul class="simple">
 <li><p>coordinates in x_out already in x_in are copied over directly</p></li>
 <li><p>xi==chi_eff, chiMinus, mu1,mu2 : transformed directly from mc, delta_mc, s1z,s2z coordinates, using fast vectorized transformations.</p></li>
 <li><p>source_redshift: if nonzero, convert m1 -&gt; m1 (1+z)=m_z, as fit is done in the detector frame.  We are <strong>assuming source-frame sampling</strong></p></li>
+<li><p>rf_* (geometric4) coordinates: computed from the physical components; require fref.</p></li>
 </ul>
 </dd>
 </dl>
@@ -915,7 +927,7 @@ it is only correct for the even-length RIFT packing.</p>
 with DC at index npts//2 (odd length TDlen+1; even length after truncation keeps
 DC at npts//2).  f[k] = deltaF*(k - npts//2), exact for both parities of npts.
 Use this - not the default - on ChooseFDModes output: the default’s reversal +
-half-bin offset shifts any <a href="#id5"><span class="problematic" id="id6">|f|</span></a>-symmetric window by one bin between (l,m) and
+half-bin offset shifts any <a href="#id7"><span class="problematic" id="id8">|f|</span></a>-symmetric window by one bin between (l,m) and
 (l,-m) modes (which live at opposite signs of f), breaking the conjugate-pair
 identity h_{l,-m}(f) = (-1)^l conj(h_{lm}(-f)) at the percent level.</p>
 </dd>
@@ -988,7 +1000,7 @@ Assumes the input and output are swig REAL8Timeseries objects</p>
 
 <dl class="py function">
 <dt class="sig sig-object py" id="RIFT.lalsimutils.extract_JL_angles">
-<span class="sig-prename descclassname"><span class="pre">RIFT.lalsimutils.</span></span><span class="sig-name descname"><span class="pre">extract_JL_angles</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">P</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">return_inverse</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">True</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">phase_factor</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">1</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.lalsimutils.extract_JL_angles" title="Link to this definition"></a></dt>
+<span class="sig-prename descclassname"><span class="pre">RIFT.lalsimutils.</span></span><span class="sig-name descname"><span class="pre">extract_JL_angles</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">P</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">return_inverse</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">True</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">phase_factor</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">1</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">opening_angle</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.lalsimutils.extract_JL_angles" title="Link to this definition"></a></dt>
 <dd><p>extract_JL_angles:  finds Euler angles for transformation  see eg C13, C14 in 2004.06503</p>
 <p>Using directly-coded J,L expressions rather than calling the lalsuite routine, to make sure phases agree with what I intend.</p>
 </dd></dl>
@@ -1136,7 +1148,7 @@ the inspiral duration by a factor (1./fd_standoff_factor)^(8/3) or so.</p>
 <p>WARNING: internal_hlm_generator will CHANGE this factor to 0.9, to better match complex_hoft.  I’m keeping the default of this function here to match the nominal documentaiton of SimInspiralTD, while internal_hlm_generator has a different factor, chosen to match its actual output.</p>
 </dd>
 </dl>
-<p>no_condition: disable conditioning (for ChooseFDModes specifically). For diagnostic plots on impact of/need for conditioning.
+<p>no_condition: disable conditioning: the ChooseFDModes high-pass/taper, the start tapers of the SEOB, SEOBv3 and IMRPhenomP branches, and the start taper applied to ChooseTDModes / TDModesFromPolarizations output at the end of this function. Used by the td-gs likelihood code path (no windows, no tapers) and for diagnostic plots on impact of/need for conditioning. Does not touch lalsuite’s own internal conditioning of FD-generated models.
 fd_L_frame: rotate hlmoft to L frame from J frame for return values from ChooseFDModes (XO4/XPHM).
 fd_end_taper_max_time: cap (seconds) on the ChooseFDModes end taper, which is otherwise 1% of the</p>
 <blockquote>
@@ -1407,7 +1419,7 @@ Not the fastest solution.  Not naturally vectorizable.</p>
 
 <dl class="py function">
 <dt class="sig sig-object py" id="RIFT.lalsimutils.polar_angles_in_frame_alt">
-<span class="sig-prename descclassname"><span class="pre">RIFT.lalsimutils.</span></span><span class="sig-name descname"><span class="pre">polar_angles_in_frame_alt</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">frm</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">theta</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">phi</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">xpy=&lt;module</span> <span class="pre">'numpy'</span> <span class="pre">from</span> <span class="pre">'/opt/hostedtoolcache/Python/3.11.17/x64/lib/python3.11/site-packages/numpy/__init__.py'&gt;</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.lalsimutils.polar_angles_in_frame_alt" title="Link to this definition"></a></dt>
+<span class="sig-prename descclassname"><span class="pre">RIFT.lalsimutils.</span></span><span class="sig-name descname"><span class="pre">polar_angles_in_frame_alt</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">frm</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">theta</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">phi</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">xpy=&lt;module</span> <span class="pre">'numpy'</span> <span class="pre">from</span> <span class="pre">'/opt/hostedtoolcache/Python/3.11.18/x64/lib/python3.11/site-packages/numpy/__init__.py'&gt;</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.lalsimutils.polar_angles_in_frame_alt" title="Link to this definition"></a></dt>
 <dd><p>Take polar angles in the default frame.
 Evaluate the polar angles of that unit vector in a new (orthonormal) frame ‘frmInverse’.
 Probably easier to vectorize</p>

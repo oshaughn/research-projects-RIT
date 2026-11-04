@@ -20,7 +20,7 @@
     <script src="_static/js/theme.js"></script>
     <link rel="index" title="Index" href="genindex.html" />
     <link rel="search" title="Search" href="search.html" />
-    <link rel="next" title="RIFT pipeline examples: the ini file" href="examples-ini.html" />
+    <link rel="next" title="Posterior compression" href="posterior_compression.html" />
     <link rel="prev" title="Data Formats" href="data_formats.html" /> 
 </head>
 
@@ -51,6 +51,8 @@
 <li class="toctree-l1"><a class="reference internal" href="getting-data.html">Getting data for RIFT</a></li>
 <li class="toctree-l1"><a class="reference internal" href="data_formats.html">Data Formats</a></li>
 <li class="toctree-l1 current"><a class="current reference internal" href="#">Using the pipeline</a></li>
+<li class="toctree-l1"><a class="reference internal" href="posterior_compression.html">Posterior compression</a></li>
+<li class="toctree-l1"><a class="reference internal" href="raw_distance_likelihood.html">Raw distance likelihood contracts</a></li>
 <li class="toctree-l1"><a class="reference internal" href="examples-ini.html">RIFT pipeline examples: the ini file</a></li>
 <li class="toctree-l1"><a class="reference internal" href="examples-noini.html">RIFT pipeline examples: command-line</a></li>
 <li class="toctree-l1"><a class="reference internal" href="osg.html">Using the OSG</a></li>
@@ -58,6 +60,7 @@
 <li class="toctree-l1"><a class="reference internal" href="injections.html">Signal Injections</a></li>
 <li class="toctree-l1"><a class="reference internal" href="plotting.html">Plotting with RIFT</a></li>
 <li class="toctree-l1"><a class="reference internal" href="demos.html">Demos</a></li>
+<li class="toctree-l1"><a class="reference internal" href="nr_best_effort.html">Evidence-weighted NR intrinsic and extrinsic posteriors</a></li>
 <li class="toctree-l1"><a class="reference internal" href="hyperpipe.html">HyperPipe</a></li>
 <li class="toctree-l1"><a class="reference internal" href="troubleshooting.html">General Troubleshooting</a></li>
 <li class="toctree-l1"><a class="reference internal" href="api_samples_utils.html">Samples Utilities</a></li>
@@ -100,6 +103,9 @@
 <h1>Using the pipeline<a class="headerlink" href="#using-the-pipeline" title="Link to this heading"></a></h1>
 <section id="basics">
 <h2>Basics<a class="headerlink" href="#basics" title="Link to this heading"></a></h2>
+<p>For optional analytic fits of the joint extrinsic posterior, see
+<a class="reference internal" href="posterior_compression.html"><span class="doc">Posterior compression</span></a>. The final CIP stage determines the intrinsic
+spin prior used by those fits; the data rows come from the extrinsic export.</p>
 <p>The primary user-interface for this code is a command line tool
 <code class="code docutils literal notranslate"><span class="pre">util_RIFT_pseudo_pipe.py</span></code> which is available after following the <a class="reference external" href="installation.txt">installation
 instructions</a>. For detailed documentation, see <a class="reference internal" href="executables/util_RIFT_pseudo_pipe.html"><span class="doc">util_RIFT_pseudo_pipe.py</span></a>. To see the help for this tool, run</p>
@@ -120,6 +126,17 @@ for various features.  The most important feature for most users is their accoun
 <span class="go">export LIGO_ACCOUNTING=ligo.dev.o4.rift</span>
 </pre></div>
 </div>
+<p>For eccentric PE (<code class="code docutils literal notranslate"><span class="pre">--assume-eccentric</span></code>), preliminary CIP iteration
+groups use <code class="code docutils literal notranslate"><span class="pre">--eccentricity-prior</span> <span class="pre">uniform</span></code> to explore the likelihood.
+The pipeline option <code class="code docutils literal notranslate"><span class="pre">--eccentricity-prior</span> <span class="pre">log_uniform</span></code> selects the prior
+for every <code class="code docutils literal notranslate"><span class="pre">Z</span></code> run-to-convergence subdag and the final CIP argument
+group. A convergence subdag retains that target prior even when followed by
+a final extrinsic-sampling group; all of its child CIP jobs use the same prior.
+The default, <code class="code docutils literal notranslate"><span class="pre">uniform</span></code>, keeps all groups uniform. A schedule containing only one group uses the requested final
+prior throughout. Inspect <code class="code docutils literal notranslate"><span class="pre">args_cip_list.txt</span></code> before submission to see
+the prior assigned to each group. This scheduling policy also applies when
+extra CIP arguments specify an eccentricity prior; direct CIP invocations
+continue to use the prior passed to them.</p>
 <p>When you run <code class="code docutils literal notranslate"><span class="pre">util_RIFT_psuedo_pipe.py</span></code>, the pipeline will create a directory structure as follows:</p>
 <div class="highlight-console notranslate"><div class="highlight"><pre><span></span><span class="go">long_directory_name_here/</span>
 <span class="go">   -&gt; local.cache</span>
@@ -242,7 +259,7 @@ publication or release to the broader community.</p>
           </div>
           <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
         <a href="data_formats.html" class="btn btn-neutral float-left" title="Data Formats" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
-        <a href="examples-ini.html" class="btn btn-neutral float-right" title="RIFT pipeline examples: the ini file" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+        <a href="posterior_compression.html" class="btn btn-neutral float-right" title="Posterior compression" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
     </div>
 
   <hr/>

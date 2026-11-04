@@ -50,6 +50,8 @@
 <li class="toctree-l1"><a class="reference internal" href="getting-data.html">Getting data for RIFT</a></li>
 <li class="toctree-l1"><a class="reference internal" href="data_formats.html">Data Formats</a></li>
 <li class="toctree-l1"><a class="reference internal" href="using-pipeline.html">Using the pipeline</a></li>
+<li class="toctree-l1"><a class="reference internal" href="posterior_compression.html">Posterior compression</a></li>
+<li class="toctree-l1"><a class="reference internal" href="raw_distance_likelihood.html">Raw distance likelihood contracts</a></li>
 <li class="toctree-l1"><a class="reference internal" href="examples-ini.html">RIFT pipeline examples: the ini file</a></li>
 <li class="toctree-l1"><a class="reference internal" href="examples-noini.html">RIFT pipeline examples: command-line</a></li>
 <li class="toctree-l1"><a class="reference internal" href="osg.html">Using the OSG</a></li>
@@ -57,6 +59,7 @@
 <li class="toctree-l1"><a class="reference internal" href="injections.html">Signal Injections</a></li>
 <li class="toctree-l1"><a class="reference internal" href="plotting.html">Plotting with RIFT</a></li>
 <li class="toctree-l1"><a class="reference internal" href="demos.html">Demos</a></li>
+<li class="toctree-l1"><a class="reference internal" href="nr_best_effort.html">Evidence-weighted NR intrinsic and extrinsic posteriors</a></li>
 <li class="toctree-l1"><a class="reference internal" href="hyperpipe.html">HyperPipe</a></li>
 <li class="toctree-l1"><a class="reference internal" href="troubleshooting.html">General Troubleshooting</a></li>
 <li class="toctree-l1"><a class="reference internal" href="api_samples_utils.html">Samples Utilities</a></li>
@@ -144,6 +147,23 @@
 <li class="toctree-l2"><a class="reference internal" href="using-pipeline.html#util-rift-pseudo-pipe-py-help">util_RIFT_pseudo_pipe.py help</a></li>
 </ul>
 </li>
+<li class="toctree-l1"><a class="reference internal" href="posterior_compression.html">Posterior compression</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="posterior_compression.html#enable-compression-in-a-workflow">Enable compression in a workflow</a></li>
+<li class="toctree-l2"><a class="reference internal" href="posterior_compression.html#apply-to-an-existing-run">Apply to an existing run</a></li>
+<li class="toctree-l2"><a class="reference internal" href="posterior_compression.html#optional-pipeline-diagnostics">Optional pipeline diagnostics</a></li>
+<li class="toctree-l2"><a class="reference internal" href="posterior_compression.html#standalone-sampling-and-comparison">Standalone sampling and comparison</a></li>
+<li class="toctree-l2"><a class="reference internal" href="posterior_compression.html#cosmology-and-likelihood-interpretation">Cosmology and likelihood interpretation</a></li>
+<li class="toctree-l2"><a class="reference internal" href="posterior_compression.html#efficient-evaluation">Efficient evaluation</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="raw_distance_likelihood.html">Raw distance likelihood contracts</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="raw_distance_likelihood.html#normalization">Normalization</a></li>
+<li class="toctree-l2"><a class="reference internal" href="raw_distance_likelihood.html#conditioning-provenance">Conditioning provenance</a></li>
+<li class="toctree-l2"><a class="reference internal" href="raw_distance_likelihood.html#evaluation-and-caching">Evaluation and caching</a></li>
+<li class="toctree-l2"><a class="reference internal" href="raw_distance_likelihood.html#source-masses-and-prior-integration">Source masses and prior integration</a></li>
+<li class="toctree-l2"><a class="reference internal" href="raw_distance_likelihood.html#validation-scope">Validation scope</a></li>
+</ul>
+</li>
 <li class="toctree-l1"><a class="reference internal" href="examples-ini.html">RIFT pipeline examples: the ini file</a><ul>
 <li class="toctree-l2"><a class="reference internal" href="examples-ini.html#using-an-ini-file-for-fake-data">Using an ini file for fake data</a></li>
 <li class="toctree-l2"><a class="reference internal" href="examples-ini.html#using-an-ini-file-for-a-production-analysis">Using an ini file for a production analysis</a></li>
@@ -185,6 +205,17 @@
 <li class="toctree-l2"><a class="reference internal" href="demos.html#internal-and-test-oriented-demos">Internal and test-oriented demos</a></li>
 <li class="toctree-l2"><a class="reference internal" href="demos.html#choosing-a-starting-point">Choosing a starting point</a></li>
 <li class="toctree-l2"><a class="reference internal" href="demos.html#related-pages">Related pages</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="nr_best_effort.html">Evidence-weighted NR intrinsic and extrinsic posteriors</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="nr_best_effort.html#installed-instructions-and-modern-catalog-compatibility">Installed instructions and modern catalog compatibility</a></li>
+<li class="toctree-l2"><a class="reference internal" href="nr_best_effort.html#what-is-already-available">What is already available</a></li>
+<li class="toctree-l2"><a class="reference internal" href="nr_best_effort.html#historical-reference-and-recovery">Historical reference and recovery</a></li>
+<li class="toctree-l2"><a class="reference internal" href="nr_best_effort.html#statistical-definition">Statistical definition</a></li>
+<li class="toctree-l2"><a class="reference internal" href="nr_best_effort.html#bootstrap-from-a-completed-run">Bootstrap from a completed run</a></li>
+<li class="toctree-l2"><a class="reference internal" href="nr_best_effort.html#reuse-saved-conditional-extrinsic-samples">Reuse saved conditional extrinsic samples</a></li>
+<li class="toctree-l2"><a class="reference internal" href="nr_best_effort.html#already-mass-marginalized-per-simulation-posteriors">Already mass-marginalized per-simulation posteriors</a></li>
+<li class="toctree-l2"><a class="reference internal" href="nr_best_effort.html#validation">Validation</a></li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="hyperpipe.html">HyperPipe</a><ul>
@@ -422,6 +453,11 @@
 </li>
 <li class="toctree-l3"><a class="reference internal" href="executables/util_ParameterPuffball.html#functional-logic">Functional Logic</a></li>
 <li class="toctree-l3"><a class="reference internal" href="executables/util_ParameterPuffball.html#output-details">Output Details</a></li>
+<li class="toctree-l3"><a class="reference internal" href="executables/util_ParameterPuffball.html#opt-in-to-mu-coordinates-and-random-transverse-discovery">Opt in to mu coordinates and random transverse discovery</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="executables/util_ParameterPuffball.html#select-discovery-by-cip-batch">Select discovery by CIP batch</a></li>
+<li class="toctree-l4"><a class="reference internal" href="executables/util_ParameterPuffball.html#qualification">Qualification</a></li>
+</ul>
+</li>
 </ul>
 </li>
 <li class="toctree-l2"><a class="reference internal" href="executables/survey_scan.html"><code class="docutils literal notranslate"><span class="pre">survey_scan</span></code></a><ul>
@@ -688,6 +724,7 @@
 <li class="toctree-l5"><a class="reference internal" href="api_reference/integrators/index.html#RIFT.integrators.mcsamplerAdaptiveVolume.sample_from_bins"><code class="docutils literal notranslate"><span class="pre">sample_from_bins()</span></code></a></li>
 <li class="toctree-l5"><a class="reference internal" href="api_reference/integrators/index.html#RIFT.integrators.mcsamplerAdaptiveVolume.seed_affine_rank"><code class="docutils literal notranslate"><span class="pre">seed_affine_rank()</span></code></a></li>
 <li class="toctree-l5"><a class="reference internal" href="api_reference/integrators/index.html#RIFT.integrators.mcsamplerAdaptiveVolume.set_xpy_to_numpy"><code class="docutils literal notranslate"><span class="pre">set_xpy_to_numpy()</span></code></a></li>
+<li class="toctree-l5"><a class="reference internal" href="api_reference/integrators/index.html#RIFT.integrators.mcsamplerAdaptiveVolume.unseen_fraction"><code class="docutils literal notranslate"><span class="pre">unseen_fraction()</span></code></a></li>
 <li class="toctree-l5"><a class="reference internal" href="api_reference/integrators/index.html#RIFT.integrators.mcsamplerAdaptiveVolume.warm_seed_scale_from_finite_points"><code class="docutils literal notranslate"><span class="pre">warm_seed_scale_from_finite_points()</span></code></a></li>
 </ul>
 </li>
@@ -917,6 +954,17 @@
 <li class="toctree-l6"><a class="reference internal" href="api_reference/integrators/index.html#RIFT.integrators.unreliable_oracle.FisherGaussianOracle.update_sampling_prior"><code class="docutils literal notranslate"><span class="pre">FisherGaussianOracle.update_sampling_prior()</span></code></a></li>
 </ul>
 </li>
+<li class="toctree-l5"><a class="reference internal" href="api_reference/integrators/index.html#RIFT.integrators.unreliable_oracle.LadderClimbingOracle"><code class="docutils literal notranslate"><span class="pre">LadderClimbingOracle</span></code></a><ul>
+<li class="toctree-l6"><a class="reference internal" href="api_reference/integrators/index.html#RIFT.integrators.unreliable_oracle.LadderClimbingOracle.add_parameter"><code class="docutils literal notranslate"><span class="pre">LadderClimbingOracle.add_parameter()</span></code></a></li>
+<li class="toctree-l6"><a class="reference internal" href="api_reference/integrators/index.html#RIFT.integrators.unreliable_oracle.LadderClimbingOracle.climb"><code class="docutils literal notranslate"><span class="pre">LadderClimbingOracle.climb()</span></code></a></li>
+<li class="toctree-l6"><a class="reference internal" href="api_reference/integrators/index.html#RIFT.integrators.unreliable_oracle.LadderClimbingOracle.draw_simplified"><code class="docutils literal notranslate"><span class="pre">LadderClimbingOracle.draw_simplified()</span></code></a></li>
+<li class="toctree-l6"><a class="reference internal" href="api_reference/integrators/index.html#RIFT.integrators.unreliable_oracle.LadderClimbingOracle.near_peak"><code class="docutils literal notranslate"><span class="pre">LadderClimbingOracle.near_peak()</span></code></a></li>
+<li class="toctree-l6"><a class="reference internal" href="api_reference/integrators/index.html#RIFT.integrators.unreliable_oracle.LadderClimbingOracle.place"><code class="docutils literal notranslate"><span class="pre">LadderClimbingOracle.place()</span></code></a></li>
+<li class="toctree-l6"><a class="reference internal" href="api_reference/integrators/index.html#RIFT.integrators.unreliable_oracle.LadderClimbingOracle.run"><code class="docutils literal notranslate"><span class="pre">LadderClimbingOracle.run()</span></code></a></li>
+<li class="toctree-l6"><a class="reference internal" href="api_reference/integrators/index.html#RIFT.integrators.unreliable_oracle.LadderClimbingOracle.setup"><code class="docutils literal notranslate"><span class="pre">LadderClimbingOracle.setup()</span></code></a></li>
+<li class="toctree-l6"><a class="reference internal" href="api_reference/integrators/index.html#RIFT.integrators.unreliable_oracle.LadderClimbingOracle.update_sampling_prior"><code class="docutils literal notranslate"><span class="pre">LadderClimbingOracle.update_sampling_prior()</span></code></a></li>
+</ul>
+</li>
 <li class="toctree-l5"><a class="reference internal" href="api_reference/integrators/index.html#RIFT.integrators.unreliable_oracle.PuffballOracle"><code class="docutils literal notranslate"><span class="pre">PuffballOracle</span></code></a><ul>
 <li class="toctree-l6"><a class="reference internal" href="api_reference/integrators/index.html#RIFT.integrators.unreliable_oracle.PuffballOracle.add_parameter"><code class="docutils literal notranslate"><span class="pre">PuffballOracle.add_parameter()</span></code></a></li>
 <li class="toctree-l6"><a class="reference internal" href="api_reference/integrators/index.html#RIFT.integrators.unreliable_oracle.PuffballOracle.draw_simplified"><code class="docutils literal notranslate"><span class="pre">PuffballOracle.draw_simplified()</span></code></a></li>
@@ -1018,8 +1066,10 @@
 </li>
 <li class="toctree-l4"><a class="reference internal" href="api_reference/likelihood/index.html#cuda-q-inner-product">CUDA Q Inner Product</a></li>
 <li class="toctree-l4"><a class="reference internal" href="api_reference/likelihood/index.html#module-RIFT.likelihood.factored_likelihood">Factored Likelihood</a><ul>
+<li class="toctree-l5"><a class="reference internal" href="api_reference/likelihood/index.html#RIFT.likelihood.factored_likelihood.AssertCalibrationSelfTermInnerProductSupported"><code class="docutils literal notranslate"><span class="pre">AssertCalibrationSelfTermInnerProductSupported()</span></code></a></li>
 <li class="toctree-l5"><a class="reference internal" href="api_reference/likelihood/index.html#RIFT.likelihood.factored_likelihood.BuildCalibrationSelfTermBasis"><code class="docutils literal notranslate"><span class="pre">BuildCalibrationSelfTermBasis()</span></code></a></li>
 <li class="toctree-l5"><a class="reference internal" href="api_reference/likelihood/index.html#RIFT.likelihood.factored_likelihood.CalibrationSelfTermCrossTermsFromBasis"><code class="docutils literal notranslate"><span class="pre">CalibrationSelfTermCrossTermsFromBasis()</span></code></a></li>
+<li class="toctree-l5"><a class="reference internal" href="api_reference/likelihood/index.html#RIFT.likelihood.factored_likelihood.CalibrationSelfTermInnerProductSupported"><code class="docutils literal notranslate"><span class="pre">CalibrationSelfTermInnerProductSupported()</span></code></a></li>
 <li class="toctree-l5"><a class="reference internal" href="api_reference/likelihood/index.html#RIFT.likelihood.factored_likelihood.ComplexAntennaFactor"><code class="docutils literal notranslate"><span class="pre">ComplexAntennaFactor()</span></code></a></li>
 <li class="toctree-l5"><a class="reference internal" href="api_reference/likelihood/index.html#RIFT.likelihood.factored_likelihood.ComputeArrivalTimeAtDetector"><code class="docutils literal notranslate"><span class="pre">ComputeArrivalTimeAtDetector()</span></code></a></li>
 <li class="toctree-l5"><a class="reference internal" href="api_reference/likelihood/index.html#RIFT.likelihood.factored_likelihood.ComputeArrivalTimeAtDetectorWithoutShift"><code class="docutils literal notranslate"><span class="pre">ComputeArrivalTimeAtDetectorWithoutShift()</span></code></a></li>
@@ -1054,7 +1104,15 @@
 <li class="toctree-l5"><a class="reference internal" href="api_reference/likelihood/index.html#RIFT.likelihood.factored_likelihood.SingleDetectorLogLikelihoodModel"><code class="docutils literal notranslate"><span class="pre">SingleDetectorLogLikelihoodModel()</span></code></a></li>
 <li class="toctree-l5"><a class="reference internal" href="api_reference/likelihood/index.html#RIFT.likelihood.factored_likelihood.SingleDetectorLogLikelihoodModelViaArray"><code class="docutils literal notranslate"><span class="pre">SingleDetectorLogLikelihoodModelViaArray()</span></code></a></li>
 <li class="toctree-l5"><a class="reference internal" href="api_reference/likelihood/index.html#RIFT.likelihood.factored_likelihood.TIME_QUADRATURE_DEFAULT"><code class="docutils literal notranslate"><span class="pre">TIME_QUADRATURE_DEFAULT</span></code></a></li>
+<li class="toctree-l5"><a class="reference internal" href="api_reference/likelihood/index.html#RIFT.likelihood.factored_likelihood.TimeIndexedCrossTermsSVD"><code class="docutils literal notranslate"><span class="pre">TimeIndexedCrossTermsSVD</span></code></a><ul>
+<li class="toctree-l6"><a class="reference internal" href="api_reference/likelihood/index.html#RIFT.likelihood.factored_likelihood.TimeIndexedCrossTermsSVD.component_matrices"><code class="docutils literal notranslate"><span class="pre">TimeIndexedCrossTermsSVD.component_matrices()</span></code></a></li>
+<li class="toctree-l6"><a class="reference internal" href="api_reference/likelihood/index.html#RIFT.likelihood.factored_likelihood.TimeIndexedCrossTermsSVD.ndim"><code class="docutils literal notranslate"><span class="pre">TimeIndexedCrossTermsSVD.ndim</span></code></a></li>
+<li class="toctree-l6"><a class="reference internal" href="api_reference/likelihood/index.html#RIFT.likelihood.factored_likelihood.TimeIndexedCrossTermsSVD.shape"><code class="docutils literal notranslate"><span class="pre">TimeIndexedCrossTermsSVD.shape</span></code></a></li>
+<li class="toctree-l6"><a class="reference internal" href="api_reference/likelihood/index.html#RIFT.likelihood.factored_likelihood.TimeIndexedCrossTermsSVD.to_xpy"><code class="docutils literal notranslate"><span class="pre">TimeIndexedCrossTermsSVD.to_xpy()</span></code></a></li>
+</ul>
+</li>
 <li class="toctree-l5"><a class="reference internal" href="api_reference/likelihood/index.html#RIFT.likelihood.factored_likelihood.build_reflected_q_pregrid"><code class="docutils literal notranslate"><span class="pre">build_reflected_q_pregrid()</span></code></a></li>
+<li class="toctree-l5"><a class="reference internal" href="api_reference/likelihood/index.html#RIFT.likelihood.factored_likelihood.compress_time_indexed_cross_terms"><code class="docutils literal notranslate"><span class="pre">compress_time_indexed_cross_terms()</span></code></a></li>
 <li class="toctree-l5"><a class="reference internal" href="api_reference/likelihood/index.html#RIFT.likelihood.factored_likelihood.constructLMIterator"><code class="docutils literal notranslate"><span class="pre">constructLMIterator()</span></code></a></li>
 <li class="toctree-l5"><a class="reference internal" href="api_reference/likelihood/index.html#RIFT.likelihood.factored_likelihood.estimateEventTimeRelative"><code class="docutils literal notranslate"><span class="pre">estimateEventTimeRelative()</span></code></a></li>
 <li class="toctree-l5"><a class="reference internal" href="api_reference/likelihood/index.html#RIFT.likelihood.factored_likelihood.estimateUpperDistanceBoundInMpc"><code class="docutils literal notranslate"><span class="pre">estimateUpperDistanceBoundInMpc()</span></code></a></li>
@@ -1067,6 +1125,9 @@
 <li class="toctree-l5"><a class="reference internal" href="api_reference/likelihood/index.html#RIFT.likelihood.factored_likelihood.non_herm_hoff"><code class="docutils literal notranslate"><span class="pre">non_herm_hoff()</span></code></a></li>
 <li class="toctree-l5"><a class="reference internal" href="api_reference/likelihood/index.html#RIFT.likelihood.factored_likelihood.prepare_reflected_q_pregrid"><code class="docutils literal notranslate"><span class="pre">prepare_reflected_q_pregrid()</span></code></a></li>
 <li class="toctree-l5"><a class="reference internal" href="api_reference/likelihood/index.html#RIFT.likelihood.factored_likelihood.profile"><code class="docutils literal notranslate"><span class="pre">profile()</span></code></a></li>
+<li class="toctree-l5"><a class="reference internal" href="api_reference/likelihood/index.html#RIFT.likelihood.factored_likelihood.simpson_function"><code class="docutils literal notranslate"><span class="pre">simpson_function()</span></code></a></li>
+<li class="toctree-l5"><a class="reference internal" href="api_reference/likelihood/index.html#RIFT.likelihood.factored_likelihood.simpson_weights"><code class="docutils literal notranslate"><span class="pre">simpson_weights()</span></code></a></li>
+<li class="toctree-l5"><a class="reference internal" href="api_reference/likelihood/index.html#RIFT.likelihood.factored_likelihood.time_quadrature_rule"><code class="docutils literal notranslate"><span class="pre">time_quadrature_rule()</span></code></a></li>
 <li class="toctree-l5"><a class="reference internal" href="api_reference/likelihood/index.html#RIFT.likelihood.factored_likelihood.validate_time_interp"><code class="docutils literal notranslate"><span class="pre">validate_time_interp()</span></code></a></li>
 </ul>
 </li>
@@ -1988,6 +2049,7 @@
 <li class="toctree-l4"><a class="reference internal" href="api_reference/lalsimutils.html#RIFT.lalsimutils.Yagi13_fitcoefs"><code class="docutils literal notranslate"><span class="pre">Yagi13_fitcoefs()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="api_reference/lalsimutils.html#RIFT.lalsimutils.barlamdel_to_kappal"><code class="docutils literal notranslate"><span class="pre">barlamdel_to_kappal()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="api_reference/lalsimutils.html#RIFT.lalsimutils.check_FD_pending"><code class="docutils literal notranslate"><span class="pre">check_FD_pending()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api_reference/lalsimutils.html#RIFT.lalsimutils.chieff_aligned_spins"><code class="docutils literal notranslate"><span class="pre">chieff_aligned_spins()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="api_reference/lalsimutils.html#RIFT.lalsimutils.complex_hoff"><code class="docutils literal notranslate"><span class="pre">complex_hoff()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="api_reference/lalsimutils.html#RIFT.lalsimutils.complex_hoft"><code class="docutils literal notranslate"><span class="pre">complex_hoft()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="api_reference/lalsimutils.html#RIFT.lalsimutils.complex_hoft_IMRPv2"><code class="docutils literal notranslate"><span class="pre">complex_hoft_IMRPv2()</span></code></a></li>
