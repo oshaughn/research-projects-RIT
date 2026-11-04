@@ -1,3 +1,21 @@
+Release branches and maintenance policy
+=======================================
+
+**For the stable release line, use ``rift_O4c``, not ``main`` or ``master``.**
+
+The ``0.0.17.xx`` series will continue to be developed and maintained on
+``rift_O4c``.  This is a compartmentalized maintenance line: it will not be
+a descendant of ``master``, and there is no plan to merge the two lines.
+The accumulated divergence makes a wholesale merge impractical.  Relevant
+fixes must be assessed and adapted for each branch separately.
+
+The ``0.0.18.xx`` development line is ``rift_O4d``.  Ongoing short-author
+research analyses and new scientific development use this development line.
+Users seeking the stable branch should explicitly select ``rift_O4c``;
+the repository's default branch name is not a stability recommendation.
+Record the exact branch, commit, environment and analysis settings for
+reproducibility.
+
 0.0.18.0
 ------------
 development tree is rift_O4d; PRs refer to oshaughn/research-projects-RIT.
