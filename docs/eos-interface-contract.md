@@ -10,10 +10,37 @@ eos.mMaxMsun
 
 Mass arguments may be in solar masses or SI kg, as before.
 
+## Sample evaluation failure policy
+
+Waveform and EOS evaluation failures reject the affected sample and continue
+the analysis. This is a design principle for both waveform and EOS sampling.
+
+Exceptions from the waveform or EOS implementation, and nonfinite results,
+must follow the existing invalid-sample convention: zero posterior weight or
+`-inf` log likelihood. Sampling boundaries translate these failures into sample
+rejection. They must not terminate the sampler, worker, batch, or workflow.
+Batched evaluation must preserve valid neighboring samples when one evaluation
+fails.
+
+A rejected proposed EOS emits log evidence `-inf` and relative error `0`.
+A proposed EOS whose actual conversions reject every draw records zero evidence
+after the sampler exhausts its existing retry budget. The first invalid batch
+does not end those retries; later valid draws remain usable. Unrelated sampler
+errors retain their existing behavior.
+
+Repeated estimates combined by an average or sum retain successful replicas;
+all failed replicas retain zero evidence. A product over events retains every
+event, so a zero-evidence event makes the product zero.
+
+Compatibility changes must preserve this behavior. Regression tests must mix
+valid and failing samples, exercise both raised exceptions and nonfinite
+outputs, and verify that failed samples are rejected while valid samples remain
+usable and sampling continues.
+
 ## LALSimulation families
 
-Released LALSimulation has one stable family and needs no user change.  The
-reviewed multipart TOV API can return several stable branches.  RIFT exposes
+Legacy LALSimulation exposes one stable family. Released multibranch builds
+and the reviewed multipart TOV API can return several stable branches.  RIFT exposes
 `branches_for_m(m)` and accepts `branch_id` on direct `radius_from_m` and
 `lambda_from_m` calls.  An ambiguous twin-star mass raises instead of silently
 choosing a solution.
@@ -36,9 +63,9 @@ By default, `lalsim_file:` preserves released `SimNeutronStarEOSFromFile`
 behavior even on a reviewed build. Requesting a branch, the compatibility
 dirty-phase-transition option, or the extended family opts into
 `SimNeutronStarEOSFromFilePhaseTransition` and `CreateSimNeutronStarFamilyPT`.
-Legacy named, spectral, piecewise-polytrope, and ordinary file EOS objects
-continue to use the released one-argument family constructor: both SWIG object
-families coexist and are selected explicitly.
+Ordinary named, spectral, piecewise-polytrope and file EOS objects use the
+one-argument legacy family constructor or the released two-argument constructor,
+selected by capability checks. The reviewed multipart object path stays explicit.
 The reviewed PT reader always enables its dirty-phase-transition handling, so
 `--using-eos-dirty-phase-transitions` remains accepted for command-line
 compatibility but does not toggle a second reader mode.

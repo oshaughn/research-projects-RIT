@@ -33,6 +33,9 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install -r requirements.txt
           python -m pip install --editable . pytest
+      - name: Run GPU FFT row-batch and failure regressions
+        run: |
+          python -m pytest -q MonteCarloMarginalizeCode/Code/test/test_q2_fft_memory.py
       - name: Run real CIP startup and EOS validation regressions
         run: |
           python -m pytest -q \
@@ -40,6 +43,8 @@ jobs:
             MonteCarloMarginalizeCode/Code/test/test_assign_param_spin_order.py \
             MonteCarloMarginalizeCode/Code/test/test_assign_param_chieff_aligned.py \
             MonteCarloMarginalizeCode/Code/test/test_lalsim_eos_compat.py \
+            MonteCarloMarginalizeCode/Code/test/test_waveform_sample_rejection.py \
+            MonteCarloMarginalizeCode/Code/test/test_cip_eos_rejection.py \
             MonteCarloMarginalizeCode/Code/test/test_convert_coordinates_source_redshift.py \
             MonteCarloMarginalizeCode/Code/test/test_convert_coordinates_row_independence.py \
             MonteCarloMarginalizeCode/Code/test/test_ring_coordinates.py

@@ -287,7 +287,70 @@ def _fft_rows(x, inverse=False, n=None, xpy=np):
         fn = scipy_fft.ifft if inverse else scipy_fft.fft
         return fn(x, n=n, axis=-1, workers=_cpu_fft_workers())
     fn = xpy.fft.ifft if inverse else xpy.fft.fft
+    if getattr(xpy, "__name__", None) == "cupy" and x.ndim > 1:
+        return _gpu_fft_rows(x, fn, n=n, xpy=xpy)
     return fn(x, n=n, axis=-1)
+
+
+def _gpu_fft_rows(x, fn, n=None, xpy=None):
+    """Bound FFT batch shapes without changing any row's time samples.
+
+    Varying AV acceptance counts otherwise create hundreds of cuFFT plans and
+    allocator size classes. On CUDA 11.8, plan churn also retains memory outside
+    the CuPy pool even after cache cleanup. Use one fixed power-of-two capacity
+    per time length, and tile larger groups. Zero dummy rows are independent
+    transforms and are discarded before any likelihood evaluation.
+
+    The capacity is at most 64 and each padded complex128 array at most 8 MiB
+    (or one row for longer transforms). This bounds workspace batches; the
+    caller still owns the complete output and its existing dense-row budget.
+    One-dimensional chirp transforms have no varying batch axis.
+    """
+    length = int(x.shape[-1])
+    out_length = length if n is None else int(n)
+    row_bytes = max(length, out_length) * np.dtype(np.complex128).itemsize
+    limit = max(1, min(64, (8 * 1024**2) // max(1, row_bytes)))
+    capacity = 1 << (int(limit).bit_length() - 1)
+    rows = x.reshape((-1, length))
+    count = int(rows.shape[0])
+    result = None
+    for start in range(0, count, capacity):
+        take = min(capacity, count - start)
+        # Always pack contiguously, including strided inputs and partial tiles,
+        # so strides cannot introduce another family of cuFFT plan keys.
+        packed = xpy.zeros((capacity, length), dtype=x.dtype)
+        packed[:take] = rows[start:start + take]
+        transformed = fn(packed, n=n, axis=-1)
+        if count <= capacity:
+            return transformed[:count].reshape(x.shape[:-1] + (out_length,))
+        if result is None:
+            # Keep assembled output allocations in a bounded geometric family
+            # too, rather than reserving a separate pool block for every AV
+            # row count. At most twice the caller's requested output is held.
+            padded_count = 1 << (count - 1).bit_length()
+            result = xpy.empty((padded_count, out_length), dtype=transformed.dtype)
+        result[start:start + take] = transformed[:take]
+        del packed, transformed
+    if result is None:
+        result = xpy.empty((count, out_length), dtype=np.complex128)
+    return result[:count].reshape(x.shape[:-1] + (out_length,))
+
+
+def is_gpu_resource_error(exc):
+    """Recognize GPU/library allocation failures without importing CuPy.
+
+    Some cuFFT errors contain neither 'CUDA' nor 'cuda'. Type provenance also
+    catches allocation exceptions whose message is just a byte count.
+    """
+    if isinstance(exc, MemoryError):
+        return True
+    for cls in type(exc).__mro__:
+        if cls.__module__.startswith(("cupy.cuda", "cupy_backends.cuda")):
+            return True
+    message = str(exc).lower()
+    return any(word in message for word in (
+        "cuda", "cufft", "cublas", "compilation", "out of memory",
+        "std::bad_alloc", "resource exhausted"))
 
 
 class _RetainedFFTUnsupported(RuntimeError):
@@ -455,9 +518,10 @@ def _reflected_upsample_for_integration(x, factor, plan_cache,
                                          transform_report, xpy=np):
     """Use the retained-grid transform, visibly falling back to the reference.
 
-    An optimization failure is not a waveform or likelihood failure.  Any
-    unsupported input or transform exception therefore retries the established
-    full-padding implementation and records why.  The likelihood callback is
+    Only an explicit unsupported capability retries the established full-padding
+    implementation. Resource and unexpected transform errors must propagate:
+    retrying a larger FFT can exhaust the device or crash its context.
+    The likelihood callback is
     deliberately outside this function, so its failures are never mislabeled or
     swallowed as FFT fallbacks.
     """
@@ -482,7 +546,7 @@ def _reflected_upsample_for_integration(x, factor, plan_cache,
         _record_transform(transform_report, "retained_fft", x.shape[0],
                           period, factor, plan)
         return out
-    except Exception as exc:
+    except _RetainedFFTUnsupported as exc:
         reason = "%s: %s" % (type(exc).__name__, str(exc))
         reasons = transform_report["full_fft_fallback_reasons"]
         reasons[reason] = reasons.get(reason, 0) + int(x.shape[0])

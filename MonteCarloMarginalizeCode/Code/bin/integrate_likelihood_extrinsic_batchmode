@@ -258,7 +258,7 @@ optp.add_option("-L", "--save-deltalnL", type=float, default=float("Inf"), help=
 optp.add_option("-P", "--save-P", type=float,default=0.1, help="Threshold on cumulative probability for points preserved in output file.  Requires --output-file to be defined")
 optp.add_option("--e-freq", type=int,default=1, help="Used specifically for TEOBResumS to define when eccentricity either at periapstron (0), average (1), o\r apastron (2) initial frequency")
 optp.add_option("--internal-hard-fail-on-error",action='store_true',help='If true, fails with exit code 1 if any point is unsuccessful')
-optp.add_option("--internal-soft-fail-on-cuda-error",action='store_true',help='If true, returns with exit code 0 on any CUDA error. Use with care (e.g., if many jobs failing)')
+optp.add_option("--internal-soft-fail-on-cuda-error",action='store_true',help='Legacy soft failure for unclassified CUDA errors. Recognized GPU/library/resource failures always abort the worker.')
 optp.add_option("--internal-make-empty-file-on-error",action='store_true',help='If true, failed points generate empty output file. Protects against OSG workflow problems')
 optp.add_option("--internal-waveform-fd-L-frame",action='store_true',help='If true, passes extra_waveform_kwargs = {fd_L_frame=True} to lalsimutils hlmoft. Impacts outputs of ChooseFDWaveform calls only.')
 optp.add_option("--internal-waveform-fd-no-condition",action='store_true',help='If true, adds extra_waveform_kwargs = {no_condition=True} to lalsimutils hlmoft. Impacts outputs of ChooseFDWaveform calls only. Provided to enable controlled tests of conditioning impact on PE')
@@ -1764,9 +1764,9 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
             use_external_EOB=opts.use_external_EOB,nr_lookup=opts.nr_lookup,nr_lookup_valid_groups=opts.nr_lookup_group,perturbative_extraction=opts.nr_perturbative_extraction,perturbative_extraction_full=opts.nr_perturbative_extraction_full,use_provided_strain=opts.nr_use_provided_strain,hybrid_use=opts.nr_hybrid_use,hybrid_method=opts.nr_hybrid_method,ROM_group=opts.rom_group,ROM_param=opts.rom_param,ROM_use_basis=opts.rom_use_basis,verbose=opts.verbose,quiet=not opts.verbose,ROM_limit_basis_size=opts.rom_limit_basis_size_to,no_memory=opts.no_memory,skip_interpolation=opts.vectorized, extra_waveform_kwargs=extra_waveform_kwargs)
 
     # skip nan ! Something horrible has happened
-    if np.isnan(guess_snr):
-      print("  --- NAN SNR GUESS, ABORTING THIS EVENT {} --".format(indx_event))
-      raise Exception(" NAN SNR ")
+    if not np.isfinite(guess_snr):
+      print("  --- NONFINITE SNR GUESS, SKIPPING THIS EVENT {} --".format(indx_event))
+      raise Exception(" NONFINITE SNR ")
 
     if opts.auto_logarithm_offset and guess_snr:
       # important: this only impacts *this* analysis
@@ -2239,8 +2239,10 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
 
     res, var, neff, dict_return = sampler.integrate(like_to_integrate, *unpinned_params, **pinned_params)
 
-    if not(res): # no resut
-      raise ValueError(" No integral result returned")
+    if res is None or not numpy.isfinite(res):
+      raise ValueError("Nonfinite integral result; skipping this event")
+    if not(opts.internal_use_lnL) and res <= 0:
+      raise ValueError("Nonpositive integral result; skipping this event")
 
     if not(opts.internal_use_lnL):
       log_res = numpy.log(res)
@@ -2248,6 +2250,14 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
     else:
       log_res = res
       sqrt_var_over_res =  numpy.exp(var/2 - log_res)
+
+    if not numpy.isfinite(log_res):
+      raise ValueError("Nonfinite log likelihood; skipping this event")
+
+    if (not numpy.isfinite(sqrt_var_over_res) or
+            not numpy.isfinite(log_res + manual_avoid_overflow_logarithm)):
+      raise ValueError("Nonfinite exported likelihood or uncertainty; skipping this event")
+
 
     # Report results
     if opts.output_file:
@@ -2550,6 +2560,8 @@ no_adapt_sky = False
 for indx in numpy.arange(len(P_list)):
  try:
   res = analyze_event(P_list, indx, data_dict, psd_dict, fmax, opts)
+  if res is None or not numpy.isfinite(res):
+    raise ValueError("Nonfinite event result; skipping this event")
   # abort if horrible (nan event) - done with 'raise'
   lnL_sofar = np.max([lnL_sofar,res])
   if opts.force_reset_all:  # depends on integrator!  May not always be availble
@@ -2576,6 +2588,10 @@ for indx in numpy.arange(len(P_list)):
       pinned_params.update({"force_no_adapt":True,"save_intg":False, "igrand_threshold_deltalnL":20})  # massively reduce memory usage in logic branch, don't save all. Highly redundant sequence to self-document all related logic branches
  except Exception as exception_failure:
   if isinstance(exception_failure, QTimePregridError):
+    raise
+  if factored_likelihood.time_quad.is_gpu_resource_error(exception_failure):
+    # A broken GPU context must never become a skipped intrinsic point or a
+    # successful empty product, including under legacy soft-failure options.
     raise
   print( "  ===> FAILED ANALYSIS <==== ")
   print( exception_failure)

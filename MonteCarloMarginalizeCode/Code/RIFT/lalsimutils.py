@@ -5823,6 +5823,7 @@ def convert_waveform_coordinates_with_eos(x_in,coord_names=['mc', 'eta'],low_lev
     A wrapper for ChooseWaveformParams() 's coordinate tools (extract_param, assign_param) providing array-formatted coordinate changes.  BE VERY CAREFUL, because coordinates may be defined inconsistently (e.g., holding different variables constant: M and eta, or mc and q)
     fref sets the reference frequency for frequency-dependent fit coordinates (including rf_*).
     """
+    from RIFT.physics.lalsim_eos_compat import evaluate_eos_lambda
     try:
         import RIFT.physics.EOSManager  as EOSManager # be careful to avoid recursive dependence!
     except:
@@ -5843,7 +5844,7 @@ def convert_waveform_coordinates_with_eos(x_in,coord_names=['mc', 'eta'],low_lev
         else:
           try:
             if P.m1 < eos_class.mMaxMsun:
-                P.lambda1 = eos_class.lambda_from_m(P.m1*lal.MSUN_SI)
+                P.lambda1 = evaluate_eos_lambda(eos_class, P.m1*lal.MSUN_SI, use_vector=False)
             else:
                 if rosDebugMessagesContainer[0]:
                     print( " Failed (safely) for ", P.m1)
@@ -5856,7 +5857,7 @@ def convert_waveform_coordinates_with_eos(x_in,coord_names=['mc', 'eta'],low_lev
         else:
           try:
             if P.m2 < eos_class.mMaxMsun:
-                P.lambda2 = eos_class.lambda_from_m(P.m2*lal.MSUN_SI)
+                P.lambda2 = evaluate_eos_lambda(eos_class, P.m2*lal.MSUN_SI, use_vector=False)
             else:
                 if rosDebugMessagesContainer[0]:
                     print( " Failed (safely) for ", P.m2)
@@ -5864,6 +5865,10 @@ def convert_waveform_coordinates_with_eos(x_in,coord_names=['mc', 'eta'],low_lev
           except:
 #              print " Failed for ", P.m2
               P.lambda2=-np.inf
+        if ((not no_matter1 and not np.isfinite(P.lambda1)) or
+                (not no_matter2 and not np.isfinite(P.lambda2))):
+            x_out[indx_out] = -np.inf
+            continue
         # Apply redshift: assume input is source-frame mass, convert m1 -> m1(1+z) = m1_z, as fit used detector frame
         P.m1 = P.m1*(1+source_redshift)
         P.m2 = P.m2*(1+source_redshift)
