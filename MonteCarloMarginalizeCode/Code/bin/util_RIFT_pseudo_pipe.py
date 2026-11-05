@@ -313,6 +313,7 @@ parser.add_argument("--manual-initial-grid",default=None,type=str,help="Filename
 parser.add_argument("--manual-initial-grid-supplements",action='store_true', help="Manual inital grid used to SUPPLEMENT output of the default helper grid.")
 parser.add_argument("--manual-extra-ile-args",default=None,type=str,help="Avenue to adjoin extra ILE arguments.  Needed for unusual configurations (e.g., if channel names are not being selected, etc)")
 parser.add_argument("--internal-ile-force-adapt-all",action='store_true', help="Syntactic sugar to prevent need to add manual-extra-ile-args for this: easier on user")
+parser.add_argument("--puff-periodic-mode", choices=["off", "gap", "mean"], default="off", help="Unwrap every native periodic puff coordinate before covariance estimation. gap cuts at the largest empty arc; mean cuts opposite the circular mean. Opt-in pending campaign backtests; effective eccentric phase retains its own chart.")
 parser.add_argument("--internal-puff-transverse",action='store_true', help=" appends the following arguments: --parameter phi1 --parameter phi2 --parameter chi1_perp_u --parameter chi2_perp_u ")
 parser.add_argument("--internal-puff-mu-random-transverse", action='store_true',
                     help="Opt-in BBH/BasicIteration: use mu1,mu2,q,s2z puff plus RANDOM transverse spins for the first CIP batch; later batches (including refinement subdags) use internal-puff-transverse covariance puff. Default: unchanged legacy puff.")
@@ -406,6 +407,12 @@ if opts.internal_ile_q_time_pregrid_factor is not None:
         opts.internal_ile_q_time_pregrid_factor,
         "--time-marginalization --vectorized --gpu " + (opts.manual_extra_ile_args or ""),
         "pipeline options before invoking the helper")
+
+if opts.puff_periodic_mode not in ('off', 'gap', 'mean'):
+    parser.error('--puff-periodic-mode must be off, gap, or mean')
+if opts.puff_periodic_mode != 'off' and opts.internal_use_amr:
+    parser.error('--puff-periodic-mode requires the covariance puff workflow, not AMR')
+
 
 # After the ini, which can set the mode.
 if eccentric_phase_pipeline.requested(opts):
@@ -1469,6 +1476,8 @@ with open("args_puff.txt",'w') as f:
             puff_args = puff_args.replace(unsafe_parse_arg_string(puff_args,'force-away')," --force-away {} ".format(str(opts.internal_use_force_away)))
         if not(opts.manual_extra_puff_args is None):
             puff_args += " {} ".format(opts.manual_extra_puff_args)  # embed with space on each side, avoid collisions
+        from RIFT.misc import periodic_puff_pipeline
+        puff_args = periodic_puff_pipeline.arguments(puff_args, opts.puff_periodic_mode)
         f.write("X " + puff_args)
 
 if opts.internal_puff_mu_random_transverse:

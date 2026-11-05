@@ -55,6 +55,8 @@ parser.add_argument("--eta-range",default=None,help="Eta range. Important if we 
 parser.add_argument("--mtot-range",default=None,help="Chirp mass range [mc1,mc2]. Important if we have a low-mass object, to avoid wasting time sampling elsewhere.")
 parser.add_argument("--downselect-parameter",action='append', help='Name of parameter to be used to eliminate grid points. Note mc-range, eta-range,mtot-range are syntactic sugar for this usage ')
 parser.add_argument("--downselect-parameter-range",action='append',type=str)
+parser.add_argument("--unwrap-parameter",action='append',type=str,help="Periodic parameter (must ALSO be given as a --parameter, and must be in lalsimutils.periodic_params, e.g. meanPerAno) to UNWRAP before the covariance is measured and the puff is drawn; the puffed values are wrapped back into [0,period) before export.  Without this, a posterior that straddles the 0/period seam has a spuriously huge raw variance and a wrong-sign correlation with the other parameters, so the puff is far too wide in this coordinate and points the wrong way along any ridge.  Repeatable.  Not combinable with --eccentric-phase-coordinates for meanPerAno (that mode already centers the angle).  Only meaningful if the samples leave an empty arc on the circle (a warning is printed if not).")
+parser.add_argument("--unwrap-center",default='gap',choices=['gap','mean'],help="Where to cut the circle when unwrapping.  'gap' (default): cut in the middle of the largest EMPTY arc of the samples (robust to multi-lobed or off-center samples).  'mean': center on the circular mean (cut opposite to it; fails for lobes spread around the circle).")
 parser.add_argument("--enforce-duration-bound",default=None,type=float,help="If present, enforce a duration bound. Used to prevent grid placement for obscenely long signals, when the window size is prescribed")
 parser.add_argument("--regularize",action='store_true',help="Add some ad-hoc terms based on priors, to help with nearly-singular matricies")
 from RIFT.misc import eccentric_phase_models
@@ -88,7 +90,7 @@ coord_names = opts.parameter # Used  in fit
 if opts.puff_coordinate_system:
     incompatible = [name for name in (
         'parameter', 'no_correlation', 'random_parameter',
-        'append_with_random_parameter', 'eccentric_phase_coordinates',
+        'append_with_random_parameter', 'eccentric_phase_coordinates', 'unwrap_parameter',
         'regularize', 'force_away', 'force_scatter', 'force_plunge', 'force_zoomwhirl')
         if getattr(opts, name, False)]
     if incompatible:
@@ -110,7 +112,11 @@ elif opts.mu_puff_n_proposals is not None or opts.mu_puff_transverse_max != 1.:
 if coord_names is None:
     if opts.reflect_parameter:
         parser.error('--reflect-parameter requires a --parameter coordinate')
+    if opts.unwrap_parameter:
+        parser.error('--unwrap-parameter requires --parameter')
     sys.exit(0)
+if opts.eccentric_phase_coordinates and ('meanPerAno' in (opts.unwrap_parameter or [])):
+    raise ValueError('--unwrap-parameter meanPerAno cannot be combined with --eccentric-phase-coordinates: that mode already centers the effective angle')
 if opts.eccentric_phase_coordinates:
     from RIFT.misc import eccentric_phase, eccentric_phase_puff
     if (coord_names.count('meanPerAno') != 1 or
@@ -189,6 +195,21 @@ if opts.reflect_parameter and not opts.puff_coordinate_system:
             parser.error('reflection requires finite increasing bounds: ' + name)
         explicit_reflect_ranges[name] = tuple(limits)
 
+# periodic parameters to unwrap before the covariance is measured: validate
+unwrap_dict = {}
+for name in (opts.unwrap_parameter or []):
+    if not(name in coord_names):
+        raise Exception(" --unwrap-parameter {} must also be specified as a --parameter ".format(name))
+    if not(name in lalsimutils.periodic_params):
+        raise Exception(" --unwrap-parameter {} is not periodic: lalsimutils.periodic_params has {} ".format(name, list(lalsimutils.periodic_params.keys())))
+    if coord_names.count(name) != 1:
+        parser.error('--unwrap-parameter requires a unique coordinate: ' + name)
+    if name in explicit_reflect_ranges:
+        parser.error('--unwrap-parameter cannot reflect the same angular coordinate: ' + name)
+    unwrap_dict[name] = lalsimutils.periodic_params[name]
+
+
+
 # Load data
 P_list = lalsimutils.xml_to_ChooseWaveformParams_array(opts.inj_file)
 
@@ -252,13 +273,30 @@ for indx, name  in enumerate(coord_names):
         print(" log transform for ", name)
         X[:,indx] = np.log(X[:,indx])
 
+# Unwrap periodic parameters, so that the covariance below is measured on ONE connected cloud
+#   rather than on a cloud split across the 0/period seam (which inflates the variance and flips the sign of correlations)
+for name, period in unwrap_dict.items():
+    indx = coord_names.index(name)
+    ang = np.mod(X[:,indx], period)
+    s_ang = np.sort(ang); gaps = np.diff(np.r_[s_ang, s_ang[0]+period]); k_gap = np.argmax(gaps)       # largest empty arc of the samples
+    resultant = np.abs(np.mean(np.exp(2j*np.pi*ang/period)))
+    if opts.unwrap_center == 'mean':
+        center = np.mod(np.angle(np.mean(np.exp(2j*np.pi*ang/period))), 2*np.pi)*period/(2*np.pi)    # circular mean
+    else:
+        center = np.mod(s_ang[k_gap] + gaps[k_gap]/2. + period/2., period)                          # cut in the middle of the largest empty arc
+    std_raw = np.std(ang)
+    X[:,indx] = center + (np.mod(ang - center + period/2., period) - period/2.)                       # now within +- period/2 of the center
+    print(" Unwrapped {} ({} rule): center {:.4f}, cut at {:.4f}, period {:.4f}; std {:.4f} -> {:.4f}; largest empty arc {:.3f}; mean resultant length {:.3f}".format(name, opts.unwrap_center, center, np.mod(center+period/2., period), period, std_raw, np.std(X[:,indx]), gaps[k_gap], resultant))
+    if gaps[k_gap] < period/6.:
+        print(" ===> WARNING: {} samples leave no large empty arc on the circle (largest empty arc {:.3f} < period/6): unwrapping is not meaningful here <=== ".format(name, gaps[k_gap]))
+
 # Measure covariance matrix and generate random errors
 if len(coord_names) >1:
     cov_in = np.cov(X.T)
     cov = cov_in*opts.puff_factor*opts.puff_factor
 
     # Check for singularities
-    if np.min(np.linalg.eig(cov)[0])<1e-10 and not (opts.eccentric_phase_coordinates and opts.puff_factor==0):
+    if np.min(np.linalg.eig(cov)[0])<1e-10 and not ((opts.eccentric_phase_coordinates or unwrap_dict) and opts.puff_factor==0):
         print(" ===> WARNING: SINGULAR MATRIX: are you sure you varied this parameters? <=== ")
         icov_pseudo = np.linalg.pinv(cov)
         # Prior range for each parameter is 1000, so icov diag terms are 10^(-6)
@@ -286,9 +324,12 @@ if len(coord_names) >1:
         X_out[:,indx_eta] = np.where(X_out[:,indx_eta] > 1/4, 1/2- X_out[:,indx_eta], X_out[:,indx_eta]) # reflection boundary condition, preserve points
         X_out[:,indx_eta] = np.where(X_out[:,indx_eta] < 0, -X_out[:,indx_eta], X_out[:,indx_eta]) # reflection on other side
 else:
-    sigma = np.std(X)
+    sigma = np.std(X) * (opts.puff_factor if unwrap_dict else 1.)
     cov = sigma*sigma
-    delta_X =np.random.normal(size=len(coord_names), scale=sigma)
+    cov_orig = np.atleast_2d(cov)
+    delta_X = np.random.normal(size=len(X) if unwrap_dict else len(coord_names), scale=sigma)
+    if unwrap_dict:
+        delta_X = delta_X[:, None]
     X_out = X+delta_X
     if 'eta' in coord_names and 'eta' not in explicit_reflect_ranges:
         indx_eta = coord_names.index('eta')
@@ -360,7 +401,21 @@ if opts.eccentric_phase_coordinates:
         x_out_down[:, names_downselect.index(name)] = x_cart[:, indx]
 else:
     X_native = X_out
-    x_out_down = lalsimutils.convert_waveform_coordinates(X_out, coord_names=names_downselect, low_level_coord_names=coord_names)
+    # Physical cuts use wrapped angles; keep the covariance chart for distances.
+    X_wrapped = X_out.copy()
+    for column, name in enumerate(coord_names):
+        if name in lalsimutils.periodic_params and name not in explicit_reflect_ranges:
+            X_wrapped[:, column] %= lalsimutils.periodic_params[name]
+    if unwrap_dict and len(coord_names) == 1:
+        # A lone angle does not supply masses to the vector converter. Preserve
+        # each parent's physical masses/spins when testing the default eta cut.
+        candidates = [p.copy() for p in P_list]
+        for p, row in zip(candidates, X_wrapped):
+            p.assign_param(coord_names[0], row[0])
+        x_out_down = np.array([[p.extract_param(name)/(lal.MSUN_SI if name in ['mc','m1','m2','mtot'] else 1.)
+                                for name in names_downselect] for p in candidates])
+    else:
+        x_out_down = lalsimutils.convert_waveform_coordinates(X_wrapped, coord_names=names_downselect, low_level_coord_names=coord_names)
 indx_ok = np.ones(len(x_out_down),dtype=bool)
 if opts.eccentric_phase_coordinates:
     indx_ok &= np.all(np.isfinite(X_native),axis=1)
@@ -413,8 +468,38 @@ P_list = list(itertools.compress(P_list, indx_ok))  # https://stackoverflow.com/
 #   - there are MUCH faster codes eg in scipy which should do this
 if opts.force_away > 0:
     icov= np.linalg.pinv(cov_orig)
+    periodic_columns = [coord_names.index(n) for n in unwrap_dict]
+    periodic_periods = list(unwrap_dict.values())
     if opts.eccentric_phase_coordinates:
-        Y = eccentric_phase_puff.minimum_periodic_distances(X,X_out,icov,phase_column)
+        periodic_columns += [phase_column]
+        periodic_periods += [2*np.pi]
+    # Covariance was measured before exponentiating tidal coordinates.
+    # Exclusion must use that same chart, not physical lambda values.
+    X_metric = X_out.copy()
+    if periodic_columns:
+        for column, name in enumerate(coord_names):
+            if name in log_coord_names:
+                X_metric[:, column] = np.log(X_metric[:, column])
+    if not np.any(icov):
+        # A zero-factor puff has zero distance to its parents. No angular
+        # inverse exists, but every proposal belongs to the exclusion set.
+        Y = np.zeros(len(X_out))
+    elif len(periodic_columns) > 1:
+        from RIFT.misc import periodic_puff
+        outside = periodic_puff.outside_neighborhood(
+            X, X_metric, icov, periodic_columns, periodic_periods, opts.force_away)
+        Y = np.where(outside, np.inf, 0.)
+    elif opts.eccentric_phase_coordinates:
+        Y = eccentric_phase_puff.minimum_periodic_distances(X,X_metric,icov,phase_column)
+    elif unwrap_dict:
+        from RIFT.misc import eccentric_phase_puff
+        name, period = next(iter(unwrap_dict.items()))
+        column = coord_names.index(name)
+        # Reuse the exact one-angle metric in its 2pi units.
+        factors = np.ones(len(coord_names))
+        factors[column] = 2*np.pi/period
+        Y = eccentric_phase_puff.minimum_periodic_distances(
+            X*factors, X_metric*factors, icov/np.outer(factors, factors), column)
     else:
         Y = np.min(scipy.spatial.distance.cdist(X,X_out, metric='mahalanobis',VI=icov),axis=0)
     Y_id = Y > opts.force_away
@@ -449,6 +534,12 @@ else:
     print(" The one dimensional width is", np.sqrt(cov_out))
 
 print(" The number of raw points is ", len(P_list))
+
+# Wrap unwrapped periodic parameters back into [0,period)  (the export loop below assigns from X_native)
+for name, period in unwrap_dict.items():
+    indx = coord_names.index(name)
+    X_out[:,indx] = np.mod(X_out[:,indx], period)
+    X_native[:,indx] = np.mod(X_native[:,indx], period)
 
 
 

@@ -11,4 +11,5 @@ python -m pytest -q \
     MonteCarloMarginalizeCode/Code/test/test_q_time_pregrid_rc11.py \
     MonteCarloMarginalizeCode/Code/test/test_q_time_pregrid_transport_rc11.py \
     MonteCarloMarginalizeCode/Code/test/test_native_integer_mass_ranges.py \
-    MonteCarloMarginalizeCode/Code/test/test_native_frame_cache.py
+    MonteCarloMarginalizeCode/Code/test/test_native_frame_cache.py \
+    MonteCarloMarginalizeCode/Code/test/test_pr249_puff.py
