@@ -4,6 +4,7 @@ from pathlib import Path
 import types
 import numpy as np
 import pytest
+from RIFT.likelihood import time_marginalization_quadrature as tq
 
 DRIVER = Path(__file__).resolve().parents[1]/"bin/integrate_likelihood_extrinsic_batchmode"
 
@@ -38,6 +39,7 @@ def test_waveform_failure_skips_point_and_keeps_neighbors(failure):
     opts = types.SimpleNamespace(**{name:False for name in option_names})
     points = [types.SimpleNamespace(print_params=lambda:None) for _ in range(3)]
     namespace = dict(np=np, numpy=np, P_list=points, opts=opts, analyze_event=waveform_seam,
+        factored_likelihood=types.SimpleNamespace(time_quad=tq),
         data_dict={}, psd_dict={}, fmax=1024., lnL_sofar=-np.inf,
         QTimePregridError=type('QTimePregridError', (Exception,), {}), mcsampler_AV_ok=False,
         sampler=types.SimpleNamespace(params=[]), _proposal_field=None,
@@ -48,8 +50,9 @@ def test_waveform_failure_skips_point_and_keeps_neighbors(failure):
     assert namespace['lnL_sofar'] == 12.
 
 
-@pytest.mark.parametrize("bad", [None, np.nan, np.inf])
-def test_nonfinite_analyze_event_return_does_not_poison_next_point(bad):
+@pytest.mark.parametrize("bad", [None, np.nan, np.inf,
+                               MemoryError('1234'), RuntimeError('CUFFT_INTERNAL_ERROR')])
+def test_analyze_event_nonfinite_return_skips_but_resource_error_stops(bad):
     tree = ast.parse(DRIVER.read_text())
     loop = next(node for node in tree.body if isinstance(node, ast.For) and
                 any(isinstance(call, ast.Call) and isinstance(call.func, ast.Name) and
@@ -57,17 +60,30 @@ def test_nonfinite_analyze_event_return_does_not_poison_next_point(bad):
     calls = []
     def backend(points, index, *args):
         calls.append(index)
+        if index == 1 and isinstance(bad, Exception):
+            raise bad
         return bad if index == 1 else 2.+index
     names = {node.attr for node in ast.walk(loop) if isinstance(node, ast.Attribute) and
              isinstance(node.value, ast.Name) and node.value.id == 'opts'}
     namespace = dict(np=np, numpy=np,
+        factored_likelihood=types.SimpleNamespace(time_quad=tq),
         P_list=[types.SimpleNamespace(print_params=lambda:None) for _ in range(3)],
         opts=types.SimpleNamespace(**{name:False for name in names}), analyze_event=backend,
         data_dict={}, psd_dict={}, fmax=1024., lnL_sofar=-np.inf,
         QTimePregridError=type('QTimePregridError', (Exception,), {}), mcsampler_AV_ok=False,
         sampler=types.SimpleNamespace(params=[]), _proposal_field=None,
         _clear_warm_state=lambda sampler:None, no_adapt_sky=False)
-    exec(compile(ast.Module(body=[loop], type_ignores=[]), str(DRIVER), 'exec'), namespace)
+    code = compile(ast.Module(body=[loop], type_ignores=[]), str(DRIVER), 'exec')
+    if isinstance(bad, Exception):
+        # Exercise the full loop with the real classifier: resource failures
+        # must propagate unchanged rather than publish or advance to point 2.
+        with pytest.raises(type(bad)) as caught:
+            exec(code, namespace)
+        assert caught.value is bad
+        assert calls == [0, 1]
+        assert namespace['lnL_sofar'] == 2.
+        return
+    exec(code, namespace)
     assert calls == [0, 1, 2]
     assert namespace['lnL_sofar'] == 4.
 
