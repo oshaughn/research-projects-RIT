@@ -10,6 +10,9 @@ on:
 jobs:
   end-to-end:
     runs-on: ubuntu-latest
+    env:
+      # Job-wide: later --upgrade installs must retain the qualified SGN API.
+      PIP_CONSTRAINT: ${{ github.workspace }}/.travis/rimsky-constraints.txt
     strategy:
       fail-fast: false
       matrix:
@@ -33,7 +36,9 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
           cache: 'pip'
-          cache-dependency-path: requirements.txt
+          cache-dependency-path: |
+            requirements.txt
+            .travis/rimsky-constraints.txt
       - name: Enable symlink
         run: sudo ln -sf $(which python3) /usr/bin/python
       - name: Install system dependencies
@@ -56,5 +61,14 @@ jobs:
           retry_pip_install --upgrade '${{ matrix.asimov-spec }}' 'bilby_pipe @ git+https://git.ligo.org/lscsoft/bilby_pipe.git@be6c77021db809690c781a7744f40564e62dd72f'
           python -m pip install pytest packaging --break-system-packages
           python -m pip install --editable . --no-deps --break-system-packages
+      - name: Verify Rimsky runtime imports
+        run: |
+          python - <<'PYTHON'
+          from importlib.metadata import version
+          for package in ("rimsky", "sgn-ligo", "sgn-ts", "asimov"):
+              print(f"{package}=={version(package)}")
+          from rimsky.settings import PipelineSettings
+          from rimsky.sinks.gdb_samples import start_asimov
+          PYTHON
       - name: Run Rimsky to RIFT end-to-end test
         run: python -m pytest -q MonteCarloMarginalizeCode/Code/test/test_rimsky_end_to_end.py

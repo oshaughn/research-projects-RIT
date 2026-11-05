@@ -90,15 +90,29 @@ def test_native_scalar_vector_projection_redshift_and_aliases():
         np.testing.assert_allclose(actual,expected,atol=3e-12)
 
 
-def test_cip_scalar_and_batch_likelihood_share_projection():
-    tree=ast.parse((ROOT/'bin/util_ConstructIntrinsicPosterior_GenericCoordinates.py').read_text())
-    block=next(n for n in tree.body if isinstance(n,ast.If) and ast.unparse(n.test)=='opts.eccentric_phase_coordinates' and any(isinstance(c,ast.FunctionDef) and c.name=='log_likelihood_function' for c in n.body))
-    ns={'np':np,'convert_coords':lambda x:np.column_stack((x,np.sin(x[:,0]))), 'my_fit':lambda x:np.sum(x,axis=1),'my_log_prior_scale':lambda x: np.zeros(len(x))}
-    for node in block.body: exec(compile(ast.Module(body=[node],type_ignores=[]),'cip-hook','exec'),ns)
-    scalar=ns['log_likelihood_function'](.2,.3)
-    batch=ns['log_likelihood_function'](np.array([.2,.4]),np.array([.3,.5]))
-    assert scalar[0] == batch[0]
-    assert scalar[0] == pytest.approx(.2+.3+np.sin(.2))
+@pytest.mark.parametrize('using_eos', [False, True])
+def test_cip_scalar_and_batch_likelihood_share_projection(using_eos):
+    from types import SimpleNamespace
+    tree = ast.parse((ROOT/'bin/util_ConstructIntrinsicPosterior_GenericCoordinates.py').read_text())
+    blocks = [n for n in tree.body if isinstance(n, ast.If)
+              and {'eccentric_phase_coordinates', 'using_eos'} <= {
+                  item.attr for item in ast.walk(n.test) if isinstance(item, ast.Attribute)}
+              and any(isinstance(c, ast.FunctionDef) and c.name == 'log_likelihood_function'
+                      for c in n.body)]
+    assert len(blocks) == 1, 'Expected one shared eccentric-phase/EOS likelihood dispatch'
+    ns = {'np': np, 'opts': SimpleNamespace(eccentric_phase_coordinates=not using_eos, using_eos=using_eos),
+          'convert_coords': lambda x: np.column_stack((x, np.sin(x[:,0]))),
+          'my_fit': lambda x: np.sum(x, axis=1),
+          'my_log_prior_scale': lambda x: np.zeros(len(x))}
+    # Execute the real predicate as well as its body: either opt-in must select
+    # this projection, while preserving the EOS scalar-return contract.
+    exec(compile(ast.Module(body=blocks, type_ignores=[]), 'cip-hook', 'exec'), ns)
+    scalar = ns['log_likelihood_function'](.2, .3)
+    batch = ns['log_likelihood_function'](np.array([.2,.4]), np.array([.3,.5]))
+    value = np.asarray(scalar).reshape(-1)[0]
+    assert np.ndim(scalar) == (0 if using_eos else 1)
+    assert value == batch[0]
+    assert value == pytest.approx(.2+.3+np.sin(.2))
 
 
 def test_cip_opt_in_layout_and_unsupported_modes():

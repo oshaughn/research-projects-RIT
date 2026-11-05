@@ -112,7 +112,8 @@ def test_eos_rf_training_matches_prediction(mode, z, frequency, entry):
                   if isinstance(n, ast.If) and ast.unparse(n.test) == 'not opts.using_eos'
                   and any(isinstance(b, ast.FunctionDef) and b.name == 'convert_coords' for b in n.orelse)]
         assert len(blocks) == 1
-        ns = dict(opts=SimpleNamespace(using_eos=True, fref=frequency, no_matter1=False,
+        ns = dict(np=np, my_fit=lambda rows: np.zeros(len(rows)),
+                  opts=SimpleNamespace(using_eos=True, fref=frequency, no_matter1=False,
                                       no_matter2=False, downselect_enforce_kerr=False),
                   lalsimutils=lsu, coord_names=names, low_level_coord_names=low,
                   my_eos=eos, source_redshift=z)
