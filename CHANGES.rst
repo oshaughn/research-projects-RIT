@@ -143,7 +143,20 @@ Development tree is rift_O4c.
     deprecated alias. Quadpuff uses retained rows, and symmetry exchange
     supplies the reference frequency required by the chart.
 
-Release candidate is rc13.
+  - (rc14) PR 251 propagates the reference frequency to EOS-dependent RF
+    implied coordinates. PR 253 supports released LALSuite 8 neutron-star
+    family APIs alongside legacy and development interfaces, rejects failed
+    EOS proposals without aborting CIP, and excludes nonfinite waveform and
+    likelihood results from ILE output. PR 257 bounds GPU FFT batch shapes
+    and allocations for Q-time refinement without changing time samples;
+    recognized GPU resource failures abort the worker instead of triggering
+    larger FFT fallbacks or producing successful empty output.
+    PR 258 adds opt-in native periodic-angle puffing with off/gap/mean
+    policies, ASIMOV and pipeline routing, periodic exclusion metrics and
+    diagnostics; the default remains off pending recovery validation.
+    Rimsky CI retains the qualified SGN 0.8 import API.
+
+Release candidate is rc14.
 
 0.0.17.13
 ---------
