@@ -139,7 +139,7 @@ def _calibration_waveform_arguments(argv):
     class _ArgumentParser(argparse.ArgumentParser):
         add = argparse.ArgumentParser.add_argument
     ns = {"argparse": types.SimpleNamespace(ArgumentParser=_ArgumentParser), "ast": ast,
-          "rift_source": rift_source}
+          "rift_source": rift_source, "rift_has_tides": False}
     exec(compile(ast.Module(body=parser_nodes, type_ignores=[]), str(CAL_EXE), "exec"), ns)
     ns["args"] = ns["parser"].parse_args(argv)
     ns["data"] = types.SimpleNamespace(meta_data={"command_line_args": {
