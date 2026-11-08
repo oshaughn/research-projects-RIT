@@ -277,6 +277,15 @@ lalIMRPhenomXPHM = getattr(lalsim, 'IMRPhenomXPHM', -17)
 lalIMRPhenomXO4a = getattr(lalsim, 'IMRPhenomXO4a', -18)
 lalIMRPhenomXPNR = getattr(lalsim, 'IMRPhenomXPNR', -19)
 
+def is_lalsimulation_approximant(name):
+    """Validate a waveform string with LALSimulation's strict parser."""
+    try:
+        lalsim.SimInspiralGetApproximantFromString(name)
+    except RuntimeError:
+        return False
+    return True
+
+
 pending_FD_approx = ['IMRPhenomXP_NRTidalv2','IMRPhenomXP_NRTidalv3']
 pending_approx_code = {}
 pending_default_code = -19
