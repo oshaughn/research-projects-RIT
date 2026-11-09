@@ -3662,11 +3662,16 @@ for indx_here in indx_list:
                 include_item = False
         elif my_eos:
             # only define lambda1, lambda2 as parameters if they are used in sampling! Otherwise may cause problems (e.g.,we are assuming it is zero for a BH)
+            # Failure policy: an EOS evaluation that raises or is nonfinite (e.g. a mass
+            # outside a --using-eos-branch branch) drops this sample instead of crashing.
+            from RIFT.physics.lalsim_eos_compat import evaluate_eos_lambda
             if not(opts.assume_eos_but_primary_bh):
-                Pgrid.lambda1 = my_eos.lambda_from_m(Pgrid.m1/lal.MSUN_SI)
+                Pgrid.lambda1 = evaluate_eos_lambda(my_eos, Pgrid.m1/lal.MSUN_SI, use_vector=False)
             else:
                 Pgrid.lambda1 = 0 # BH
-            Pgrid.lambda2 = my_eos.lambda_from_m(Pgrid.m2/lal.MSUN_SI)
+            Pgrid.lambda2 = evaluate_eos_lambda(my_eos, Pgrid.m2/lal.MSUN_SI, use_vector=False)
+            if not (np.isfinite(Pgrid.lambda1) and np.isfinite(Pgrid.lambda2)):
+                include_item = False
         elif opts.tabular_eos_file:
             # save the index of the SORTED SIMULATION (because that's how I'll be accessing it!)
             eos_indx_here = my_eos_sequence.lookup_closest(samples['ordering'][indx_here])

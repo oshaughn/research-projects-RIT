@@ -186,22 +186,28 @@ def test_no_matter_component_has_unit_weight():
     np.testing.assert_array_equal(br, [[eos_affine.NO_BRANCH, 1]])
 
 
+class FakeMultibranchLalsim:
+    """Reviewed-multibranch lalsim API: branches [1.0, 2.0] and [1.3, 3.0] Msun."""
+    bounds = tuple((a * lal.MSUN_SI, b * lal.MSUN_SI) for a, b in ((1.0, 2.0), (1.3, 3.0)))
+    def SimNeutronStarEOSFromFilePhaseTransition(self, fname): return "eos"
+    def CreateSimNeutronStarFamilyPT(self, eos, min_fam): return "fam"
+    def SimNeutronStarFamNumberOfBranches(self, fam): return 2
+    def SimNeutronStarFamBranchMinMass(self, b, fam): return self.bounds[b][0]
+    def SimNeutronStarFamBranchMaxMass(self, b, fam): return self.bounds[b][1]
+    def SimNeutronStarFamBranchRadius(self, m, b, fam): return (12e3, 9e3)[b]
+    def SimNeutronStarFamBranchLoveNumberK2(self, m, b, fam): return (0.1, 0.05)[b]
+    def SimNeutronStarFamBranchCentralPressure(self, m, b, fam): return 1.
+
+
+def _lal_twin(monkeypatch):
+    from RIFT.physics import EOSManager
+    monkeypatch.setattr(EOSManager, "lalsim", FakeMultibranchLalsim())
+    return EOSManager.EOSLALSimulationFromFile("twin.dat", phase_transition_aware=True)
+
+
 def test_real_eosmanager_multibranch_family(monkeypatch):
     """EOSConcrete + fake reviewed-multibranch lalsim: the surface central mode uses."""
-    from RIFT.physics import EOSManager
-
-    class Lalsim:
-        bounds = tuple((a * lal.MSUN_SI, b * lal.MSUN_SI) for a, b in ((1.0, 2.0), (1.3, 3.0)))
-        def SimNeutronStarEOSFromFilePhaseTransition(self, fname): return "eos"
-        def CreateSimNeutronStarFamilyPT(self, eos, min_fam): return "fam"
-        def SimNeutronStarFamNumberOfBranches(self, fam): return 2
-        def SimNeutronStarFamBranchMinMass(self, b, fam): return self.bounds[b][0]
-        def SimNeutronStarFamBranchMaxMass(self, b, fam): return self.bounds[b][1]
-        def SimNeutronStarFamBranchRadius(self, m, b, fam): return (12e3, 9e3)[b]
-        def SimNeutronStarFamBranchLoveNumberK2(self, m, b, fam): return (0.1, 0.05)[b]
-        def SimNeutronStarFamBranchCentralPressure(self, m, b, fam): return 1.
-    monkeypatch.setattr(EOSManager, "lalsim", Lalsim())
-    eos = EOSManager.EOSLALSimulationFromFile("twin.dat", phase_transition_aware=True)
+    eos = _lal_twin(monkeypatch)
     assert eos_affine.require_branch_surface(eos) == pytest.approx(3.0)
     x_out, log_w, br = _central(eos, [[1.5, 1.2], [1.5, 1.2], [2.5, 0.9]], [[.2, .2], [.7, .2], [.5, .5]],
                                 coord_names=("lambda1", "lambda2"))
@@ -210,6 +216,48 @@ def test_real_eosmanager_multibranch_family(monkeypatch):
     assert x_out[1, 0] < x_out[0, 0]   # the compact branch has the smaller Lambda
     np.testing.assert_allclose(x_out[0, 0], eos.lambda_from_m(1.5, branch_id=0))
     assert np.isneginf(x_out[2]).all()   # 0.9 Msun lies below every branch
+
+
+def _driver_export_loop(eos, m, u=None, central=False):
+    """Run the driver's sample-export loop on given (m1, m2) samples in Msun."""
+    tree = ast.parse(open(DRIVER).read())
+    loop = next(n for n in tree.body if isinstance(n, ast.For) and isinstance(n.target, ast.Name)
+                and n.target.id == "indx_here")
+    samples = {"m1": m[:, 0], "m2": m[:, 1], "integrand": np.zeros(len(m))}
+    if central:
+        samples.update(zip(eos_affine.CENTRAL_AUX_NAMES, u.T))
+    P = lalsimutils.ChooseWaveformParams()
+    ns = dict(np=np, lal=lal, samples=samples, indx_list=np.arange(len(m)), low_level_coord_names=["m1", "m2"],
+              P=P, my_eos=eos, downselect_dict={}, P_list=[], kept_indx_list=[], lnL_list=[], eos_branch_list=[],
+              eos_affine=eos_affine, eos_affine_central=central, source_redshift=0.,
+              eos_affine_m_max_all=eos_affine.all_branch_max_mass_msun(eos) if central else None,
+              opts=types.SimpleNamespace(fref=20., assume_eos_but_primary_bh=False, tabular_eos_file=None,
+                                         no_matter1=False, no_matter2=False, verbose=False, amplitude_order=-1,
+                                         phase_order=7, fixed_parameter=None, internal_use_lnL=True))
+    exec(compile(ast.Module(body=[loop], type_ignores=[]), DRIVER, "exec"), ns)
+    return ns
+
+
+def test_using_eos_branch_mass_below_branch_is_rejected_not_fatal(monkeypatch):
+    """--using-eos-branch view raises below its branch minimum: integrand and export reject."""
+    eos = _lal_twin(monkeypatch)
+    view = eos.for_branch(1)   # [1.3, 3.0] Msun
+    m = np.array([[2.0, 1.5], [2.0, 1.1], [1.8, 1.4], [1.2, 1.0]])
+    with pytest.raises(ValueError):
+        view.lambda_from_m(1.1)
+    x_out = lalsimutils.convert_waveform_coordinates_with_eos(
+        m, coord_names=["lambda1", "lambda2"], low_level_coord_names=["m1", "m2"], eos_class=view)
+    np.testing.assert_array_equal(np.all(np.isfinite(x_out), axis=1), [True, False, True, False])
+    ns = _driver_export_loop(view, m)
+    assert ns["kept_indx_list"] == [0, 2]
+    for P, row, x in zip(ns["P_list"], m[[0, 2]], x_out[[0, 2]]):
+        assert P.m1 / lal.MSUN_SI == pytest.approx(row[0])
+        assert [P.lambda1, P.lambda2] == pytest.approx(list(x))
+    # Central export on the full EOS keeps every sample with a branch for both stars.
+    u = np.full((4, 2), 0.9)
+    nc = _driver_export_loop(eos, m, u, central=True)
+    assert nc["kept_indx_list"] == [0, 1, 2, 3]
+    np.testing.assert_array_equal(nc["eos_branch_list"], [[1, 1, 2, 2], [1, 0, 2, 1], [1, 1, 2, 2], [0, 0, 1, 1]])
 
 
 # --------------------------------------------- evidence through RIFT samplers
@@ -536,6 +584,13 @@ def test_nmbseq_driver_end_to_end_central(tmp_path):
                                 cwd=tmp_path, env=env, capture_output=True, text=True, timeout=300)
         assert result.returncode == 0, result.stdout[-3000:] + result.stderr[-3000:]
         lnz[mode] = float(np.loadtxt(tmp_path / ("res_" + mode + ".dat")))
+    # One chosen branch: many data points lie below branch 1's minimum mass (1.85 Msun).
+    result = subprocess.run(common + ["--using-eos-branch", "1", "--fname-output-integral", "res_b1",
+                                      "--fname-output-samples", "samp_b1"],
+                            cwd=tmp_path, env=env, capture_output=True, text=True, timeout=300)
+    assert result.returncode == 0, result.stdout[-3000:] + result.stderr[-3000:]
+    for P in lalsimutils.xml_to_ChooseWaveformParams_array(str(tmp_path / "samp_b1.xml.gz")):
+        assert min(P.m1, P.m2) / lal.MSUN_SI >= 1.84
     B = np.atleast_2d(np.loadtxt(tmp_path / "samp_central_eos_branch.dat", dtype=int))
     assert (B[:, :2] == 1).any()
     assert not (tmp_path / "samp_mass_eos_branch.dat").exists()
