@@ -775,9 +775,11 @@ if not('chi2' in downselect_dict):
 if opts.input_tides:
     # only insert these cuts if we are using a composite file with tides!
     # do not downselect if lambda1 is not in ! allows NSBH
-    if not('lambda1' in downselect_dict) and 'lambda1' in opts.parameter:
+    # A fixed EOS assigns zero tides to matter-free components. Keep explicit cuts.
+    if ('lambda1' not in downselect_dict and 'lambda1' in opts.parameter
+            and not (my_eos and (opts.no_matter1 or opts.assume_eos_but_primary_bh))):
         downselect_dict['lambda1'] = [lambda_min,lambda_max]
-    if not('lambda2' in downselect_dict):
+    if 'lambda2' not in downselect_dict and not (my_eos and opts.no_matter2):
         downselect_dict['lambda2'] = [lambda_min,lambda_small_max]
 for param in ['s1z', 's2z', 's1x','s2x', 's1y', 's2y']:
     downselect_dict[param] = [-chi_max,chi_max]
@@ -3603,12 +3605,13 @@ for indx_here in indx_list:
         # Test for downselect
         # Perform tabular EOS calculations: compute reference index, lambda1, lambda2
         if my_eos:
-            # only define lambda1, lambda2 as parameters if they are used in sampling! Otherwise may cause problems (e.g.,we are assuming it is zero for a BH)
-            if not(opts.assume_eos_but_primary_bh):
-                Pgrid.lambda1 = my_eos.lambda_from_m(Pgrid.m1/lal.MSUN_SI)
-            else:
-                Pgrid.lambda1 = 0 # BH
-            Pgrid.lambda2 = my_eos.lambda_from_m(Pgrid.m2/lal.MSUN_SI)
+            from RIFT.physics.lalsim_eos_compat import evaluate_eos_lambda
+            Pgrid.lambda1 = (0. if (opts.no_matter1 or opts.assume_eos_but_primary_bh)
+                             else evaluate_eos_lambda(my_eos, Pgrid.m1/lal.MSUN_SI, use_vector=False))
+            Pgrid.lambda2 = (0. if opts.no_matter2
+                             else evaluate_eos_lambda(my_eos, Pgrid.m2/lal.MSUN_SI, use_vector=False))
+            if not (np.isfinite(Pgrid.lambda1) and np.isfinite(Pgrid.lambda2)):
+                include_item = False
         elif opts.tabular_eos_file:
             # save the index of the SORTED SIMULATION (because that's how I'll be accessing it!)
             eos_indx_here = my_eos_sequence.lookup_closest(samples['ordering'][indx_here])
