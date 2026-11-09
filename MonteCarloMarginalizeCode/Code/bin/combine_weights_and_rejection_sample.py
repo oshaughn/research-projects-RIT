@@ -1,18 +1,21 @@
 #! /usr/bin/env python
 """
-Code to load and combine all the  weights and then rejection sample the results
+Combine calibration weights and rejection-sample the posterior.
+
+When the worker uses --use_rift_samples True on a JSON posterior, pass
+--use-rift-samples here too. RIFT and native Bilby JSON can use identical
+column names. Old RIFT tidal batches must be recomputed in the corrected
+tidal_weights namespace before they can be combined.
 """
 
+import argparse
 import os
-import sys
 
 import numpy as np
 import pandas as pd
-import pickle
 from glob import glob
 
 import bilby
-import bilby_pipe
 
 def sortKeyFunc(s):
     file = s.split('/')[-1]
@@ -22,7 +25,7 @@ def sortKeyFunc(s):
 def name_to_key(s):
     file= os.path.basename(s)
     #print(s, file)
-    return file.replace('.','_').split('_')[1]
+    return file.split('.', 1)[0].rsplit('_', 1)[-1]
 def key_to_bounds(key):
     start_str,end_str = key.replace('s','').split('e')
     return [int(start_str),int(end_str)]
@@ -47,27 +50,97 @@ def check_valid_import(fname,size=None):
         return False
     return True
 
-# load in the arguments
-sample_file = sys.argv[1]
-weights_file_directory = sys.argv[2]
-allow_alternate=False
-allow_duplicates = False
-if len(sys.argv) > 3:   # if 3 arguments passed, target the effective sample size as output size
-    allow_alternate=True
-if len(sys.argv) > 4:
-    allow_duplicates=True
+def is_rift_tidal_text(filename):
+    if os.path.splitext(filename)[1] not in (".dat", ".txt"):
+        return False
+    names = set(np.genfromtxt(filename, names=True, max_rows=1).dtype.names or ())
+    return {"m1", "m2", "lnL", "ps"}.issubset(names) and bool(
+        names.intersection({"lambda1", "lambda2", "lambda_1", "lambda_2"}))
+
+
+def load_input_posterior(filename):
+    extension = os.path.splitext(filename)[1]
+    if extension == ".json":
+        return bilby.core.result.read_in_result(filename)
+    if extension not in (".txt", ".dat"):
+        raise ValueError(f"Unknown posterior format: {extension}")
+    result = bilby.core.result.Result()
+    result.posterior = pd.DataFrame(np.genfromtxt(filename, names=True, ndmin=1))
+    result.meta_data = {}
+    return result
+
+
+def tidal_batch_ranges(paths, legacy_paths):
+    ranges = [key_to_bounds(name_to_key(path)) for path in paths]
+    prefix_end = 0
+    for start, end in ranges:
+        if start != prefix_end or end <= start:
+            raise ValueError("Tidal batch ranges must form a contiguous prefix of the posterior")
+        prefix_end = end
+    for path in legacy_paths:
+        _, end = key_to_bounds(name_to_key(path))
+        if end > prefix_end:
+            raise ValueError("Legacy calibration ranges remain without corrected tidal weights. "
+                             "Regenerate the remaining tidal calibration batches.")
+    return ranges
+
+
+parser = argparse.ArgumentParser(description=__doc__, allow_abbrev=False)
+parser.add_argument("sample_file")
+parser.add_argument("weights_file_directory")
+parser.add_argument("--use-rift-samples", action="store_true",
+                    help="Require corrected tidal weights when reweighting JSON with the RIFT source model.")
+parser.add_argument("resampling_args", nargs="*",
+                    help="One positional token targets ESS; two allow sampling with replacement.")
+args = parser.parse_intermixed_args()
+sample_file = args.sample_file
+weights_file_directory = args.weights_file_directory
+allow_alternate = bool(args.resampling_args)
+allow_duplicates = len(args.resampling_args) > 1
 
 outdir = os.path.dirname(os.path.abspath(sample_file))
 
-# test if cal samples are present,and of the correct length of filesa
-fnames_extended_post = list(glob(weights_file_directory+"/weights*extended_posterior"))
-fnames_weights = list(glob(weights_file_directory+"/weights*dat"))
-have_extended = len(fnames_extended_post)>0
-indx_result_to_downselect=None
-k_low, k_high  = key_to_bounds(name_to_key(fnames_weights[0]))
-n_stride = k_high - k_low # HARDCODE COMMON SIZE
+legacy_weights = glob(os.path.join(weights_file_directory, "weights*dat"))
+tidal_weights = glob(os.path.join(weights_file_directory, "tidal_weights_s*e*.dat"))
+input_result = None
+if os.path.splitext(sample_file)[1] == ".json":
+    if args.use_rift_samples:
+        input_result = load_input_posterior(sample_file)
+        tidal_columns = {"lambda_1", "lambda_2"}
+        present_tides = tidal_columns.intersection(input_result.posterior.columns)
+        if present_tides and present_tides != tidal_columns:
+            parser.error("RIFT JSON requires both component tidal columns or neither.")
+        use_tidal_batches = bool(present_tides)
+    else:
+        if tidal_weights and not legacy_weights:
+            parser.error("Corrected RIFT JSON weights require --use-rift-samples.")
+        use_tidal_batches = False
+else:
+    use_tidal_batches = bool(tidal_weights) or is_rift_tidal_text(sample_file)
+if use_tidal_batches:
+    if not tidal_weights:
+        raise ValueError("No corrected tidal weights found. Regenerate the tidal calibration batches.")
+    fnames_weights = sorted(tidal_weights, key=lambda path: key_to_bounds(name_to_key(path)))
+    ranges = tidal_batch_ranges(fnames_weights, legacy_weights)
+    if input_result is None:
+        input_result = load_input_posterior(sample_file)
+    if ranges[-1][1] > len(input_result.posterior):
+        raise ValueError("Tidal batch range exceeds the input posterior")
+    expected_extended = [os.path.splitext(path)[0] + ".extended_posterior" for path in fnames_weights]
+    fnames_extended_post = [path for path in expected_extended if os.path.isfile(path)]
+else:
+    fnames_weights = legacy_weights
+    fnames_extended_post = glob(os.path.join(weights_file_directory, "weights*extended_posterior"))
 
-if have_extended:
+have_extended = bool(fnames_extended_post)
+indx_result_to_downselect = None
+if have_extended and use_tidal_batches:
+    for path, (start, end) in zip(expected_extended, ranges):
+        if not check_valid_import(path, size=end - start):
+            raise ValueError(f"Missing or incomplete extended tidal posterior for rows {start}:{end}")
+elif have_extended:
+    k_low, k_high = key_to_bounds(name_to_key(fnames_weights[0]))
+    n_stride = k_high - k_low  # Legacy batches assume a common size.
     # perform safety check, downselect
     keys_weights = [name_to_key(s) for s in fnames_weights] # key list
     keys_post = [name_to_key(s) for s in fnames_extended_post if check_valid_import(s,size=n_stride)] # key list
@@ -115,14 +188,9 @@ if have_extended and len(fnames_extended_post) ==len(fnames_weights):
         result.posterior= result.posterior[indx_result_to_downselect] # force order change/downselect to match the files we really have
     result.meta_data = {}
 else:
-    # Load the sample file. Note we are reading from a file that has the same entries as the extrinsic samples
-    if sample_file.split(".")[-1] == 'json':
-        result = bilby.core.result.read_in_result(sample_file)
-    elif (sample_file.split(".")[-1] == 'txt') or (sample_file.split(".")[-1] == 'dat'):
-        result = bilby.core.result.Result()
-        result.posterior = pd.DataFrame(np.genfromtxt(sample_file, names=True))
-        result.posterior = result.posterior
-        result.meta_data = {}
+    result = input_result if input_result is not None else load_input_posterior(sample_file)
+    if use_tidal_batches:
+        result.posterior = result.posterior.iloc[:ranges[-1][1]].reset_index(drop=True)
 
 # create the weight list
 weights_individual_list = []
@@ -130,10 +198,21 @@ weights_individual_list = []
 #weight_files.sort(key=sortKeyFunc)
 weight_files = fnames_weights
 
-for weight_file in weight_files:
-    weights_individual_list.append(np.atleast_1d(np.genfromtxt(weight_file)))
+for index, weight_file in enumerate(weight_files):
+    if use_tidal_batches:
+        start, end = ranges[index]
+        batch_weights = np.loadtxt(weight_file, ndmin=2)
+        if batch_weights.shape != (end - start, 1):
+            raise ValueError(f"Incomplete tidal weights for rows {start}:{end}")
+        if not np.all(np.isfinite(batch_weights) & (batch_weights >= 0)):
+            raise ValueError(f"Invalid tidal weights for rows {start}:{end}")
+        weights_individual_list.append(batch_weights[:, 0])
+    else:
+        weights_individual_list.append(np.atleast_1d(np.genfromtxt(weight_file)))
 
 weights = np.concatenate(weights_individual_list)
+if use_tidal_batches and not np.any(weights > 0):
+    raise ValueError("No positive tidal calibration weights")
 np.savetxt(f'{outdir}/weights.dat', weights)
 
 # Truncate samples to weight size, if larger

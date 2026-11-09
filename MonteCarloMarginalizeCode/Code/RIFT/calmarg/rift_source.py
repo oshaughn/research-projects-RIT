@@ -149,7 +149,7 @@ def RIFT_lal_binary_black_hole_orig(
 
 def RIFT_lal_binary_black_hole(
         frequency_array, mass_1, mass_2, luminosity_distance, spin_1x, spin_1y, spin_1z,
-        spin_2x, spin_2y, spin_2z,iota, phase, **kwargs):
+        spin_2x, spin_2y, spin_2z,iota, phase, *, lambda_1=0., lambda_2=0., **kwargs):
 
     waveform_kwargs = dict(
         waveform_approximant='SEOBNRv4PHM', reference_frequency=15.0,
@@ -178,6 +178,8 @@ def RIFT_lal_binary_black_hole(
     P.m2 = mass_2 * lal.MSUN_SI
     P.s1x = float(spin_1x); P.s1y = float(spin_1y); P.s1z = float(spin_1z)
     P.s2x = float(spin_2x); P.s2y = float(spin_2y); P.s2z = float(spin_2z)
+    P.lambda1 = float(lambda_1)
+    P.lambda2 = float(lambda_2)
     P.deltaT = 1./(sampling_frequency)
 
     P.fmin = float(minimum_frequency)
@@ -237,7 +239,8 @@ def RIFT_lal_binary_black_hole(
 
 def RIFT_lal_eccentric_binary_black_hole(
         frequency_array, mass_1, mass_2, luminosity_distance, spin_1x, spin_1y, spin_1z,
-        spin_2x, spin_2y, spin_2z,iota, phase, eccentricity, mean_per_ano, **kwargs):
+        spin_2x, spin_2y, spin_2z,iota, phase, eccentricity, mean_per_ano, *,
+        lambda_1=0., lambda_2=0., **kwargs):
 
     waveform_kwargs = dict(
         waveform_approximant='SEOBNRv4PHM', reference_frequency=15.0,
@@ -268,6 +271,8 @@ def RIFT_lal_eccentric_binary_black_hole(
     P.s2x = float(spin_2x); P.s2y = float(spin_2y); P.s2z = float(spin_2z)
     P.eccentricity = float(eccentricity)
     P.meanPerAno = float(mean_per_ano)
+    P.lambda1 = float(lambda_1)
+    P.lambda2 = float(lambda_2)
     P.deltaT = 1./(sampling_frequency)
 
     P.fmin = float(minimum_frequency)
@@ -324,6 +329,26 @@ def RIFT_lal_eccentric_binary_black_hole(
         # Backstop waveform generator. Includes all L modes. Use cases where waveforms are J-frame calculations for hlm.
         hT = lalsimutils.complex_hoft(P)
     return _polarizations_from_complex_time_series(hT, frequency_array)
+
+
+def RIFT_lal_tidal_binary(
+        frequency_array, mass_1, mass_2, luminosity_distance, spin_1x, spin_1y, spin_1z,
+        spin_2x, spin_2y, spin_2z, iota, phase, lambda_1, lambda_2, **kwargs):
+    """Expose both component tides to Bilby's positional-parameter discovery."""
+    return RIFT_lal_binary_black_hole(
+        frequency_array, mass_1, mass_2, luminosity_distance, spin_1x, spin_1y, spin_1z,
+        spin_2x, spin_2y, spin_2z, iota, phase, lambda_1=lambda_1, lambda_2=lambda_2, **kwargs)
+
+
+def RIFT_lal_eccentric_tidal_binary(
+        frequency_array, mass_1, mass_2, luminosity_distance, spin_1x, spin_1y, spin_1z,
+        spin_2x, spin_2y, spin_2z, iota, phase, eccentricity, mean_per_ano,
+        lambda_1, lambda_2, **kwargs):
+    """Expose eccentricity, mean anomaly and both component tides to Bilby."""
+    return RIFT_lal_eccentric_binary_black_hole(
+        frequency_array, mass_1, mass_2, luminosity_distance, spin_1x, spin_1y, spin_1z,
+        spin_2x, spin_2y, spin_2z, iota, phase, eccentricity, mean_per_ano,
+        lambda_1=lambda_1, lambda_2=lambda_2, **kwargs)
 
 
 if __name__ == '__main__':
