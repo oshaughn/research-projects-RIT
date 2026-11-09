@@ -1,10 +1,15 @@
 #! /usr/bin/env python
 """
-Code to load and combine all the  weights and then rejection sample the results
+Combine calibration weights and rejection-sample the posterior.
+
+When the worker uses --use_rift_samples True on a JSON posterior, pass
+--use-rift-samples here too. RIFT and native Bilby JSON can use identical
+column names. Old RIFT tidal batches must be recomputed in the corrected
+tidal_weights namespace before they can be combined.
 """
 
+import argparse
 import os
-import sys
 
 import numpy as np
 import pandas as pd
@@ -80,27 +85,45 @@ def tidal_batch_ranges(paths, legacy_paths):
     return ranges
 
 
-# load in the arguments
-sample_file = sys.argv[1]
-weights_file_directory = sys.argv[2]
-allow_alternate=False
-allow_duplicates = False
-if len(sys.argv) > 3:   # if 3 arguments passed, target the effective sample size as output size
-    allow_alternate=True
-if len(sys.argv) > 4:
-    allow_duplicates=True
+parser = argparse.ArgumentParser(description=__doc__, allow_abbrev=False)
+parser.add_argument("sample_file")
+parser.add_argument("weights_file_directory")
+parser.add_argument("--use-rift-samples", action="store_true",
+                    help="Require corrected tidal weights when reweighting JSON with the RIFT source model.")
+parser.add_argument("resampling_args", nargs="*",
+                    help="One positional token targets ESS; two allow sampling with replacement.")
+args = parser.parse_intermixed_args()
+sample_file = args.sample_file
+weights_file_directory = args.weights_file_directory
+allow_alternate = bool(args.resampling_args)
+allow_duplicates = len(args.resampling_args) > 1
 
 outdir = os.path.dirname(os.path.abspath(sample_file))
 
 legacy_weights = glob(os.path.join(weights_file_directory, "weights*dat"))
 tidal_weights = glob(os.path.join(weights_file_directory, "tidal_weights_s*e*.dat"))
-use_tidal_batches = bool(tidal_weights) or is_rift_tidal_text(sample_file)
+input_result = None
+if os.path.splitext(sample_file)[1] == ".json":
+    if args.use_rift_samples:
+        input_result = load_input_posterior(sample_file)
+        tidal_columns = {"lambda_1", "lambda_2"}
+        present_tides = tidal_columns.intersection(input_result.posterior.columns)
+        if present_tides and present_tides != tidal_columns:
+            parser.error("RIFT JSON requires both component tidal columns or neither.")
+        use_tidal_batches = bool(present_tides)
+    else:
+        if tidal_weights and not legacy_weights:
+            parser.error("Corrected RIFT JSON weights require --use-rift-samples.")
+        use_tidal_batches = False
+else:
+    use_tidal_batches = bool(tidal_weights) or is_rift_tidal_text(sample_file)
 if use_tidal_batches:
     if not tidal_weights:
         raise ValueError("No corrected tidal weights found. Regenerate the tidal calibration batches.")
     fnames_weights = sorted(tidal_weights, key=lambda path: key_to_bounds(name_to_key(path)))
     ranges = tidal_batch_ranges(fnames_weights, legacy_weights)
-    input_result = load_input_posterior(sample_file)
+    if input_result is None:
+        input_result = load_input_posterior(sample_file)
     if ranges[-1][1] > len(input_result.posterior):
         raise ValueError("Tidal batch range exceeds the input posterior")
     expected_extended = [os.path.splitext(path)[0] + ".extended_posterior" for path in fnames_weights]
@@ -165,7 +188,7 @@ if have_extended and len(fnames_extended_post) ==len(fnames_weights):
         result.posterior= result.posterior[indx_result_to_downselect] # force order change/downselect to match the files we really have
     result.meta_data = {}
 else:
-    result = input_result if use_tidal_batches else load_input_posterior(sample_file)
+    result = input_result if input_result is not None else load_input_posterior(sample_file)
     if use_tidal_batches:
         result.posterior = result.posterior.iloc[:ranges[-1][1]].reset_index(drop=True)
 

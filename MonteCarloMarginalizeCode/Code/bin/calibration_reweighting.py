@@ -216,7 +216,8 @@ parser.add(
     help="Half-Interval over which the time marginalization is undertaken")
 parser.add(
     "--use_rift_samples", type=bool, default=False,
-    help="Uses a different waveform function if using RIFT samples. This matches the phase definitions in RIFT")
+    help="Use the RIFT waveform and phase conventions. For JSON batches, also pass "
+         "--use-rift-samples to combine_weights_and_rejection_sample.py.")
 parser.add(
     "--h_method", type=str, default='hlmoft',
     help="For RIFT, uses two different options for h(t) reconstruction ")
@@ -261,6 +262,8 @@ if args.posterior_sample_file.split(".")[-1] == 'json':
         if end_index > len(result.posterior):
             end_index = len(result.posterior)
     result.posterior = result.posterior.iloc[start_index:end_index].reset_index(drop=True)
+    if args.use_rift_samples and 'geocent_time' in result.posterior:
+        rift_time_samples = result.posterior['geocent_time'].to_numpy(copy=True)
 elif (args.posterior_sample_file.split(".")[-1] == 'txt') or (args.posterior_sample_file.split(".")[-1] == 'dat'):
     result = bilby.core.result.Result()
     result.posterior = pd.DataFrame(np.genfromtxt(args.posterior_sample_file, names=True, ndmin=1))
@@ -584,7 +587,7 @@ if args.dump_cal_realization:
        print(" WARNING: These will be retained nominally to preserve shape for later recombination ")
        
     # Re-insert RIFT key names if needed
-    if args.use_rift_samples:
+    if args.use_rift_samples and key_swap_dict_backwards is not None:
         new_posterior.rename(columns=key_swap_dict_backwards,inplace=True)
         #names = list(new_posterior.keys())  # dangerous to have iterator tied to changing structure
         # for old_key in names:
@@ -600,6 +603,9 @@ if args.dump_cal_realization:
 
         # rewrite time field: bilby internally distorts it somehow, restore actual values from input
         new_posterior['time'] = rift_time_samples
+    elif args.use_rift_samples and rift_time_samples is not None:
+        # JSON already uses Bilby column names.
+        new_posterior['geocent_time'] = rift_time_samples
 
             
     # WRITE TO FILE

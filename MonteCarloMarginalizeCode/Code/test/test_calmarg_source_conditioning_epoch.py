@@ -256,3 +256,59 @@ def test_tidal_batch_combine_checks_extended_ranges(tmp_path, start, end, reason
     assert completed.returncode != 0
     assert reason in completed.stderr
     assert not (tmp_path / "reweighted_posterior_samples.dat").exists()
+
+
+
+@pytest.mark.parametrize("rift_mode,legacy,corrected,have_tides,expected_row", [
+    (False, True, False, True, 0),
+    (False, True, True, True, 0),
+    (False, False, True, True, None),
+    (True, True, False, False, 0),
+    (True, True, False, True, None),
+    (True, True, True, True, 1),
+])
+def test_tidal_json_batch_combine_uses_declared_waveform_source(
+        tmp_path, rift_mode, legacy, corrected, have_tides, expected_row):
+    from bilby.core.result import Result
+    import pandas as pd
+
+    posterior = tmp_path / "posterior.json"
+    samples = {"mass_1": [5., 5.], "mass_2": [1.3, 1.3], "row": [0, 1]}
+    if have_tides:
+        samples.update(lambda_1=[0., 0.], lambda_2=[400., 600.])
+    result = Result(label="fixture", outdir=str(tmp_path), priors={},
+                    search_parameter_keys=[], posterior=pd.DataFrame(samples))
+    result.save_to_file(filename=str(posterior))
+
+    batches = tmp_path / "weight_files"
+    batches.mkdir()
+    if legacy:
+        np.savetxt(batches / "weights_s0e2.dat", [1., 0.])
+    if corrected:
+        np.savetxt(batches / "tidal_weights_s0e2.dat", [0., 1.])
+
+    combiner = Path(__file__).resolve().parents[1] / "bin/combine_weights_and_rejection_sample.py"
+    cmd = [sys.executable, str(combiner), str(posterior), str(batches)]
+    if rift_mode:
+        cmd.append("--use-rift-samples")
+    completed = subprocess.run(cmd, capture_output=True, text=True)
+    output = tmp_path / "reweighted_posterior_samples.dat"
+    if expected_row is None:
+        assert completed.returncode != 0
+        reason = ("No corrected tidal weights found" if rift_mode
+                  else "Corrected RIFT JSON weights require --use-rift-samples")
+        assert reason in completed.stderr
+        assert not output.exists()
+        if rift_mode:
+            # A worker-style flag must fail instead of selecting native JSON.
+            typo = subprocess.run([*cmd[:-1], "--use_rift_samples", "True"],
+                                  capture_output=True, text=True)
+            assert typo.returncode != 0
+            assert "unrecognized arguments: --use_rift_samples" in typo.stderr
+            assert not output.exists()
+    else:
+        assert completed.returncode == 0, completed.stderr
+        combined = np.genfromtxt(output, names=True)
+        assert combined["row"] == expected_row
+        if have_tides:
+            assert combined["lambda_2"] == [400., 600.][expected_row]
