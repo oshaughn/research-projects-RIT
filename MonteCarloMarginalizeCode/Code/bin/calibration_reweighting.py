@@ -216,7 +216,8 @@ parser.add(
     help="Half-Interval over which the time marginalization is undertaken")
 parser.add(
     "--use_rift_samples", type=bool, default=False,
-    help="Uses a different waveform function if using RIFT samples. This matches the phase definitions in RIFT")
+    help="Use the RIFT waveform and phase conventions. For JSON batches, also pass "
+         "--use-rift-samples to combine_weights_and_rejection_sample.py.")
 parser.add(
     "--h_method", type=str, default='hlmoft',
     help="For RIFT, uses two different options for h(t) reconstruction ")
@@ -246,8 +247,7 @@ key_swap_dict_backwards = None
 
 outdir = os.path.dirname(os.path.abspath(args.posterior_sample_file))
 # make IMMEDIATELY, so we don't get held when evicted for OSG operation
-if not os.path.exists(f'{outdir}/weight_files/'):
-    os.makedirs(f'{outdir}/weight_files/')
+os.makedirs(f'{outdir}/weight_files/', exist_ok=True)
 
 result=None # scoping requirement
 # read in the posterior samples for reweighting
@@ -255,18 +255,20 @@ rift_time_samples=None # save b/c bilby somehow distorts them?
 if args.posterior_sample_file.split(".")[-1] == 'json':
     result = bilby.core.result.read_in_result(args.posterior_sample_file)
     if start_index is not None:
-        if start_index > len(result.posterior):
+        if start_index >= len(result.posterior):
             print(" Stopping : no work after end of file")
             sys.exit(0)  # no work needed, stop
     if end_index is not None:
         if end_index > len(result.posterior):
             end_index = len(result.posterior)
     result.posterior = result.posterior.iloc[start_index:end_index].reset_index(drop=True)
+    if args.use_rift_samples and 'geocent_time' in result.posterior:
+        rift_time_samples = result.posterior['geocent_time'].to_numpy(copy=True)
 elif (args.posterior_sample_file.split(".")[-1] == 'txt') or (args.posterior_sample_file.split(".")[-1] == 'dat'):
     result = bilby.core.result.Result()
-    result.posterior = pd.DataFrame(np.genfromtxt(args.posterior_sample_file, names=True))
+    result.posterior = pd.DataFrame(np.genfromtxt(args.posterior_sample_file, names=True, ndmin=1))
     if start_index is not None:
-        if start_index > len(result.posterior):
+        if start_index >= len(result.posterior):
             print(" Stopping : no work after end of file")
             sys.exit(0)  # no work needed, stop
     if end_index is not None:
@@ -301,17 +303,20 @@ elif (args.posterior_sample_file.split(".")[-1] == 'txt') or (args.posterior_sam
             if old_key in key_swap_dict:
                 result.posterior[key_swap_dict[old_key]] = result.posterior[old_key]
                 del result.posterior[old_key]
-        # add tides if not present
-        if not('lambda_1' in result.posterior):
-            print(" Populating empty tidal params to avoid hang")
-            if end_index:
-              result.posterior['lambda_1'] = np.zeros(end_index-start_index)
-              result.posterior['lambda_2'] = np.zeros(end_index-start_index)
-            else:
-              result.posterior['lambda_1'] = np.zeros(len(result.posterior['mass_1']))
-              result.posterior['lambda_2'] = np.zeros(len(result.posterior['mass_1']))
 else:
   raise Exception(" Unknown posterior_sample_file format ")          
+
+rift_has_tides = False
+if args.use_rift_samples:
+    tidal_columns = {'lambda_1', 'lambda_2'}
+    present_tides = tidal_columns.intersection(result.posterior.columns)
+    if present_tides and present_tides != tidal_columns:
+        raise ValueError("RIFT reweighting requires both component tidal columns or neither")
+    rift_has_tides = bool(present_tides)
+    if not rift_has_tides and key_swap_dict is not None:
+        # Preserve the existing output columns for non-tidal RIFT text samples.
+        result.posterior['lambda_1'] = 0.
+        result.posterior['lambda_2'] = 0.
 
 ifos = data.interferometers
 time_marginalization_interval = args.data_integration_window_half #args.time_marginalization_interval
@@ -394,7 +399,10 @@ if args.waveform_approximant:
 if args.use_rift_samples:
     waveform_arguments['Lmax'] = args.l_max
 #    waveform_arguments['waveform_approximant'] = 'SEOBNRv4PHM'
-    if args.use_eccentricity:
+    if rift_has_tides:
+        wf_func = (rift_source.RIFT_lal_eccentric_tidal_binary if args.use_eccentricity
+                   else rift_source.RIFT_lal_tidal_binary)
+    elif args.use_eccentricity:
         wf_func = rift_source.RIFT_lal_eccentric_binary_black_hole
     else:
         wf_func = rift_source.RIFT_lal_binary_black_hole
@@ -485,14 +493,20 @@ else:
 
 # Setting up the resume and weight file names
 resume_file = None
-if (start_index != None) and (end_index != None):
+if rift_has_tides and (start_index is not None or end_index is not None):
+    first = 0 if start_index is None else start_index
+    last = first + len(result.posterior)
+    weights_file = f'{outdir}/weight_files/tidal_weights_s{first}e{last}.dat'
+elif (start_index != None) and (end_index != None):
     weights_file = f'{outdir}/weight_files/weights_s{start_index}e{end_index}.dat'
 elif start_index != None:
     weights_file = f'{outdir}/weight_files/weights_s{start_index}eNone.dat'
 elif end_index != None:
     weights_file = f'{outdir}/weight_files/weights_s0e{end_index}.dat'
 else:
-    resume_file = f'{outdir}/reweighting_resume.dat'
+    # Existing checkpoints for tidal inputs were evaluated with zero tides.
+    resume_name = 'reweighting_tidal_resume.dat' if rift_has_tides else 'reweighting_resume.dat'
+    resume_file = os.path.join(outdir, resume_name)
     weights_file = f'{outdir}/weights.dat'
 
 reweight_func = alt_reweight
@@ -516,8 +530,6 @@ else:
 
     
 # Save the weights to a file, with the sample index in the name
-if not os.path.exists(f'{outdir}/weight_files/'):
-    os.makedirs(f'{outdir}/weight_files/')
 np.savetxt(weights_file, weights)
 
 if args.dump_cal_realization:
@@ -575,7 +587,7 @@ if args.dump_cal_realization:
        print(" WARNING: These will be retained nominally to preserve shape for later recombination ")
        
     # Re-insert RIFT key names if needed
-    if args.use_rift_samples:
+    if args.use_rift_samples and key_swap_dict_backwards is not None:
         new_posterior.rename(columns=key_swap_dict_backwards,inplace=True)
         #names = list(new_posterior.keys())  # dangerous to have iterator tied to changing structure
         # for old_key in names:
@@ -591,6 +603,9 @@ if args.dump_cal_realization:
 
         # rewrite time field: bilby internally distorts it somehow, restore actual values from input
         new_posterior['time'] = rift_time_samples
+    elif args.use_rift_samples and rift_time_samples is not None:
+        # JSON already uses Bilby column names.
+        new_posterior['geocent_time'] = rift_time_samples
 
             
     # WRITE TO FILE
