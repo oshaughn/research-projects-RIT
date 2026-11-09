@@ -21,6 +21,7 @@
 
 import numpy as np
 import argparse
+import shlex
 import os
 import sys
 import lal
@@ -182,14 +183,21 @@ if opts.use_legacy_gracedb:
 if opts.assume_highq:
     opts.internal_correlate_default=True
 event_dict={}
+manual_gwsignal = '--use-gwsignal' in shlex.split(opts.manual_extra_ile_args or '')
 
 if (opts.approx is None) and not (opts.use_ini is None):
     config = ConfigParser.ConfigParser()
     config.read(opts.use_ini)
-    approx_name_ini = config.get('engine','approx')
-    approx_name_cleaned = lalsim.GetStringFromApproximant(lalsim.GetApproximantFromString(approx_name_ini))
-    opts.approx = approx_name_cleaned
-    print( " Approximant provided in ini file: ",approx_name_cleaned)
+    approx_name_ini = config.get('engine', 'approx').strip()
+    if approx_name_ini[:1] in ('"', "'") and approx_name_ini[-1:] == approx_name_ini[:1]:
+        approx_name_ini = approx_name_ini[1:-1]
+    if manual_gwsignal:
+        opts.approx = approx_name_ini
+    else:
+        opts.approx = lalsim.GetStringFromApproximant(
+            lalsim.SimInspiralGetApproximantFromString(approx_name_ini)
+        )
+    print( " Approximant provided in ini file: ",opts.approx)
 elif opts.approx is None:
     print( " Approximant required! ")
     sys.exit(1)
@@ -482,21 +490,19 @@ if 'GW_SURROGATE' in os.environ:
     sur_location_prefix=''
 if opts.use_osg:
     sur_location_prefix = "/"
-if not 'NR' in opts.approx:
-        line += " --approx " + opts.approx
-elif opts.use_gwsurrogate and 'NRHybSur' in opts.approx:
+if opts.use_gwsurrogate and 'NRHybSur' in opts.approx:
         line += " --rom-group {} --rom-param NRHybSur3dq8.h5 --approx {} ".format(sur_location_prefix,opts.approx)
 elif opts.use_gwsurrogate and "NRSur7dq2" in opts.approx:
         line += " --rom-group {} --rom-param NRSur7dq2.h5 --approx {}  ".format(sur_location_prefix,opts.approx)
 elif opts.use_gwsurrogate and "NRSur7dq4" in opts.approx:
         line += " --rom-group {} --rom-param NRSur7dq4.h5  --approx {}".format(sur_location_prefix,opts.approx)
-elif ("SEOBNR" in opts.approx) or ("NRHybSur" in opts.approx) or ("NRSur7d" in opts.approx): 
+elif manual_gwsignal or lalsimutils.is_lalsimulation_approximant(opts.approx):
         line += " --approx " + opts.approx
 else:
         print( " Unknown approx ", opts.approx)
         sys.exit(1)
 if not(opts.manual_extra_ile_args is None):
-    line += opts.manual_extra_ile_args
+    line += ' ' + opts.manual_extra_ile_args
 if not(opts.ile_runtime_max_minutes is None):
     lines += " --ile-runtime-max-minutes {} ".format(opts.ile_runtime_max_minutes)
 with open('args_ile.txt','w') as f:
