@@ -10,6 +10,16 @@ eos.mMaxMsun
 
 Mass arguments may be in solar masses or SI kg, as before.
 
+Multibranch EOS objects add:
+
+```python
+eos.branches_for_m(m)                # stable branch ids containing m
+eos.lambda_from_m(m, branch_id=b)
+eos.lambda_from_m_vector(m, branch_id=b)
+eos.for_branch(b)                    # scalar view pinned to one branch
+eos.mMaxMsun_all                     # NMB only; lalsim mMaxMsun is already all-branch
+```
+
 ## Sample evaluation failure policy
 
 Waveform and EOS evaluation failures reject the affected sample and continue
@@ -96,18 +106,90 @@ The nmb-papers exact-evidence command remains:
 --using-eos nmbseq:<sequence.h5>:<index>
 ```
 
-That v1 consumer contract intentionally projects each EOS onto its **primary
-stable mass-rising branch**.  RIFT now splits central-enthalpy-ordered data at
-unstable or decreasing-mass intervals before doing M-to-Lambda interpolation;
-it never mixes disconnected branches.  `stable_branch_counts[index]` records
-when a native sequence contains more than one stable run.
+By default this command projects each EOS onto its **primary stable
+mass-rising branch**: `lambda_from_m(m)` without a branch id and `mMaxMsun`
+both refer to the primary branch.  RIFT splits central-enthalpy-ordered data at
+unstable or decreasing-mass intervals before M-to-Lambda interpolation, so it
+never mixes disconnected branches.  `stable_branch_counts[index]` records when a
+native sequence contains more than one stable run.
 
-`--using-eos-branch` is deliberately rejected for `nmbseq:`.  Full NMB
-multi-branch inference is not a scalar `M -> Lambda` problem: the required path
-is a central-enthalpy likelihood/integration coordinate (one per star), using
-the branch-explicit native sequence rather than the legacy Landry projection.
-Until that inference path lands, generate or consume the primary branch for
-paper-production parity and treat disconnected branches as a separate model.
+`nmbseq:` objects now carry the branch surface above, with `mMaxMsun_all` as the
+maximum over every branch.  Two choices are available beyond the primary
+branch:
+
+- `--using-eos-branch <k>` analyzes one chosen branch, as for LALSimulation.
+- `--eos-affine-parameter central` includes every stable branch (next section).
+
+Unlike LALSimulation, an NMB sequence returns the primary branch for an
+ambiguous twin mass when no branch id is given; LALSimulation raises.
+
+## Including every stable branch: `--eos-affine-parameter central`
+
+```text
+--using-eos <spec> --eos-affine-parameter central
+```
+
+The default, `--eos-affine-parameter mass`, is the historical one-branch
+`M -> Lambda` map and runs the same code as before.  `central` uses position
+along the stellar sequence (central density or enthalpy) as the affine
+parameter, so every stable branch contributes.  Each component may be a star on
+any stable branch.
+
+The prior is dM per stable branch.  A mass with n(m) stable branches counts
+n(m) times, so the joint mass prior gains a factor n(m1) n(m2).  For a
+single-branch EOS, n = 1 and the prior is the usual mass prior.  Twin regions
+are overcounted by design.
+
+CIP keeps its sampling coordinates and the trained likelihood fit.  It adds two
+sampled variates, `eos_branch_u1` and `eos_branch_u2`, uniform on [0, 1).  They
+are not fit coordinates.  For component i:
+
+| Step | Definition |
+|---|---|
+| branches | B_i = `eos.branches_for_m(m_i)`, n_i = len(B_i) |
+| branch | b_i = B_i[floor(u_i n_i)] |
+| tide | Lambda_i = `eos.lambda_from_m(m_i, branch_id=b_i)` |
+| weight | integrand times n_1 n_2 |
+
+Integrating over u_i then sums the integrand over branches with the
+dM-per-branch prior.  The factor n_1 n_2 enters the integrand beside the
+existing prior-scale correction.  It therefore multiplies the evidence and the
+posterior weights for every sampler.  `adaptive_cartesian`, `GMM` (with or
+without `--internal-use-lnL`) and `AV` have been checked against exact branch
+sums.  With `GMM`, each variate gets its own one-dimensional mixture group.
+
+A mass on no stable branch, or at or above the all-branch maximum
+`getattr(eos, 'mMaxMsun_all', eos.mMaxMsun)`, rejects the sample.  The mass path
+applies the same rule at `mMaxMsun`.  Masses below the lowest stable branch are
+also rejected in central mode.  `--no-matter1` and `--no-matter2` give that
+component Lambda = 0 and weight 1.
+
+Exported samples keep the `sim_inspiral` XML format, with Lambda from the
+sampled branch.  The XML has no branch column, so CIP writes
+`<fname-output-samples>_eos_branch.dat` with columns `b1 b2 n1 n2`, row for row
+with the XML.  The ids follow component swaps; `-1` marks a component without
+matter.
+
+Central mode fails at startup with a clear error for these combinations:
+
+- no `--using-eos`, or an EOS without `branches_for_m` or without a `branch_id`
+  keyword on `lambda_from_m`;
+- `--using-eos-branch`, which selects one branch;
+- `--tabular-eos-file`: the fit over the ordering coordinate cannot represent
+  branch labels;
+- `--using-eos-for-prior`: the hyperprior plugin contract carries no branch
+  identity;
+- `--assume-eos-but-primary-bh` without `--no-matter1`;
+- `--sampler-oracle` or `--oracle-reference-sample-file`: reference samples have
+  no branch variates.
+
+A supplementary likelihood factor receives the native sampling coordinates
+only, as in mass mode.  The sample evaluation failure policy above applies
+unchanged.  Exceptions or nonfinite values from `branches_for_m` or
+`lambda_from_m` reject that sample and keep its neighbors.
+
+`util_RIFT_pseudo_pipe.py` has no fixed-EOS CIP options, so forward
+`--using-eos ... --eos-affine-parameter central` with `--manual-extra-cip-args`.
 
 ## Downstream compatibility
 
@@ -116,14 +198,13 @@ paper-production parity and treat disconnected branches as a separate model.
   no new option.
 - Existing nmb-papers and hyperpipe fixed-sequence runs keep the same HDF5 tags
   and `nmbseq:` syntax.
-- Twin-star analyses using reviewed LALSimulation must select a branch for
-  legacy scalar workflows, or move to the central-enthalpy inference path when
-  marginalization over branch identity is scientifically required.
+- Twin-star analyses select one branch with `--using-eos-branch`, or include
+  every branch with `--eos-affine-parameter central`.
 
-`--using-eos-branch` is rejected with `--using-eos-for-prior`. The current
-EOS-hyperprior plugin protocol returns an EOS but does not return branch
-identity, so accepting this combination would silently analyze the wrong
-branch. A future multibranch hyperprior must extend that plugin contract before
+`--using-eos-branch` and `--eos-affine-parameter central` are rejected with
+`--using-eos-for-prior`. The current EOS-hyperprior plugin protocol returns an
+EOS but does not return branch identity, so accepting either combination would
+analyze the wrong branch without warning. A future multibranch hyperprior must extend that plugin contract before
 this restriction can be relaxed.
 
 ## Reviewed-LALSimulation integration gate
