@@ -450,10 +450,12 @@ if eos_affine_central:
     eos_affine.validate_eos_affine_request(
         opts.eos_affine_parameter, using_eos=opts.using_eos,
         using_eos_branch=opts.using_eos_branch, tabular_eos_file=opts.tabular_eos_file,
-        using_eos_for_prior=getattr(opts, 'using_eos_for_prior', False),
-        assume_eos_but_primary_bh=opts.assume_eos_but_primary_bh, no_matter1=opts.no_matter1,
         oracle_reference_sample_file=opts.oracle_reference_sample_file,
-        sampler_oracle=opts.sampler_oracle)
+        sampler_oracle=opts.sampler_oracle,
+        eccentric_phase_coordinates=opts.eccentric_phase_coordinates,
+        eccentric_phase_sampling=opts.eccentric_phase_sampling)
+    # A BH primary has no EOS: Lambda1 = 0 and branch weight 1, in the integrand and the export.
+    eos_affine_no_matter1 = opts.no_matter1 or opts.assume_eos_but_primary_bh
 if (opts.using_eos_dirty_phase_transitions or opts.using_eos_extended_family) and (
         opts.using_eos is None or not opts.using_eos.startswith('lalsim_file:')):
     raise ValueError(
@@ -651,7 +653,15 @@ if opts.using_eos!=None:
         my_eos = my_eos.for_branch(opts.using_eos_branch)
     if eos_affine_central:
         # Configuration check, not a sample evaluation: fail before sampling.
-        eos_affine_m_max_all = eos_affine.require_branch_surface(my_eos)
+        # A proposed EOS (file: grid row) whose branch probe fails is a rejected
+        # proposal; a missing interface is always a configuration error.
+        try:
+            eos_affine_m_max_all = eos_affine.require_branch_surface(my_eos)
+        except eos_affine.BranchProbeFailure as error:
+            if not (opts.using_eos.startswith("file:") and opts.using_eos_index is not None):
+                raise
+            _write_rejected_eos_proposal(error)
+            sys.exit(0)
         print(" EOS affine parameter: central (all stable branches); all-branch max mass ", eos_affine_m_max_all)
 
 
@@ -2565,7 +2575,7 @@ else:
 
 if eos_affine_central:
  def convert_coords_central(x_in, u_in):
-    x_out, log_weight, _ = eos_affine.convert_waveform_coordinates_with_eos_central(x_in, u_in, coord_names=coord_names,low_level_coord_names=low_level_coord_names,eos_class=my_eos,m_max_all=eos_affine_m_max_all,no_matter1=opts.no_matter1, no_matter2=opts.no_matter2,source_redshift=source_redshift,enforce_kerr=opts.downselect_enforce_kerr,fref=opts.fref)
+    x_out, log_weight, _ = eos_affine.convert_waveform_coordinates_with_eos_central(x_in, u_in, coord_names=coord_names,low_level_coord_names=low_level_coord_names,eos_class=my_eos,m_max_all=eos_affine_m_max_all,no_matter1=eos_affine_no_matter1, no_matter2=opts.no_matter2,source_redshift=source_redshift,enforce_kerr=opts.downselect_enforce_kerr,fref=opts.fref)
     if _eos_sampling_status is not None:
         rows = np.atleast_2d(x_out)
         _eos_sampling_status['seen'] += len(rows)
@@ -3650,7 +3660,7 @@ for indx_here in indx_list:
         if my_eos and eos_affine_central:
             # Same branch the integrand used: recompute from the stored branch variates.
             branch_row = [eos_affine.NO_BRANCH, eos_affine.NO_BRANCH, 1, 1]
-            for comp, (no_matter, m_here) in enumerate(((opts.no_matter1, Pgrid.m1), (opts.no_matter2, Pgrid.m2))):
+            for comp, (no_matter, m_here) in enumerate(((eos_affine_no_matter1, Pgrid.m1), (opts.no_matter2, Pgrid.m2))):
                 lam = 0.
                 if not no_matter:
                     lam, branch_row[comp], branch_row[comp+2] = eos_affine.select_branch(my_eos, m_here/lal.MSUN_SI, float(samples[eos_affine.CENTRAL_AUX_NAMES[comp]][indx_here]), eos_affine_m_max_all)
@@ -3670,6 +3680,11 @@ for indx_here in indx_list:
             else:
                 Pgrid.lambda1 = 0 # BH
             Pgrid.lambda2 = evaluate_eos_lambda(my_eos, Pgrid.m2/lal.MSUN_SI, use_vector=False)
+            # The integrand gave a --no-matter component Lambda = 0; keep such samples.
+            if opts.no_matter1 and not np.isfinite(Pgrid.lambda1):
+                Pgrid.lambda1 = 0
+            if opts.no_matter2 and not np.isfinite(Pgrid.lambda2):
+                Pgrid.lambda2 = 0
             if not (np.isfinite(Pgrid.lambda1) and np.isfinite(Pgrid.lambda2)):
                 include_item = False
         elif opts.tabular_eos_file:

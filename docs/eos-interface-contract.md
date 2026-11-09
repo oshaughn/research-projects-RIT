@@ -130,10 +130,10 @@ ambiguous twin mass when no branch id is given; LALSimulation raises.
 ```
 
 The default, `--eos-affine-parameter mass`, is the historical one-branch
-`M -> Lambda` map and runs the same code as before.  `central` uses position
-along the stellar sequence (central density or enthalpy) as the affine
-parameter, so every stable branch contributes.  Each component may be a star on
-any stable branch.
+`M -> Lambda` map and runs the same code as before.  `central` is equivalent to
+a central-coordinate affine parameter with a dM-per-branch prior.  It is
+implemented as mass plus a branch label, so every stable branch contributes.
+Each component may be a star on any stable branch.
 
 The prior is dM per stable branch.  A mass with n(m) stable branches counts
 n(m) times, so the joint mass prior gains a factor n(m1) n(m2).  For a
@@ -160,26 +160,40 @@ sums.  With `GMM`, each variate gets its own one-dimensional mixture group.
 
 A mass on no stable branch, or at or above the all-branch maximum
 `getattr(eos, 'mMaxMsun_all', eos.mMaxMsun)`, rejects the sample.  The mass path
-applies the same rule at `mMaxMsun`.  Masses below the lowest stable branch are
-also rejected in central mode.  `--no-matter1` and `--no-matter2` give that
-component Lambda = 0 and weight 1.
+applies the same rule at `mMaxMsun`.  `--no-matter1` and `--no-matter2` give
+that component Lambda = 0 and weight 1.  `--assume-eos-but-primary-bh` acts as
+`--no-matter1` in central mode, in the integrand and in the export.
+
+For a single-branch EOS, central and mass mode agree inside the branch.  They
+can differ at its edges:
+
+| Mass | mass mode | central mode |
+|---|---|---|
+| below the branch minimum | EOS-specific (nmbseq clamps Lambda) | rejected |
+| in [0.999 mMax, mMax) | Lambda = 1e-8 | branch value of Lambda |
+
+Central mode uses `branches_for_m` membership and the branch's own Lambda.
+It does not depend on the 1e-8 cutoff.
 
 Exported samples keep the `sim_inspiral` XML format, with Lambda from the
 sampled branch.  The XML has no branch column, so CIP writes
 `<fname-output-samples>_eos_branch.dat` with columns `b1 b2 n1 n2`, row for row
 with the XML.  The ids follow component swaps; `-1` marks a component without
-matter.
+matter.  The sidecar belongs to one CIP process.  Pipeline joins
+(`write_joingrids_sub`, `igwn_ligolw_add`) merge only the XML and do not carry
+it.  The low-`n_eff` quadpuff exit path writes no sidecar.
 
 Central mode fails at startup with a clear error for these combinations:
 
 - no `--using-eos`, or an EOS without `branches_for_m` or without a `branch_id`
   keyword on `lambda_from_m`;
+- an EOS whose `branches_for_m` fails at the startup probe masses, such as an
+  `nmbseq:` Landry-format file (a proposed `file:` grid EOS is rejected
+  instead, with evidence `-inf`);
 - `--using-eos-branch`, which selects one branch;
 - `--tabular-eos-file`: the fit over the ordering coordinate cannot represent
   branch labels;
-- `--using-eos-for-prior`: the hyperprior plugin contract carries no branch
-  identity;
-- `--assume-eos-but-primary-bh` without `--no-matter1`;
+- eccentric phase coordinates or `--eccentric-phase-sampling`;
 - `--sampler-oracle` or `--oracle-reference-sample-file`: reference samples have
   no branch variates.
 
@@ -188,8 +202,10 @@ only, as in mass mode.  The sample evaluation failure policy above applies
 unchanged.  Exceptions or nonfinite values from `branches_for_m` or
 `lambda_from_m` reject that sample and keep its neighbors.
 
-`util_RIFT_pseudo_pipe.py` has no fixed-EOS CIP options, so forward
-`--using-eos ... --eos-affine-parameter central` with `--manual-extra-cip-args`.
+`util_RIFT_pseudo_pipe.py --assume-matter-eos <spec>` already adds
+`--input-tides --using-eos <spec>` to CIP, and `--assume-matter-but-primary-bh`
+adds `--assume-eos-but-primary-bh`.  Add the new option with
+`--manual-extra-cip-args "--eos-affine-parameter central"`.
 
 ## Downstream compatibility
 
@@ -201,10 +217,10 @@ unchanged.  Exceptions or nonfinite values from `branches_for_m` or
 - Twin-star analyses select one branch with `--using-eos-branch`, or include
   every branch with `--eos-affine-parameter central`.
 
-`--using-eos-branch` and `--eos-affine-parameter central` are rejected with
-`--using-eos-for-prior`. The current EOS-hyperprior plugin protocol returns an
-EOS but does not return branch identity, so accepting either combination would
-analyze the wrong branch without warning. A future multibranch hyperprior must extend that plugin contract before
+`--using-eos-branch` is rejected with `--using-eos-for-prior`. The current
+EOS-hyperprior plugin protocol returns an EOS but does not return branch
+identity, so accepting this combination would silently analyze the wrong
+branch. A future multibranch hyperprior must extend that plugin contract before
 this restriction can be relaxed.
 
 ## Reviewed-LALSimulation integration gate

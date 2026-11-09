@@ -54,6 +54,22 @@ class FakeTwinEOS:
     def lambda_from_m_vector(self, m, branch_id=None):
         return np.array([self.lambda_from_m(x, branch_id=branch_id) for x in np.atleast_1d(m)])
 
+    def for_branch(self, branch_id):
+        return FakeBranchView(self, branch_id)
+
+
+class FakeBranchView:
+    """--using-eos-branch view: raises outside its branch, like EOSBranchView."""
+    def __init__(self, source, branch_id):
+        self.source, self.branch_id = source, int(branch_id)
+        self.mMaxMsun = source.bounds[self.branch_id][1]
+
+    def lambda_from_m(self, m):
+        return self.source.lambda_from_m(m, branch_id=self.branch_id)
+
+    def lambda_from_m_vector(self, m):
+        return np.array([self.lambda_from_m(x) for x in np.atleast_1d(m)])
+
 
 class FakeSingleEOS(FakeTwinEOS):
     bounds = ((0.5, 2.0),)
@@ -137,11 +153,17 @@ def test_branch_monte_carlo_reproduces_exact_branch_sum():
     assert abs(mc - quad) < 4 * err, (mc, quad, err)
 
 
-def test_single_branch_eos_central_equals_mass_exactly():
+def test_single_branch_eos_central_equals_mass_inside_the_branch():
+    """Exact agreement inside [mMin, 0.999 mMax) and rejection above mMax.
+
+    Edges differ by design (see the contract doc): below mMin central rejects,
+    and on [0.999 mMax, mMax) central keeps the branch Lambda where the mass
+    projection returns 1e-8.
+    """
     eos = FakeSingleEOS()
     rng = np.random.default_rng(11)
-    m1 = rng.uniform(0.6, 2.3, 400)
-    m2 = rng.uniform(0.6, 2.3, 400)
+    pick = lambda n: np.where(rng.uniform(size=n) < 0.8, rng.uniform(0.6, 0.999 * 2.0, n), rng.uniform(2.0, 2.3, n))
+    m1, m2 = pick(400), pick(400)
     x = np.column_stack([m1, m2])
     u = rng.uniform(0, 1, (400, 2))
     names = ["mc", "eta", "LambdaTilde", "DeltaLambdaTilde"]
@@ -160,6 +182,35 @@ def test_single_branch_eos_central_equals_mass_exactly():
     lnL_m = fit(mass)
     np.testing.assert_array_equal(lnL_c(m1, m2, u[:, 0], u[:, 1]), lnL_m)
     assert lnL_c(*map(float, (m1[0], m2[0], u[0, 0], u[0, 1]))) == lnL_m[0]
+
+
+def test_single_branch_edges_documented_differences():
+    eos = FakeSingleEOS()
+    x = np.array([[1.9985, 1.0], [1.0, 0.45], [2.0, 1.0]])
+    mass = lalsimutils.convert_waveform_coordinates_with_eos(
+        x, coord_names=["lambda1", "lambda2"], low_level_coord_names=["m1", "m2"], eos_class=eos)
+    central = _central(eos, x, np.full((3, 2), .5), coord_names=("lambda1", "lambda2"))[0]
+    assert mass[0, 0] == 1e-8 and central[0, 0] == pytest.approx(eos.branch_lambda(1.9985, 0))
+    assert np.isfinite(mass[1]).all() and np.isneginf(central[1]).all()   # below mMin
+    assert np.isneginf(mass[2]).all() and np.isneginf(central[2]).all()   # m == mMax
+
+
+def test_mass_at_all_branch_maximum_is_rejected():
+    """Closed branch intervals include mMax_all; the m >= mMax rule still rejects it."""
+    eos = FakeTwinEOS()
+    assert eos.branches_for_m(2.4) == [1]
+    x_out, log_w, br = _central(eos, [[2.4, 1.2], [2.3999, 1.2]], [[.5, .5]] * 2, coord_names=("lambda1", "lambda2"))
+    assert np.isneginf(x_out[0]).all() and np.isfinite(x_out[1]).all()
+
+
+def test_central_integrand_keeps_existing_prior_scale():
+    eos = FakeTwinEOS()
+    fit = _protect(lambda X: np.zeros(len(X)))
+    conv = lambda x, u: _central(eos, x, u)[:2]
+    lnL, _ = eos_affine.make_central_log_likelihood(fit, conv, lambda x: 0.5 * x[:, 0], 2)
+    m1, m2 = np.array([1.8, 1.2]), np.array([1.7, 1.1])
+    np.testing.assert_allclose(lnL(m1, m2, np.full(2, .3), np.full(2, .3)),
+                               0.5 * m1 + np.log([4., 1.]))
 
 
 def test_failing_evaluations_reject_samples_and_keep_neighbours():
@@ -218,7 +269,8 @@ def test_real_eosmanager_multibranch_family(monkeypatch):
     assert np.isneginf(x_out[2]).all()   # 0.9 Msun lies below every branch
 
 
-def _driver_export_loop(eos, m, u=None, central=False):
+def _driver_export_loop(eos, m, u=None, central=False, no_matter1=False, no_matter2=False,
+                        assume_eos_but_primary_bh=False):
     """Run the driver's sample-export loop on given (m1, m2) samples in Msun."""
     tree = ast.parse(open(DRIVER).read())
     loop = next(n for n in tree.body if isinstance(n, ast.For) and isinstance(n.target, ast.Name)
@@ -230,9 +282,11 @@ def _driver_export_loop(eos, m, u=None, central=False):
     ns = dict(np=np, lal=lal, samples=samples, indx_list=np.arange(len(m)), low_level_coord_names=["m1", "m2"],
               P=P, my_eos=eos, downselect_dict={}, P_list=[], kept_indx_list=[], lnL_list=[], eos_branch_list=[],
               eos_affine=eos_affine, eos_affine_central=central, source_redshift=0.,
+              eos_affine_no_matter1=no_matter1 or assume_eos_but_primary_bh,
               eos_affine_m_max_all=eos_affine.all_branch_max_mass_msun(eos) if central else None,
-              opts=types.SimpleNamespace(fref=20., assume_eos_but_primary_bh=False, tabular_eos_file=None,
-                                         no_matter1=False, no_matter2=False, verbose=False, amplitude_order=-1,
+              opts=types.SimpleNamespace(fref=20., assume_eos_but_primary_bh=assume_eos_but_primary_bh,
+                                         tabular_eos_file=None, no_matter1=no_matter1, no_matter2=no_matter2,
+                                         verbose=False, amplitude_order=-1,
                                          phase_order=7, fixed_parameter=None, internal_use_lnL=True))
     exec(compile(ast.Module(body=[loop], type_ignores=[]), DRIVER, "exec"), ns)
     return ns
@@ -258,6 +312,44 @@ def test_using_eos_branch_mass_below_branch_is_rejected_not_fatal(monkeypatch):
     nc = _driver_export_loop(eos, m, u, central=True)
     assert nc["kept_indx_list"] == [0, 1, 2, 3]
     np.testing.assert_array_equal(nc["eos_branch_list"], [[1, 1, 2, 2], [1, 0, 2, 1], [1, 1, 2, 2], [0, 0, 1, 1]])
+
+
+def test_central_export_swaps_labels_and_honours_no_matter():
+    eos = FakeTwinEOS()
+    m = np.array([[1.2, 2.2], [1.8, 1.7]])     # first row has m2 > m1 and gets swapped
+    u = np.array([[.5, .5], [.2, .9]])
+    ns = _driver_export_loop(eos, m, u, central=True)
+    np.testing.assert_array_equal(ns["eos_branch_list"], [[1, 0, 1, 1], [0, 1, 2, 2]])
+    P = ns["P_list"][0]
+    assert P.m1 / lal.MSUN_SI == pytest.approx(2.2)
+    assert P.lambda1 == pytest.approx(eos.branch_lambda(2.2, 1), rel=1e-12)
+    assert P.lambda2 == pytest.approx(eos.branch_lambda(1.2, 0), rel=1e-12)
+    for flags in (dict(no_matter1=True), dict(assume_eos_but_primary_bh=True)):
+        nb = _driver_export_loop(eos, np.array([[5.0, 1.8]]), np.array([[.5, .9]]), central=True, **flags)
+        P = nb["P_list"][0]
+        assert P.lambda1 == 0 and P.lambda2 == pytest.approx(eos.branch_lambda(1.8, 1), rel=1e-12)
+        np.testing.assert_array_equal(nb["eos_branch_list"], [[eos_affine.NO_BRANCH, 1, 1, 2]])
+
+
+def test_mass_export_keeps_no_matter_sample_outside_branch():
+    """--using-eos-branch with --no-matter2: a light secondary off the branch keeps Lambda2 = 0."""
+    view = FakeTwinEOS().for_branch(1)
+    ns = _driver_export_loop(view, np.array([[2.2, 1.3], [2.2, 1.7]]), no_matter2=True)
+    assert ns["kept_indx_list"] == [0, 1]
+    assert ns["P_list"][0].lambda2 == 0
+    assert ns["P_list"][1].lambda2 == pytest.approx(view.lambda_from_m(1.7))
+
+
+def test_central_supplementary_likelihood_sees_native_coordinates_only():
+    tree = ast.parse(open(DRIVER).read())
+    block = next(n for n in tree.body if isinstance(n, ast.If) and "supplemental_ln_likelihood" in ast.dump(n.test)
+                 and "eos_affine_central" in ast.dump(n.test))
+    seen = []
+    ns = dict(eos_affine_central=True, low_level_coord_names=["mc", "delta_mc"],
+              supplemental_ln_likelihood=lambda mc, dm: seen.append((mc, dm)) or 0.)
+    exec(compile(ast.Module(body=[block], type_ignores=[]), DRIVER, "exec"), ns)
+    ns["supplemental_ln_likelihood"](1., 2., .3, .4)
+    assert seen == [(1., 2.)]
 
 
 # --------------------------------------------- evidence through RIFT samplers
@@ -414,13 +506,13 @@ if os.environ.get("CIP_FAKE_TWIN"):
     np.random.seed(3)
     import sys
     sys.path.insert(0, os.environ["CIP_FAKE_TWIN"])
-    from test_eos_affine_central import FakeTwinEOS
+    from test_eos_affine_central import FakeTwinEOS, LandryLike
     import RIFT.physics.EOSManager as manager
-    manager.EOSLALSimulation = lambda name: FakeTwinEOS()
+    manager.EOSLALSimulation = lambda name: LandryLike() if name == "FAKELANDRY" else FakeTwinEOS()
 """
 
 
-def _ile_file(path):
+def _ile_file(path, lt_peak=300., lt_sigma=250.):
     rng = np.random.default_rng(7)
     n = 600
     mc = rng.uniform(1.55, 1.70, n)
@@ -430,36 +522,84 @@ def _ile_file(path):
     l1, l2 = rng.uniform(0, 800, (2, n))
     lt = (8. / 13) * ((1 + 7 * eta - 31 * eta ** 2) * (l1 + l2)
                       + np.sqrt(1 - 4 * eta) * (1 + 9 * eta - 11 * eta ** 2) * (l1 - l2))
-    lnL = 20 - 0.5 * ((mc - 1.62) / 0.01) ** 2 - 0.5 * ((lt - 300.) / 250.) ** 2
+    lnL = 20 - 0.5 * ((mc - 1.62) / 0.01) ** 2 - 0.5 * ((lt - lt_peak) / lt_sigma) ** 2
     z = np.zeros(n)
     np.savetxt(path, np.column_stack([np.arange(n), m1, M - m1, z, z, z, z, z, z, l1, l2, lnL,
                                       np.full(n, .01), np.full(n, 1000.), np.full(n, 100.)]))
 
 
-def test_driver_end_to_end_central_fake_twin(tmp_path):
+def _run_fake_driver(tmp_path, tag, *extra, eos="lal_FAKETWIN", ile="ile.dat"):
     (tmp_path / "sitecustomize.py").write_text(SITE)
-    _ile_file(tmp_path / "ile.dat")
     env = dict(os.environ, PYTHONPATH=os.pathsep.join([CODE, str(tmp_path)]), CIP_FAKE_TWIN=str(Path(__file__).parent),
                OMP_NUM_THREADS="1", OPENBLAS_NUM_THREADS="1", MKL_NUM_THREADS="1", MPLBACKEND="Agg",
                MPLCONFIGDIR=str(tmp_path / "mpl"))
-    result = subprocess.run([sys.executable, DRIVER, "--fname", str(tmp_path / "ile.dat"), "--input-tides",
-                             "--using-eos", "lal_FAKETWIN", "--eos-affine-parameter", "central",
-                             "--parameter", "mc", "--parameter", "delta_mc", "--parameter-implied", "LambdaTilde",
-                             "--mc-range", "[1.55,1.70]", "--fit-method", "quadratic", "--n-max", "100000",
-                             "--n-eff", "500", "--n-chunk", "4000", "--n-output-samples", "300",
-                             "--fname-output-integral", "result", "--fname-output-samples", "samples", "--no-plots"],
-                            cwd=tmp_path, env=env, capture_output=True, text=True, timeout=300)
+    return subprocess.run([sys.executable, DRIVER, "--fname", str(tmp_path / ile), "--input-tides",
+                           "--using-eos", eos, "--parameter", "mc", "--parameter", "delta_mc",
+                           "--parameter-implied", "LambdaTilde", "--mc-range", "[1.55,1.70]", "--fit-method",
+                           "quadratic", "--n-max", "100000", "--n-eff", "500", "--n-chunk", "4000",
+                           "--n-output-samples", "300", "--fname-output-integral", "res_" + tag,
+                           "--fname-output-samples", "samp_" + tag, "--no-plots"] + list(extra),
+                          cwd=tmp_path, env=env, capture_output=True, text=True, timeout=300)
+
+
+def _check_ok(result):
     assert result.returncode == 0, result.stdout[-3000:] + result.stderr[-3000:]
-    assert np.isfinite(np.loadtxt(tmp_path / "result.dat"))
-    P = lalsimutils.xml_to_ChooseWaveformParams_array(str(tmp_path / "samples.xml.gz"))
-    B = np.atleast_2d(np.loadtxt(tmp_path / "samples_eos_branch.dat", dtype=int))
+
+
+def _exported(tmp_path, tag):
+    P = lalsimutils.xml_to_ChooseWaveformParams_array(str(tmp_path / ("samp_%s.xml.gz" % tag)))
+    B = np.atleast_2d(np.loadtxt(tmp_path / ("samp_%s_eos_branch.dat" % tag), dtype=int))
     assert len(B) == len(P) > 0
-    eos = FakeTwinEOS()
-    for p, (b1, b2, n1, n2) in zip(P, B):
-        for m, lam, b, n in ((p.m1 / lal.MSUN_SI, p.lambda1, b1, n1), (p.m2 / lal.MSUN_SI, p.lambda2, b2, n2)):
-            assert b in eos.branches_for_m(m) and n == len(eos.branches_for_m(m))
-            assert lam == pytest.approx(eos.branch_lambda(m, b), rel=1e-5)   # XML stores float32
-    assert (B[:, :2] == 1).any() and (B[:, :2] == 0).any()
+    return P, B
+
+
+def test_driver_end_to_end_central_fake_twin(tmp_path):
+    """AC and GMM agree on lnZ (GMM needs a mixture group per branch variate)."""
+    _ile_file(tmp_path / "ile.dat")
+    lnz = {}
+    for sampler in ("adaptive_cartesian", "GMM"):
+        _check_ok(_run_fake_driver(tmp_path, sampler, "--eos-affine-parameter", "central", "--sampler-method", sampler))
+        lnz[sampler] = float(np.loadtxt(tmp_path / ("res_%s.dat" % sampler)))
+        P, B = _exported(tmp_path, sampler)
+        eos = FakeTwinEOS()
+        for p, (b1, b2, n1, n2) in zip(P, B):
+            for m, lam, b, n in ((p.m1 / lal.MSUN_SI, p.lambda1, b1, n1), (p.m2 / lal.MSUN_SI, p.lambda2, b2, n2)):
+                assert b in eos.branches_for_m(m) and n == len(eos.branches_for_m(m))
+                assert lam == pytest.approx(eos.branch_lambda(m, b), rel=1e-5)   # XML stores float32
+        assert (B[:, :2] == 1).any() and (B[:, :2] == 0).any()
+    # Seeded runs: lnZ 19.40 (AC) and 19.40 (GMM); without the GMM groups GMM gives ~18.6.
+    assert abs(lnz["GMM"] - lnz["adaptive_cartesian"]) < 0.3, lnz
+
+
+def test_driver_branch_labels_follow_posterior_after_lnL_offset_cut(tmp_path):
+    """Data favour branch 1 for both stars; --lnL-offset must not misalign the branch variates."""
+    _ile_file(tmp_path / "ile_b1.dat", lt_peak=45., lt_sigma=25.)
+    _check_ok(_run_fake_driver(tmp_path, "b1", "--eos-affine-parameter", "central", "--lnL-offset", "2",
+                               ile="ile_b1.dat"))
+    P, B = _exported(tmp_path, "b1")
+    masses = np.array([[p.m1, p.m2] for p in P]) / lal.MSUN_SI
+    twin = (masses >= 1.6) & (masses <= 2.0)
+    assert twin.sum() > 100
+    # Seeded: 1.00 with the variates filtered alongside the samples, 0.93 without.
+    assert (B[:, :2][twin] == 1).mean() > 0.98
+
+
+def test_driver_using_eos_branch_no_matter_secondary_exports(tmp_path):
+    """Without the export guard this run crashes: m2 below branch 1 reaches the export loop."""
+    _ile_file(tmp_path / "ile_flat.dat", lt_sigma=1e4)   # flat in LambdaTilde: wide mass ratio
+    _check_ok(_run_fake_driver(tmp_path, "nm2", "--using-eos-branch", "1", "--no-matter2", ile="ile_flat.dat"))
+    # Lambda2 = 0 then fails the existing lambda2 >= --lambda-min export downselect, as a
+    # no-matter Lambda of 1e-8 always has; the point is that the export completes.
+    P = lalsimutils.xml_to_ChooseWaveformParams_array(str(tmp_path / "samp_nm2.xml.gz"))
+    assert len(P) > 0 and all(p.m2 / lal.MSUN_SI >= 1.6 for p in P)
+
+
+def test_driver_rejects_branch_api_that_fails_at_startup(tmp_path):
+    _ile_file(tmp_path / "ile.dat")
+    result = _run_fake_driver(tmp_path, "landry", "--eos-affine-parameter", "central", eos="lal_FAKELANDRY")
+    assert result.returncode != 0
+    assert "BranchSurfaceError" in result.stderr and "nss/pca" in result.stderr
+    assert "Too many iterations" not in result.stdout + result.stderr
 
 
 # ---------------------------------------------------------------- guards
@@ -468,8 +608,8 @@ def test_driver_end_to_end_central_fake_twin(tmp_path):
     (dict(using_eos=None), "requires --using-eos"),
     (dict(using_eos_branch=0), "--using-eos-branch"),
     (dict(tabular_eos_file="seq.h5"), "ordering coordinate"),
-    (dict(using_eos_for_prior=True), "--using-eos-for-prior"),
-    (dict(assume_eos_but_primary_bh=True), "--no-matter1"),
+    (dict(eccentric_phase_coordinates=True), "eccentric"),
+    (dict(eccentric_phase_sampling=True), "eccentric"),
     (dict(oracle_reference_sample_file="ref.xml.gz"), "oracle"),
     (dict(sampler_oracle=["RS"]), "oracle"),
 ])
@@ -480,8 +620,6 @@ def test_central_option_guards(kwargs, match):
         eos_affine.validate_eos_affine_request("central", **args)
     # mass mode never rejects on these grounds
     eos_affine.validate_eos_affine_request("mass", **args)
-    eos_affine.validate_eos_affine_request("central", using_eos="lal_SLy",
-                                           assume_eos_but_primary_bh=True, no_matter1=True)
 
 
 def test_eos_surface_guards():
@@ -506,6 +644,29 @@ def test_eos_surface_guards():
     with pytest.raises(ValueError):
         eos_affine.validate_eos_affine_request("enthalpy", using_eos="x")
     assert eos_affine.require_branch_surface(FakeTwinEOS()) == 2.4
+
+
+class LandryLike(FakeTwinEOS):
+    """nmbseq on a Landry-format file: the branch API exists but raises TypeError."""
+    def branches_for_m(self, m):
+        raise TypeError("branch selection requires an NMB (nss/pca) sequence file")
+
+
+@pytest.mark.parametrize("override,error", [
+    (dict(branches_for_m=LandryLike.branches_for_m), eos_affine.BranchSurfaceError),
+    (dict(branches_for_m=lambda self, m: ["0"]), eos_affine.BranchSurfaceError),
+    (dict(lambda_from_m=lambda self, m, branch_id=None: (_ for _ in ()).throw(TypeError("no branch"))),
+     eos_affine.BranchSurfaceError),
+    (dict(branches_for_m=lambda self, m: (_ for _ in ()).throw(RuntimeError("native"))), eos_affine.BranchProbeFailure),
+    (dict(branches_for_m=lambda self, m: []), eos_affine.BranchProbeFailure),
+])
+def test_startup_probe_rejects_unusable_branch_surface(override, error):
+    eos = type("ProbeEOS", (FakeTwinEOS,), override)()
+    with pytest.raises(error):
+        eos_affine.require_branch_surface(eos)
+    # A lambda failure at one probe mass is a per-sample matter, not a startup error.
+    flaky = type("Flaky", (FakeTwinEOS,), dict(lambda_from_m=lambda self, m, branch_id=None: np.nan))()
+    assert eos_affine.require_branch_surface(flaky) == 2.4
 
 
 @pytest.mark.parametrize("extra,match", [

@@ -29,10 +29,18 @@ CENTRAL_AUX_NAMES = ("eos_branch_u1", "eos_branch_u2")
 NO_BRANCH = -1   # branch label recorded for a component without matter
 
 
+class BranchSurfaceError(TypeError):
+    """The EOS object lacks a working branch interface (configuration error)."""
+
+
+class BranchProbeFailure(ValueError):
+    """The branch interface exists but failed on this EOS (reject the EOS)."""
+
+
 def validate_eos_affine_request(affine, using_eos=None, using_eos_branch=None,
-                                tabular_eos_file=None, using_eos_for_prior=False,
-                                assume_eos_but_primary_bh=False, no_matter1=False,
-                                oracle_reference_sample_file=None, sampler_oracle=None):
+                                tabular_eos_file=None, oracle_reference_sample_file=None,
+                                sampler_oracle=None, eccentric_phase_coordinates=False,
+                                eccentric_phase_sampling=False):
     """Raise ValueError for option combinations that central mode cannot honor."""
     if affine not in AFFINE_CHOICES:
         raise ValueError("--eos-affine-parameter must be one of {}".format(AFFINE_CHOICES))
@@ -48,14 +56,10 @@ def validate_eos_affine_request(affine, using_eos=None, using_eos_branch=None,
         raise ValueError(
             "--eos-affine-parameter central is incompatible with --tabular-eos-file: "
             "the fit over the ordering coordinate cannot represent branch labels")
-    if using_eos_for_prior:
+    if eccentric_phase_coordinates or eccentric_phase_sampling:
         raise ValueError(
-            "--eos-affine-parameter central is not supported with --using-eos-for-prior; "
-            "the EOS hyperprior plugin contract does not carry branch identity")
-    if assume_eos_but_primary_bh and not no_matter1:
-        raise ValueError(
-            "--eos-affine-parameter central with --assume-eos-but-primary-bh also "
-            "requires --no-matter1, so the integrand and the exported samples agree")
+            "--eos-affine-parameter central does not support eccentric phase coordinates "
+            "or --eccentric-phase-sampling: the sheared chart has no branch variates")
     if oracle_reference_sample_file or sampler_oracle:
         raise ValueError(
             "--eos-affine-parameter central does not support sampler oracles: "
@@ -92,8 +96,18 @@ def all_branch_max_mass_msun(eos):
     return value
 
 
+PROBE_FRACTIONS = (0.2, 0.4, 0.6, 0.8, 0.95)
+
+
 def require_branch_surface(eos):
-    """Configuration check: central mode needs branch enumeration and selection."""
+    """Startup check that central mode can enumerate and select branches.
+
+    Raises BranchSurfaceError when the interface is missing or unusable (for
+    example an nmbseq Landry-format file, whose branches_for_m raises
+    TypeError) and BranchProbeFailure when the calls work but this EOS has
+    no stable star at the probe masses or fails natively.  Returns the
+    all-branch maximum mass in Msun.
+    """
     if eos is None:
         raise TypeError("--eos-affine-parameter central requires an EOS object")
     if not callable(getattr(eos, "branches_for_m", None)):
@@ -104,7 +118,41 @@ def require_branch_surface(eos):
         raise TypeError(
             "--eos-affine-parameter central requires lambda_from_m(m, branch_id=...); "
             "{} does not accept branch_id".format(type(eos).__name__))
-    return all_branch_max_mass_msun(eos)
+    try:
+        m_max_all = all_branch_max_mass_msun(eos)
+    except TypeError as exc:
+        raise BranchSurfaceError(str(exc)) from exc
+    found = False
+    for frac in PROBE_FRACTIONS:
+        m_probe = frac * m_max_all
+        try:
+            branches = list(eos.branches_for_m(m_probe))
+        except (TypeError, AttributeError, NotImplementedError) as exc:
+            raise BranchSurfaceError(
+                "--eos-affine-parameter central: {}.branches_for_m({:.3g}) raised {}: {}".format(
+                    type(eos).__name__, m_probe, type(exc).__name__, exc)) from exc
+        except Exception as exc:
+            raise BranchProbeFailure(
+                "branches_for_m({:.3g}) failed: {}".format(m_probe, exc)) from exc
+        if not all(isinstance(b, (int, np.integer)) and not isinstance(b, bool) for b in branches):
+            raise BranchSurfaceError(
+                "--eos-affine-parameter central: branches_for_m must return integer branch ids, "
+                "got {!r}".format(branches))
+        if branches:
+            found = True
+            try:
+                eos.lambda_from_m(m_probe, branch_id=int(branches[0]))
+            except (TypeError, AttributeError, NotImplementedError) as exc:
+                raise BranchSurfaceError(
+                    "--eos-affine-parameter central: {}.lambda_from_m(m, branch_id={}) raised {}: {}".format(
+                        type(eos).__name__, branches[0], type(exc).__name__, exc)) from exc
+            except Exception:
+                pass   # a per-mass failure here is a sample rejection, not a configuration error
+    if not found:
+        raise BranchProbeFailure(
+            "no stable branch at probe masses {} Msun".format(
+                [round(f * m_max_all, 3) for f in PROBE_FRACTIONS]))
+    return m_max_all
 
 
 def select_branch(eos, m_msun, u, m_max_all):
