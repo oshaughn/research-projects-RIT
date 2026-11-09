@@ -345,7 +345,8 @@ parser.add_argument("--tabular-eos-file",type=str,default=None,help="Tabular fil
 parser.add_argument("--tabular-eos-file-format",type=str,default=None,help="Format of tabular file of EOS to use.  The default prior will be UNIFORM in this table!")
 parser.add_argument("--tabular-eos-order-statistic",type=str,default=None,help="Order statistic to use.  Options will include R1p4, LambdaTildeQ1, and ...}")
 parser.add_argument("--using-eos", type=str, default=None, help="Name of EOS.  Fit parameter list should physically use lambda1, lambda2 information (but need not). If starts with 'file:', uses a filename with EOS parameters ")
-parser.add_argument("--using-eos-branch", type=int, default=None, help="Select one stable LALSimulation family branch while preserving the fixed-EOS lambda_from_m(m) interface. Required for an explicitly chosen twin-star branch; not applicable to the primary-branch nmbseq v1 contract.")
+parser.add_argument("--using-eos-branch", type=int, default=None, help="Select one stable branch (LALSimulation family, or nmbseq with the branch API) while preserving the fixed-EOS lambda_from_m(m) interface. Required for an explicitly chosen twin-star branch. To include every branch instead, use --eos-affine-parameter central.")
+parser.add_argument("--eos-affine-parameter", default="mass", choices=["mass", "central"], help="Affine parameter along the fixed EOS's stellar sequence. 'mass' (default) is the historical one-branch M -> Lambda map. 'central' includes every stable branch (twin stars, third families) with a dM-per-branch prior: a mass on n stable branches counts n times. Adds two auxiliary sampled variates eos_branch_u1, eos_branch_u2 ~ U[0,1) that pick the branch; branch ids are written to <fname-output-samples>_eos_branch.dat. Requires an EOS providing branches_for_m and lambda_from_m(m, branch_id=...).")
 parser.add_argument("--using-eos-dirty-phase-transitions", action='store_true', help="Compatibility flag for --using-eos lalsim_file:<path>. The reviewed PhaseTransition reader always enables its dirty-phase-transition handling.")
 parser.add_argument("--using-eos-extended-family", action='store_true', help="With --using-eos lalsim_file:<path>, build the reviewed extended family instead of the PE-oriented minimal M/R/k2 family.")
 parser.add_argument("--using-eos-index", type=int, default=None, help="Index of EOS parameters in file.")
@@ -443,6 +444,19 @@ from RIFT.physics.lalsim_eos_compat import validate_fixed_eos_branch_request
 validate_fixed_eos_branch_request(
     opts.using_eos_branch, opts.using_eos
 )
+eos_affine_central = (opts.eos_affine_parameter == 'central')
+if eos_affine_central:
+    from RIFT.physics import eos_affine
+    eos_affine.validate_eos_affine_request(
+        opts.eos_affine_parameter, using_eos=opts.using_eos,
+        using_eos_branch=opts.using_eos_branch, tabular_eos_file=opts.tabular_eos_file,
+        oracle_reference_sample_file=opts.oracle_reference_sample_file,
+        sampler_oracle=opts.sampler_oracle,
+        eccentric_phase_coordinates=opts.eccentric_phase_coordinates,
+        eccentric_phase_sampling=opts.eccentric_phase_sampling,
+        fixed_parameters=opts.fixed_parameter)
+    # A BH primary has no EOS: Lambda1 = 0 and branch weight 1, in the integrand and the export.
+    eos_affine_no_matter1 = opts.no_matter1 or opts.assume_eos_but_primary_bh
 if (opts.using_eos_dirty_phase_transitions or opts.using_eos_extended_family) and (
         opts.using_eos is None or not opts.using_eos.startswith('lalsim_file:')):
     raise ValueError(
@@ -612,7 +626,10 @@ if opts.using_eos!=None:
             fname=eos_name.split(':', 1)[1],
             dirty_phase_transitions=opts.using_eos_dirty_phase_transitions,
             minimal_family=not opts.using_eos_extended_family,
-            phase_transition_aware=opts.using_eos_branch is not None,
+            phase_transition_aware=(
+                opts.using_eos_branch is not None
+                or (eos_affine_central and eos_affine.wants_multipart_file_reader(lalsim))
+            ),
         )
     elif 'lal_' in eos_name:
         eos_name = eos_name.replace('lal_','')
@@ -632,12 +649,24 @@ if opts.using_eos!=None:
     if opts.using_eos_branch is not None:
         if not hasattr(my_eos, "for_branch"):
             raise ValueError(
-                "--using-eos-branch requires a LALSimulation-backed EOS. "
-                "The nmbseq v1 interface intentionally exposes its primary "
-                "stable branch; multi-branch NMB inference requires the "
-                "central-enthalpy sequence path."
+                "--using-eos-branch requires an EOS with for_branch(): a "
+                "LALSimulation-backed EOS or an nmbseq sequence with the branch "
+                "API. To include every stable branch use "
+                "--eos-affine-parameter central."
             )
         my_eos = my_eos.for_branch(opts.using_eos_branch)
+    if eos_affine_central:
+        # Configuration check, not a sample evaluation: fail before sampling.
+        # A proposed EOS (file: grid row) whose branch probe fails is a rejected
+        # proposal; a missing interface is always a configuration error.
+        try:
+            eos_affine_m_max_all = eos_affine.require_branch_surface(my_eos)
+        except eos_affine.BranchProbeFailure as error:
+            if not (opts.using_eos.startswith("file:") and opts.using_eos_index is not None):
+                raise
+            _write_rejected_eos_proposal(error)
+            sys.exit(0)
+        print(" EOS affine parameter: central (all stable branches); all-branch max mass ", eos_affine_m_max_all)
 
 
 with open('args.txt','w') as fp:
@@ -2550,6 +2579,15 @@ else:
 
  my_fit = protect_fit_against_out_of_support(my_fit)
 
+if eos_affine_central:
+ def convert_coords_central(x_in, u_in):
+    x_out, log_weight, _ = eos_affine.convert_waveform_coordinates_with_eos_central(x_in, u_in, coord_names=coord_names,low_level_coord_names=low_level_coord_names,eos_class=my_eos,m_max_all=eos_affine_m_max_all,no_matter1=eos_affine_no_matter1, no_matter2=opts.no_matter2,source_redshift=source_redshift,enforce_kerr=opts.downselect_enforce_kerr,fref=opts.fref)
+    if _eos_sampling_status is not None:
+        rows = np.atleast_2d(x_out)
+        _eos_sampling_status['seen'] += len(rows)
+        _eos_sampling_status['all_rejected'] &= bool(np.isneginf(rows).all())
+    return x_out, log_weight
+
 
 ###
 ### Integrate posterior
@@ -2697,6 +2735,11 @@ for p in low_level_coord_names:
         fac = 2*np.pi
         prior_here = lambda x: np.ones_like(x, dtype=float)/(2*np.pi)
     sampler.add_parameter(sampling_name, pdf=np.vectorize(lambda x,z=fac:1./z), prior_pdf=prior_here,left_limit=range_here[0],right_limit=range_here[1],adaptive_sampling=adapt_me)
+if eos_affine_central:
+    # Branch variates: sampled, never fit coordinates; appended after the native coordinates.
+    for p in eos_affine.CENTRAL_AUX_NAMES:
+        sampler.add_parameter(p, pdf=np.vectorize(lambda x:1.), prior_pdf=eos_affine.unit_uniform_prior,left_limit=0.,right_limit=1.,adaptive_sampling=not (p in opts.no_adapt_parameter))
+    sampling_coord_names = list(sampling_coord_names) + list(eos_affine.CENTRAL_AUX_NAMES)
 
 
 ###
@@ -2913,6 +2956,10 @@ if opts.eccentric_phase_coordinates or (opts.using_eos):
         return result
     def likelihood_function(*args):
         return np.exp(log_likelihood_function(*args))
+if eos_affine_central:
+    # Integrand = fit(Lambda on the selected branches) * n1 n2 * existing prior scale.
+    log_likelihood_function, likelihood_function = eos_affine.make_central_log_likelihood(
+        my_fit, convert_coords_central, lambda x: my_log_prior_scale(x), len(low_level_coord_names))
 
 ###
 ### Prior reweight functions
@@ -3006,6 +3053,10 @@ if opts.sampler_method == "GMM" or (opts.sampler_method == 'portfolio' and 'GMM'
     else:
         param_indexes = range(len(low_level_coord_names))
         gmm_dict  = {(k,):None for k in param_indexes} # no correlations
+    if eos_affine_central:
+        # Branch variates follow the native coordinates; each gets its own 1d mixture.
+        for k in range(len(low_level_coord_names), len(low_level_coord_names)+len(eos_affine.CENTRAL_AUX_NAMES)):
+            gmm_dict[(k,)] = None
     if opts.internal_gmm_memory_chisquared_factor:
         lnL_offset_saving = len(low_level_coord_names)*opts.internal_gmm_memory_chisquared_factor  # based on chisquared distribution, we should not be keeping more than this for output.  This is PURELY FOR MEMORY MANAGEMENT
     else:
@@ -3024,6 +3075,10 @@ tempering_adapt=True
 if opts.force_no_adapt:   
     tempering_adapt=False
 # Result shifted by lnL_shift
+if eos_affine_central and supplemental_ln_likelihood:
+    # The supplementary factor sees the native sampling coordinates only, as in mass mode.
+    _supplemental_native = supplemental_ln_likelihood
+    supplemental_ln_likelihood = lambda *x: _supplemental_native(*x[:len(low_level_coord_names)])
 fn_passed = likelihood_function
 if supplemental_ln_likelihood:
     fn_passed =  lambda *x: likelihood_function(*x)*np.exp(supplemental_ln_likelihood(*x))
@@ -3253,6 +3308,9 @@ np.savetxt(opts.fname_output_integral+"+annotation_ESS.dat",[[ln_integrand_value
 indx_ok = np.logical_and(dat_logL > lnLmax-opts.lnL_offset ,samples["joint_s_prior"]>0)
 for p in low_level_coord_names:
     samples[p] = samples[p][indx_ok]
+if eos_affine_central:
+    for p in eos_affine.CENTRAL_AUX_NAMES:
+        samples[p] = samples[p][indx_ok]
 dat_logL  = dat_logL[indx_ok]
 samples["joint_prior"] =samples["joint_prior"][indx_ok]
 samples["joint_s_prior"] =samples["joint_s_prior"][indx_ok]
@@ -3575,6 +3633,7 @@ if opts.verbose:
 lnL_list = []
 P_list =[]
 kept_indx_list = []   # cache index behind each P_list entry, for the export supply annotation
+eos_branch_list = []  # central EOS affine parameter only: [b1, b2, n1, n2] per P_list entry
 P = lalsimutils.ChooseWaveformParams()
 P.approx = lalsim.GetApproximantFromString(opts.approx_output)
 #P.approx = lalsim.SEOBNRv2  # DEFAULT
@@ -3604,7 +3663,20 @@ for indx_here in indx_list:
 #            print indx_here, coord_to_assign, line[indx]
         # Test for downselect
         # Perform tabular EOS calculations: compute reference index, lambda1, lambda2
-        if my_eos:
+        if my_eos and eos_affine_central:
+            # Same branch the integrand used: recompute from the stored branch variates.
+            branch_row = [eos_affine.NO_BRANCH, eos_affine.NO_BRANCH, 1, 1]
+            for comp, (no_matter, m_here) in enumerate(((eos_affine_no_matter1, Pgrid.m1), (opts.no_matter2, Pgrid.m2))):
+                lam = 0.
+                if not no_matter:
+                    lam, branch_row[comp], branch_row[comp+2] = eos_affine.select_branch(my_eos, m_here/lal.MSUN_SI, float(samples[eos_affine.CENTRAL_AUX_NAMES[comp]][indx_here]), eos_affine_m_max_all)
+                if comp == 0:
+                    Pgrid.lambda1 = lam
+                else:
+                    Pgrid.lambda2 = lam
+            if not (np.isfinite(Pgrid.lambda1) and np.isfinite(Pgrid.lambda2)):
+                include_item = False
+        elif my_eos:
             from RIFT.physics.lalsim_eos_compat import evaluate_eos_lambda
             Pgrid.lambda1 = (0. if (opts.no_matter1 or opts.assume_eos_but_primary_bh)
                              else evaluate_eos_lambda(my_eos, Pgrid.m1/lal.MSUN_SI, use_vector=False))
@@ -3653,6 +3725,8 @@ for indx_here in indx_list:
          if Pgrid.m2 <= Pgrid.m1:  # do not add grid elements with m2> m1, to avoid possible code pathologies !
             P_list.append(Pgrid)
             kept_indx_list.append(indx_here)
+            if eos_affine_central:
+                eos_branch_list.append(branch_row)
             if not(opts.internal_use_lnL):
                 lnL_list.append(np.log(samples["integrand"][indx_here]))
             else:
@@ -3661,6 +3735,8 @@ for indx_here in indx_list:
             Pgrid.swap_components()  # IMPORTANT.  This should NOT change the physical functionality FOR THE PURPOSES OF OVERLAP (but will for PE - beware phiref, etc!)
             P_list.append(Pgrid)
             kept_indx_list.append(indx_here)
+            if eos_affine_central:
+                eos_branch_list.append([branch_row[1], branch_row[0], branch_row[3], branch_row[2]])
             if not(opts.internal_use_lnL):
                 lnL_list.append(np.log(samples["integrand"][indx_here]))
             else:
@@ -3684,6 +3760,12 @@ print(" export supply: requested {} delivered {} distinct {} unique-draw bound {
 np.savetxt(opts.fname_output_samples+"+annotation_export.dat", [[opts.n_output_samples, n_output_size, n_delivered_unique, n_unique_bound]], header=" n_requested n_delivered n_distinct unique_draw_bound ")
 lalsimutils.ChooseWaveformParams_array_to_xml(P_list[:n_output_size],fname=opts.fname_output_samples,fref=P.fref)
 lnL_list = np.array(lnL_list,dtype=internal_dtype)
+if eos_affine_central:
+    # Keep both sidecars aligned with the XML. Multiplicity belongs in the
+    # integration measure, so remove it only from the exported likelihood.
+    exported_branches = np.asarray(eos_branch_list[:n_output_size], dtype=int)
+    lnL_list = lnL_list[:n_output_size] - np.log(np.prod(exported_branches[:, 2:], axis=1, dtype=float))
+    np.savetxt(opts.fname_output_samples+"_eos_branch.dat", exported_branches, fmt='%d', header="b1 b2 n1 n2")
 np.savetxt(opts.fname_output_samples+"_lnL.dat", lnL_list)
 
 
