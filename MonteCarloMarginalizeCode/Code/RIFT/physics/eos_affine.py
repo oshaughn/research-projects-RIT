@@ -99,6 +99,14 @@ def all_branch_max_mass_msun(eos):
 PROBE_FRACTIONS = (0.2, 0.4, 0.6, 0.8, 0.95)
 
 
+def wants_multipart_file_reader(lalsim_module):
+    """Central mode with ``lalsim_file:`` must load the table with the reviewed
+    phase-transition reader when the build has one: on such builds the legacy
+    reader's family exposes a single branch.  Released builds without it
+    (lalsimulation 7.0.0) build a multibranch family from the legacy reader."""
+    return hasattr(lalsim_module, "SimNeutronStarEOSFromFilePhaseTransition")
+
+
 def require_branch_surface(eos):
     """Startup check that central mode can enumerate and select branches.
 
@@ -118,6 +126,20 @@ def require_branch_surface(eos):
         raise TypeError(
             "--eos-affine-parameter central requires lambda_from_m(m, branch_id=...); "
             "{} does not accept branch_id".format(type(eos).__name__))
+    adapter_getter = getattr(eos, "_get_lalsim_family_adapter", None)
+    if callable(adapter_getter):
+        try:
+            adapter = adapter_getter()
+        except Exception as exc:
+            raise BranchSurfaceError(
+                "--eos-affine-parameter central: {} has no usable LALSimulation family: {}".format(
+                    type(eos).__name__, exc)) from exc
+        if not getattr(adapter, "is_multibranch_api", True):
+            raise BranchSurfaceError(
+                "--eos-affine-parameter central: {} uses the single-branch (legacy) LALSimulation "
+                "family API, which cannot report other stable branches; use a build with the "
+                "released multibranch API (lalsimulation >= 7.0.0) or the reviewed "
+                "phase-transition reader".format(type(eos).__name__))
     try:
         m_max_all = all_branch_max_mass_msun(eos)
     except TypeError as exc:
@@ -206,7 +228,10 @@ def convert_waveform_coordinates_with_eos_central(
             P.fref = fref
         # As in the mass path: P.m1, P.m2 are in Msun here.
         for indx, name in enumerate(low_level_coord_names):
-            P.assign_param(name, x_in[row, indx])
+            if name == 'chi_pavg':
+                continue   # auxiliary sampling coordinate; never assigned (as in CIP's export loop)
+            # ChooseWaveformParams has no setter for 'xi'; it is chieff_aligned.
+            P.assign_param('chieff_aligned' if name == 'xi' else name, x_in[row, indx])
         log_w = 0.
         ok = True
         for comp, (no_matter, mass) in enumerate(((no_matter1, P.m1), (no_matter2, P.m2))):

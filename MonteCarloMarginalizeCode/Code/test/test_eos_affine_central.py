@@ -757,3 +757,76 @@ def test_nmbseq_driver_end_to_end_central(tmp_path):
     assert not (tmp_path / "samp_mass_eos_branch.dat").exists()
     # The data favour component masses near 1.86 Msun, inside the twin region.
     assert lnz["central"] > lnz["mass"]
+
+
+# ------------------------------------- review-bot findings (PR #537 / #262)
+
+def test_central_conversion_accepts_sampled_xi_and_chi_pavg():
+    """A sampled xi is chieff_aligned and chi_pavg is never assigned, as in CIP's
+    export loop; ChooseWaveformParams.assign_param('xi') would sys.exit(1)."""
+    eos = FakeTwinEOS()
+    x = np.array([[1.2, 0.1, 0.02, 0.3], [1.5, 0.05, -0.01, 0.1]])
+    u = np.array([[0.2, 0.7], [0.9, 0.4]])
+    out_xi, lw_xi, br_xi = _central(eos, x, u, coord_names=("m1", "m2", "xi", "lambda1", "lambda2"),
+                                    low=("mc", "delta_mc", "xi", "chi_pavg"))
+    out_ce, lw_ce, br_ce = _central(eos, x[:, :3], u, coord_names=("m1", "m2", "xi", "lambda1", "lambda2"),
+                                    low=("mc", "delta_mc", "chieff_aligned"))
+    assert np.all(np.isfinite(out_xi))
+    np.testing.assert_allclose(out_xi[:, 2], x[:, 2], rtol=0, atol=1e-12)
+    np.testing.assert_array_equal(out_xi, out_ce)
+    np.testing.assert_array_equal(lw_xi, lw_ce)
+    np.testing.assert_array_equal(br_xi, br_ce)
+
+
+class _AdapterNamespace:
+    def __init__(self, multibranch):
+        self.is_multibranch_api = multibranch
+
+
+class FakeLegacyFamilyTwin(FakeTwinEOS):
+    """A LALSimulation-backed EOS whose family API can only report one branch."""
+    multibranch = False
+
+    def _get_lalsim_family_adapter(self):
+        return _AdapterNamespace(self.multibranch)
+
+
+def test_probe_refuses_single_branch_lalsim_family():
+    with pytest.raises(eos_affine.BranchSurfaceError, match="single-branch"):
+        eos_affine.require_branch_surface(FakeLegacyFamilyTwin())
+    ok = FakeLegacyFamilyTwin()
+    ok.multibranch = True
+    assert eos_affine.require_branch_surface(ok) == pytest.approx(2.4)
+
+
+def test_probe_on_installed_lalsimulation_family():
+    """Central mode on a real named EOS: accepted only if the installed build can
+    report every stable branch (no skip, so either build is tested)."""
+    import lalsimulation
+    from RIFT.physics import EOSManager
+    from RIFT.physics.lalsim_eos_compat import LALSimNeutronStarFamilyAdapter
+    eos = EOSManager.EOSLALSimulation(name="SLY")
+    api = LALSimNeutronStarFamilyAdapter._family_api(lalsimulation, False)
+    if api == "legacy":
+        with pytest.raises(eos_affine.BranchSurfaceError, match="single-branch"):
+            eos_affine.require_branch_surface(eos)
+    else:
+        assert eos_affine.require_branch_surface(eos) == pytest.approx(eos.mMaxMsun, rel=1e-6)
+
+
+def test_central_lalsim_file_selects_multipart_reader(monkeypatch):
+    """With the reviewed phase-transition reader present, central mode must load
+    lalsim_file: tables through it (the legacy reader's family has one branch)."""
+    assert eos_affine.wants_multipart_file_reader(FakeMultibranchLalsim())
+    assert not eos_affine.wants_multipart_file_reader(object())
+    from RIFT.physics import EOSManager
+    monkeypatch.setattr(EOSManager, "lalsim", FakeMultibranchLalsim())
+    eos = EOSManager.EOSLALSimulationFromFile(
+        "twin.dat", phase_transition_aware=eos_affine.wants_multipart_file_reader(EOSManager.lalsim))
+    assert eos._lalsim_reviewed_multibranch
+    assert eos.branches_for_m(1.5) == [0, 1]
+    src = (Path(__file__).resolve().parents[1] / "bin" /
+           "util_ConstructIntrinsicPosterior_GenericCoordinates.py").read_text()
+    block = src[src.index("elif eos_name.startswith('lalsim_file:'):"):]
+    block = block[:block.index("elif 'lal_' in eos_name:")]
+    assert "eos_affine_central and eos_affine.wants_multipart_file_reader(lalsim)" in block

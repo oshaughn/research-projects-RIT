@@ -625,7 +625,10 @@ if opts.using_eos!=None:
             fname=eos_name.split(':', 1)[1],
             dirty_phase_transitions=opts.using_eos_dirty_phase_transitions,
             minimal_family=not opts.using_eos_extended_family,
-            phase_transition_aware=opts.using_eos_branch is not None,
+            phase_transition_aware=(
+                opts.using_eos_branch is not None
+                or (eos_affine_central and eos_affine.wants_multipart_file_reader(lalsim))
+            ),
         )
     elif 'lal_' in eos_name:
         eos_name = eos_name.replace('lal_','')
