@@ -5,6 +5,10 @@ implementations copied from the pre-change reader (rift_O4c 259baea8d).
 """
 
 import json
+import os
+from pathlib import Path
+import subprocess
+import sys
 
 import numpy as np
 import pytest
@@ -419,6 +423,7 @@ def test_single_index_for_branch_view(nss_path, seq_array):
         assert isinstance(view, EOSManager.EOSBranchView)
         assert view.branch_id == b
         assert view.name.endswith("[branch={}]".format(b))
+        assert view.mMinMsun == float(Mb[0])
         assert view.mMaxMsun == float(Mb[-1]) == view.mMaxMsun_all
         assert view.number_of_branches == 1
         mid = float(0.5 * (Mb[1] + Mb[-2]))
@@ -489,3 +494,46 @@ def test_pca_radius_in_metres(tmp_path, seq_array):
     eos = EOSManager.EOSSequenceSingleIndex(fname=path, index=0)
     assert eos.radius_from_m(1.4) == 1e3 * float(eos.R_from_m(1.4))
     assert 9e3 < eos.radius_from_m(1.4) < 15e3
+
+
+
+def test_cip_exports_matter_free_secondary_below_nmb_branch(tmp_path, nss_path):
+    from RIFT import lalsimutils
+
+    code = Path(__file__).resolve().parents[1]
+    (tmp_path / "sitecustomize.py").write_text(
+        "import numpy as np\n"
+        "if not hasattr(np, 'float128'):\n    np.float128 = np.longdouble\n"
+        "np.random.seed(3)\n")
+    rng = np.random.default_rng(7)
+    m1 = rng.uniform(1.9, 2.23, 180)
+    m2 = rng.uniform(1.27, 1.60, 180)
+    mc = (m1 * m2) ** .6 / (m1 + m2) ** .2
+    delta = (m1 - m2) / (m1 + m2)
+    lnL = 20 - .5 * ((mc - 1.53) / .02) ** 2 - .5 * ((delta - .18) / .05) ** 2
+    ile = np.column_stack([np.arange(len(m1)), m1, m2, np.zeros((len(m1), 6)),
+                           np.full(len(m1), 50.), np.full(len(m1), 50.),
+                           lnL, np.full(len(m1), .01), np.full(len(m1), 1000.),
+                           np.full(len(m1), 100.)])
+    np.savetxt(tmp_path / "ile.dat", ile)
+    env = dict(os.environ, PYTHONPATH=os.pathsep.join([str(code), str(tmp_path)]),
+               OMP_NUM_THREADS="1", OPENBLAS_NUM_THREADS="1", MPLBACKEND="Agg",
+               MPLCONFIGDIR=str(tmp_path / "mpl"))
+    completed = subprocess.run([
+        sys.executable, str(code / "bin/util_ConstructIntrinsicPosterior_GenericCoordinates.py"),
+        "--fname", "ile.dat", "--input-tides", "--using-eos", f"nmbseq:{nss_path}:1",
+        "--using-eos-branch", "1", "--no-matter2", "--parameter", "mc", "--parameter", "delta_mc",
+        "--mc-range", "[1.49,1.56]", "--eta-range", "[0.23,0.247]",
+        "--fit-method", "quadratic", "--n-max", "2000", "--n-eff", "10", "--n-chunk", "50",
+        "--n-output-samples", "3", "--fname-output-integral", "result",
+        "--fname-output-samples", "posterior", "--no-plots",
+    ], cwd=tmp_path, env=env, capture_output=True, text=True, timeout=180)
+    assert completed.returncode == 0, completed.stdout[-3000:] + completed.stderr[-3000:]
+    assert np.isfinite(np.loadtxt(tmp_path / "result.dat"))
+    posterior = lalsimutils.xml_to_ChooseWaveformParams_array(str(tmp_path / "posterior.xml.gz"))
+    branch = EOSManager.EOSSequenceSingleIndex(fname=nss_path, index=1).for_branch(1)
+    assert len(posterior) == 3
+    for sample in posterior:
+        assert sample.m2 / lal.MSUN_SI < branch.mMinMsun
+        assert sample.lambda2 == 0.
+        assert sample.lambda1 == pytest.approx(branch.lambda_from_m(sample.m1), rel=2e-5)
