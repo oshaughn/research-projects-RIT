@@ -830,3 +830,17 @@ def test_central_lalsim_file_selects_multipart_reader(monkeypatch):
     block = src[src.index("elif eos_name.startswith('lalsim_file:'):"):]
     block = block[:block.index("elif 'lal_' in eos_name:")]
     assert "eos_affine_central and eos_affine.wants_multipart_file_reader(lalsim)" in block
+
+
+def test_central_conversion_carries_sampled_chi_pavg_to_fit_coordinate():
+    """chi_pavg in both sampling and fit coordinates keeps its sampled value (the
+    native converter copies it); recomputing it from P's spins gave 0."""
+    eos = FakeTwinEOS()
+    x = np.array([[1.8, 1.2, 0.7], [1.7, 1.3, 0.2]])
+    u = np.array([[0.1, 0.6], [0.8, 0.3]])
+    out, lw, br = _central(eos, x, u, coord_names=("m1", "m2", "chi_pavg", "lambda1", "lambda2"),
+                           low=("m1", "m2", "chi_pavg"))
+    np.testing.assert_array_equal(out[:, 2], x[:, 2])
+    ref, _, _ = _central(eos, x[:, :2], u, coord_names=("m1", "m2", "lambda1", "lambda2"),
+                         low=("m1", "m2"))
+    np.testing.assert_array_equal(out[:, [0, 1, 3, 4]], ref)

@@ -227,8 +227,10 @@ def convert_waveform_coordinates_with_eos_central(
         if fref is not None:
             P.fref = fref
         # As in the mass path: P.m1, P.m2 are in Msun here.
+        passthrough = {}
         for indx, name in enumerate(low_level_coord_names):
             if name == 'chi_pavg':
+                passthrough[name] = x_in[row, indx]
                 continue   # auxiliary sampling coordinate; never assigned (as in CIP's export loop)
             # ChooseWaveformParams has no setter for 'xi'; it is chieff_aligned.
             P.assign_param('chieff_aligned' if name == 'xi' else name, x_in[row, indx])
@@ -256,7 +258,10 @@ def convert_waveform_coordinates_with_eos_central(
         P.m1 = P.m1 * (1 + source_redshift)
         P.m2 = P.m2 * (1 + source_redshift)
         for indx, name in enumerate(coord_names):
-            x_out[row, indx] = P.extract_param(name)
+            if name in passthrough:
+                x_out[row, indx] = passthrough[name]   # sampled value, as the native converter copies it
+            else:
+                x_out[row, indx] = P.extract_param(name)
         if enforce_kerr and (P.extract_param('chi1') > 1 or P.extract_param('chi2') > 1):
             x_out[row] = -np.inf
             log_weight[row] = 0.
