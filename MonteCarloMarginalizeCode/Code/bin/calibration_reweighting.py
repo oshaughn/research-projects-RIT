@@ -246,8 +246,7 @@ key_swap_dict_backwards = None
 
 outdir = os.path.dirname(os.path.abspath(args.posterior_sample_file))
 # make IMMEDIATELY, so we don't get held when evicted for OSG operation
-if not os.path.exists(f'{outdir}/weight_files/'):
-    os.makedirs(f'{outdir}/weight_files/')
+os.makedirs(f'{outdir}/weight_files/', exist_ok=True)
 
 result=None # scoping requirement
 # read in the posterior samples for reweighting
@@ -255,7 +254,7 @@ rift_time_samples=None # save b/c bilby somehow distorts them?
 if args.posterior_sample_file.split(".")[-1] == 'json':
     result = bilby.core.result.read_in_result(args.posterior_sample_file)
     if start_index is not None:
-        if start_index > len(result.posterior):
+        if start_index >= len(result.posterior):
             print(" Stopping : no work after end of file")
             sys.exit(0)  # no work needed, stop
     if end_index is not None:
@@ -264,9 +263,9 @@ if args.posterior_sample_file.split(".")[-1] == 'json':
     result.posterior = result.posterior.iloc[start_index:end_index].reset_index(drop=True)
 elif (args.posterior_sample_file.split(".")[-1] == 'txt') or (args.posterior_sample_file.split(".")[-1] == 'dat'):
     result = bilby.core.result.Result()
-    result.posterior = pd.DataFrame(np.genfromtxt(args.posterior_sample_file, names=True))
+    result.posterior = pd.DataFrame(np.genfromtxt(args.posterior_sample_file, names=True, ndmin=1))
     if start_index is not None:
-        if start_index > len(result.posterior):
+        if start_index >= len(result.posterior):
             print(" Stopping : no work after end of file")
             sys.exit(0)  # no work needed, stop
     if end_index is not None:
@@ -491,7 +490,11 @@ else:
 
 # Setting up the resume and weight file names
 resume_file = None
-if (start_index != None) and (end_index != None):
+if rift_has_tides and (start_index is not None or end_index is not None):
+    first = 0 if start_index is None else start_index
+    last = first + len(result.posterior)
+    weights_file = f'{outdir}/weight_files/tidal_weights_s{first}e{last}.dat'
+elif (start_index != None) and (end_index != None):
     weights_file = f'{outdir}/weight_files/weights_s{start_index}e{end_index}.dat'
 elif start_index != None:
     weights_file = f'{outdir}/weight_files/weights_s{start_index}eNone.dat'
@@ -524,8 +527,6 @@ else:
 
     
 # Save the weights to a file, with the sample index in the name
-if not os.path.exists(f'{outdir}/weight_files/'):
-    os.makedirs(f'{outdir}/weight_files/')
 np.savetxt(weights_file, weights)
 
 if args.dump_cal_realization:

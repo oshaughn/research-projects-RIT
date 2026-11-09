@@ -1,4 +1,8 @@
 """Conditioning and physical-time contracts of the bilby RIFT source adapters."""
+from pathlib import Path
+import subprocess
+import sys
+
 import numpy as np
 import pytest
 import lal
@@ -179,3 +183,76 @@ def test_real_generator_conditioning_and_epoch(monkeypatch, method, approximant,
         assert abs(values[0]) < np.max(abs(values)) * 1e-13
     elif approximant == 'IMRPhenomTPHM':
         assert abs(values[0]) > np.max(abs(values)) * 1e-8
+
+
+@pytest.mark.parametrize("extended", [False, True])
+def test_tidal_batch_combine_matches_ranges(tmp_path, extended):
+    posterior = tmp_path / "posterior.dat"
+    batches = tmp_path / "weight_files"
+    batches.mkdir()
+    rows = ["m1 m2 lnL ps lambda1 lambda2 row"] + [
+        f"5 1.3 0 1 0 {400 + 100 * i} {i}" for i in range(3)]
+    posterior.write_text("\n".join(rows) + "\n")
+
+    # Create the last batch first. Its shorter length must not affect pairing.
+    np.savetxt(batches / "tidal_weights_s2e3.dat", [1.])
+    np.savetxt(batches / "tidal_weights_s0e2.dat", [0., 0.])
+    if extended:
+        for start, end in ((2, 3), (0, 2)):
+            (batches / f"tidal_weights_s{start}e{end}.extended_posterior").write_text(
+                "\n".join([rows[0], *rows[1 + start:1 + end]]) + "\n")
+
+    # The old range overlaps corrected output and must never contribute weights.
+    np.savetxt(batches / "weights_s0e3.dat", [1.e6, 1.e6, 1.e6])
+    combiner = Path(__file__).resolve().parents[1] / "bin/combine_weights_and_rejection_sample.py"
+    completed = subprocess.run(
+        [sys.executable, str(combiner), str(posterior), str(batches)],
+        capture_output=True, text=True)
+    assert completed.returncode == 0, completed.stderr
+    combined = np.genfromtxt(tmp_path / "reweighted_posterior_samples.dat", names=True)
+    assert combined["row"] == 2.
+    assert combined["lambda2"] == 600.
+
+
+@pytest.mark.parametrize("have_corrected_prefix", [False, True])
+def test_tidal_batch_combine_refuses_unrecomputed_legacy_ranges(tmp_path, have_corrected_prefix):
+    posterior = tmp_path / "posterior.dat"
+    posterior.write_text("m1 m2 lnL ps lambda1 lambda2\n5 1.3 0 1 0 400\n5 1.3 0 1 0 600\n")
+    batches = tmp_path / "weight_files"
+    batches.mkdir()
+    np.savetxt(batches / "weights_s1e2.dat", [1.])
+    if have_corrected_prefix:
+        np.savetxt(batches / "tidal_weights_s0e1.dat", [1.])
+
+    combiner = Path(__file__).resolve().parents[1] / "bin/combine_weights_and_rejection_sample.py"
+    completed = subprocess.run(
+        [sys.executable, str(combiner), str(posterior), str(batches)],
+        capture_output=True, text=True)
+    assert completed.returncode != 0
+    assert "tidal" in completed.stderr
+    assert not (tmp_path / "reweighted_posterior_samples.dat").exists()
+
+
+
+@pytest.mark.parametrize("start,end,reason", [
+    (1, 2, "contiguous prefix"),
+    (0, 3, "range exceeds the input posterior"),
+])
+def test_tidal_batch_combine_checks_extended_ranges(tmp_path, start, end, reason):
+    posterior = tmp_path / "posterior.dat"
+    header = "m1 m2 lnL ps lambda1 lambda2\n"
+    row = "5 1.3 0 1 0 400\n"
+    posterior.write_text(header + row * 2)
+    batches = tmp_path / "weight_files"
+    batches.mkdir()
+    stem = batches / f"tidal_weights_s{start}e{end}"
+    np.savetxt(stem.with_suffix(".dat"), np.ones(end - start))
+    stem.with_suffix(".extended_posterior").write_text(header + row * (end - start))
+
+    combiner = Path(__file__).resolve().parents[1] / "bin/combine_weights_and_rejection_sample.py"
+    completed = subprocess.run(
+        [sys.executable, str(combiner), str(posterior), str(batches)],
+        capture_output=True, text=True)
+    assert completed.returncode != 0
+    assert reason in completed.stderr
+    assert not (tmp_path / "reweighted_posterior_samples.dat").exists()
