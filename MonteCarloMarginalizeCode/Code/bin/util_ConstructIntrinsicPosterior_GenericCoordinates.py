@@ -453,7 +453,8 @@ if eos_affine_central:
         oracle_reference_sample_file=opts.oracle_reference_sample_file,
         sampler_oracle=opts.sampler_oracle,
         eccentric_phase_coordinates=opts.eccentric_phase_coordinates,
-        eccentric_phase_sampling=opts.eccentric_phase_sampling)
+        eccentric_phase_sampling=opts.eccentric_phase_sampling,
+        fixed_parameters=opts.fixed_parameter)
     # A BH primary has no EOS: Lambda1 = 0 and branch weight 1, in the integrand and the export.
     eos_affine_no_matter1 = opts.no_matter1 or opts.assume_eos_but_primary_bh
 if (opts.using_eos_dirty_phase_transitions or opts.using_eos_extended_family) and (
@@ -803,9 +804,11 @@ if not('chi2' in downselect_dict):
 if opts.input_tides:
     # only insert these cuts if we are using a composite file with tides!
     # do not downselect if lambda1 is not in ! allows NSBH
-    if not('lambda1' in downselect_dict) and 'lambda1' in opts.parameter:
+    # A fixed EOS assigns zero tides to matter-free components. Keep explicit cuts.
+    if ('lambda1' not in downselect_dict and 'lambda1' in opts.parameter
+            and not (my_eos and (opts.no_matter1 or opts.assume_eos_but_primary_bh))):
         downselect_dict['lambda1'] = [lambda_min,lambda_max]
-    if not('lambda2' in downselect_dict):
+    if 'lambda2' not in downselect_dict and not (my_eos and opts.no_matter2):
         downselect_dict['lambda2'] = [lambda_min,lambda_small_max]
 for param in ['s1z', 's2z', 's1x','s2x', 's1y', 's2y']:
     downselect_dict[param] = [-chi_max,chi_max]
@@ -3674,20 +3677,11 @@ for indx_here in indx_list:
             if not (np.isfinite(Pgrid.lambda1) and np.isfinite(Pgrid.lambda2)):
                 include_item = False
         elif my_eos:
-            # only define lambda1, lambda2 as parameters if they are used in sampling! Otherwise may cause problems (e.g.,we are assuming it is zero for a BH)
-            # Failure policy: an EOS evaluation that raises or is nonfinite (e.g. a mass
-            # outside a --using-eos-branch branch) drops this sample instead of crashing.
             from RIFT.physics.lalsim_eos_compat import evaluate_eos_lambda
-            if not(opts.assume_eos_but_primary_bh):
-                Pgrid.lambda1 = evaluate_eos_lambda(my_eos, Pgrid.m1/lal.MSUN_SI, use_vector=False)
-            else:
-                Pgrid.lambda1 = 0 # BH
-            Pgrid.lambda2 = evaluate_eos_lambda(my_eos, Pgrid.m2/lal.MSUN_SI, use_vector=False)
-            # The integrand gave a --no-matter component Lambda = 0; keep such samples.
-            if opts.no_matter1 and not np.isfinite(Pgrid.lambda1):
-                Pgrid.lambda1 = 0
-            if opts.no_matter2 and not np.isfinite(Pgrid.lambda2):
-                Pgrid.lambda2 = 0
+            Pgrid.lambda1 = (0. if (opts.no_matter1 or opts.assume_eos_but_primary_bh)
+                             else evaluate_eos_lambda(my_eos, Pgrid.m1/lal.MSUN_SI, use_vector=False))
+            Pgrid.lambda2 = (0. if opts.no_matter2
+                             else evaluate_eos_lambda(my_eos, Pgrid.m2/lal.MSUN_SI, use_vector=False))
             if not (np.isfinite(Pgrid.lambda1) and np.isfinite(Pgrid.lambda2)):
                 include_item = False
         elif opts.tabular_eos_file:
@@ -3766,10 +3760,13 @@ print(" export supply: requested {} delivered {} distinct {} unique-draw bound {
 np.savetxt(opts.fname_output_samples+"+annotation_export.dat", [[opts.n_output_samples, n_output_size, n_delivered_unique, n_unique_bound]], header=" n_requested n_delivered n_distinct unique_draw_bound ")
 lalsimutils.ChooseWaveformParams_array_to_xml(P_list[:n_output_size],fname=opts.fname_output_samples,fref=P.fref)
 lnL_list = np.array(lnL_list,dtype=internal_dtype)
-np.savetxt(opts.fname_output_samples+"_lnL.dat", lnL_list)
 if eos_affine_central:
-    # sim_inspiral XML has no branch column: sidecar aligned row-for-row with the XML export.
-    np.savetxt(opts.fname_output_samples+"_eos_branch.dat", np.array(eos_branch_list[:n_output_size],dtype=int).reshape(-1,4), fmt='%d', header="b1 b2 n1 n2")
+    # Keep both sidecars aligned with the XML. Multiplicity belongs in the
+    # integration measure, so remove it only from the exported likelihood.
+    exported_branches = np.asarray(eos_branch_list[:n_output_size], dtype=int)
+    lnL_list = lnL_list[:n_output_size] - np.log(np.prod(exported_branches[:, 2:], axis=1, dtype=float))
+    np.savetxt(opts.fname_output_samples+"_eos_branch.dat", exported_branches, fmt='%d', header="b1 b2 n1 n2")
+np.savetxt(opts.fname_output_samples+"_lnL.dat", lnL_list)
 
 
 if not opts.no_plots:

@@ -336,8 +336,7 @@ def test_mass_export_keeps_no_matter_sample_outside_branch():
     view = FakeTwinEOS().for_branch(1)
     ns = _driver_export_loop(view, np.array([[2.2, 1.3], [2.2, 1.7]]), no_matter2=True)
     assert ns["kept_indx_list"] == [0, 1]
-    assert ns["P_list"][0].lambda2 == 0
-    assert ns["P_list"][1].lambda2 == pytest.approx(view.lambda_from_m(1.7))
+    assert all(p.lambda2 == 0. for p in ns["P_list"])
 
 
 def test_central_supplementary_likelihood_sees_native_coordinates_only():
@@ -567,6 +566,15 @@ def test_driver_end_to_end_central_fake_twin(tmp_path):
                 assert b in eos.branches_for_m(m) and n == len(eos.branches_for_m(m))
                 assert lam == pytest.approx(eos.branch_lambda(m, b), rel=1e-5)   # XML stores float32
         assert (B[:, :2] == 1).any() and (B[:, :2] == 0).any()
+        exported_lnL = np.loadtxt(tmp_path / f"samp_{sampler}_lnL.dat")
+        assert exported_lnL.shape == (len(P),)
+        assert len(np.unique(np.prod(B[:, 2:], axis=1))) > 1
+        mc = np.array([p.extract_param("mc") / lal.MSUN_SI for p in P])
+        lt = np.array([p.extract_param("LambdaTilde") for p in P])
+        fit_lnL = 20 - .5 * ((mc - 1.62) / .01) ** 2 - .5 * ((lt - 300.) / 250.) ** 2
+        # The fit can have a common offset. It cannot have a branch-dependent
+        # offset of ln(2) or ln(4) from the integration measure.
+        assert np.ptp(exported_lnL - fit_lnL) < 2e-3
     # Seeded runs: lnZ 19.40 (AC) and 19.40 (GMM); without the GMM groups GMM gives ~18.6.
     assert abs(lnz["GMM"] - lnz["adaptive_cartesian"]) < 0.3, lnz
 
@@ -584,14 +592,28 @@ def test_driver_branch_labels_follow_posterior_after_lnL_offset_cut(tmp_path):
     assert (B[:, :2][twin] == 1).mean() > 0.98
 
 
-def test_driver_using_eos_branch_no_matter_secondary_exports(tmp_path):
-    """Without the export guard this run crashes: m2 below branch 1 reaches the export loop."""
-    _ile_file(tmp_path / "ile_flat.dat", lt_sigma=1e4)   # flat in LambdaTilde: wide mass ratio
-    _check_ok(_run_fake_driver(tmp_path, "nm2", "--using-eos-branch", "1", "--no-matter2", ile="ile_flat.dat"))
-    # Lambda2 = 0 then fails the existing lambda2 >= --lambda-min export downselect, as a
-    # no-matter Lambda of 1e-8 always has; the point is that the export completes.
-    P = lalsimutils.xml_to_ChooseWaveformParams_array(str(tmp_path / "samp_nm2.xml.gz"))
-    assert len(P) > 0 and all(p.m2 / lal.MSUN_SI >= 1.6 for p in P)
+@pytest.mark.parametrize("central", [False, True])
+def test_driver_no_matter_secondary_exports_with_default_tidal_cuts(tmp_path, central):
+    _ile_file(tmp_path / "ile_flat.dat", lt_sigma=1e4)
+    branch_args = ("--eos-affine-parameter", "central") if central else ("--using-eos-branch", "1")
+    _check_ok(_run_fake_driver(tmp_path, "nm2", *branch_args, "--no-matter2", ile="ile_flat.dat"))
+    if central:
+        P, B = _exported(tmp_path, "nm2")
+        assert np.all(B[:, 1] == eos_affine.NO_BRANCH)
+        assert np.all(B[:, 3] == 1)
+    else:
+        P = lalsimutils.xml_to_ChooseWaveformParams_array(str(tmp_path / "samp_nm2.xml.gz"))
+        assert any(p.m2 / lal.MSUN_SI < 1.6 for p in P)
+    assert len(P) == 300 and all(p.lambda2 == 0. for p in P)
+
+
+def test_driver_rejects_central_fixed_tidal_override_before_integration(tmp_path):
+    _ile_file(tmp_path / "ile.dat")
+    result = _run_fake_driver(tmp_path, "fixed", "--eos-affine-parameter", "central",
+                              "--fixed-parameter", "lambda2", "--fixed-parameter-value", "0")
+    assert result.returncode != 0
+    assert "--fixed-parameter overrides to EOS coordinates: lambda2" in result.stderr
+    assert not (tmp_path / "res_fixed.dat").exists()
 
 
 def test_driver_rejects_branch_api_that_fails_at_startup(tmp_path):

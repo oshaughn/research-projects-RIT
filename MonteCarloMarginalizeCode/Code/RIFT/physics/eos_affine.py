@@ -40,7 +40,7 @@ class BranchProbeFailure(ValueError):
 def validate_eos_affine_request(affine, using_eos=None, using_eos_branch=None,
                                 tabular_eos_file=None, oracle_reference_sample_file=None,
                                 sampler_oracle=None, eccentric_phase_coordinates=False,
-                                eccentric_phase_sampling=False):
+                                eccentric_phase_sampling=False, fixed_parameters=None):
     """Raise ValueError for option combinations that central mode cannot honor."""
     if affine not in AFFINE_CHOICES:
         raise ValueError("--eos-affine-parameter must be one of {}".format(AFFINE_CHOICES))
@@ -48,6 +48,18 @@ def validate_eos_affine_request(affine, using_eos=None, using_eos_branch=None,
         return
     if using_eos is None:
         raise ValueError("--eos-affine-parameter central requires --using-eos")
+    # These assign_param setters can change a star's mass or deformability
+    # after the branch and likelihood have been selected.
+    eos_coordinates = {
+        "m1", "m2", "mtot", "mc", "mc_ecc", "log_mc", "eta", "q", "delta", "delta_mc",
+        "mu1", "mu2", "lambda1", "lambda2", "lambda_plus", "lambda_minus",
+        "LambdaTilde", "DeltaLambdaTilde", "eos_table_index",
+    }
+    overrides = eos_coordinates.intersection(fixed_parameters or ())
+    if overrides:
+        raise ValueError(
+            "--eos-affine-parameter central cannot apply late --fixed-parameter overrides "
+            "to EOS coordinates: " + ", ".join(sorted(overrides)))
     if using_eos_branch is not None:
         raise ValueError(
             "--eos-affine-parameter central sums over every stable branch; "

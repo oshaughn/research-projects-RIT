@@ -135,6 +135,10 @@ a central-coordinate affine parameter with a dM-per-branch prior.  It is
 implemented as mass plus a branch label, so every stable branch contributes.
 Each component may be a star on any stable branch.
 
+Late `--fixed-parameter` overrides of mass and tidal coordinates are
+incompatible with central mode. Such an override would change the exported
+binary after the sampler chose its EOS branches.
+
 The prior is dM per stable branch.  A mass with n(m) stable branches counts
 n(m) times, so the joint mass prior gains a factor n(m1) n(m2).  For a
 single-branch EOS, n = 1 and the prior is the usual mass prior.  Twin regions
