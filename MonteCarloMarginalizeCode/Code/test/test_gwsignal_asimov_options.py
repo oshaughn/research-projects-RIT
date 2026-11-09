@@ -35,7 +35,7 @@ def render_manual_options(waveform, manual=None):
 def pseudo_ile_line(config, use_gwsignal, tmp_path):
     tree = ast.parse((CODE / 'bin/util_RIFT_pseudo_pipe.py').read_text())
     parser = argparse.ArgumentParser()
-    flags = {'--use-gwsignal', '--approx', '--manual-extra-ile-args'}
+    flags = {'--use-gwsignal', '--use-gwsurrogate', '--approx', '--manual-extra-ile-args'}
     for node in tree.body:
         if isinstance(node, ast.Expr) and isinstance(node.value, ast.Call):
             call = node.value
@@ -58,13 +58,20 @@ def pseudo_ile_line(config, use_gwsignal, tmp_path):
     scope = {'config_dict': vars(opts), 'rift_items': dict(config['rift-pseudo-pipe'])}
     exec(compile(ast.Module(body=[ini_loop], type_ignores=[]), '<pseudo INI>', 'exec'), scope)
     # Execute actual generator selection and manual-option append statements.
-    scope = {'opts': opts, 'line': 'integrate_likelihood_extrinsic_batchmode', 'sys': __import__('sys')}
+    scope = {
+        'opts': opts, 'line': 'integrate_likelihood_extrinsic_batchmode',
+        'sys': __import__('sys'), 'shlex': shlex, 'lalsimutils': lsu,
+    }
+    manual_gwsignal = next(node for node in tree.body if isinstance(node, ast.Assign)
+                           and any(isinstance(target, ast.Name) and target.id == 'manual_gwsignal'
+                                   for target in node.targets))
     selected = next(node for node in tree.body if isinstance(node, ast.If)
                     and ast.unparse(node.test) == 'opts.use_gwsignal'
                     and 'line +=' in ast.unparse(node))
     manual = next(node for node in tree.body if isinstance(node, ast.If)
                   and 'opts.manual_extra_ile_args is None' in ast.unparse(node.test))
-    exec(compile(ast.Module(body=[selected, manual], type_ignores=[]), '<pseudo args_ile>', 'exec'), scope)
+    exec(compile(ast.Module(body=[manual_gwsignal, selected, manual], type_ignores=[]),
+                 '<pseudo args_ile>', 'exec'), scope)
     args_path = tmp_path / 'args_ile.txt'
     args_path.write_text(scope['line'])
     return basiciteration_ile_args(args_path)
