@@ -156,7 +156,18 @@ Development tree is rift_O4c.
     diagnostics; the default remains off pending recovery validation.
     Rimsky CI retains the qualified SGN 0.8 import API.
 
-Release candidate is rc14.
+  - (rc15) PR 260 resolves native workflow waveform names through
+    LALSimulation and preserves explicit GWSignal and gwsurrogate routing.
+    PR 259 preserves component tidal deformabilities in calibration
+    reweighting, including eccentric waveforms and corrected-weight export.
+    PR 261 adds stable-branch accessors and explicit branch selection for
+    NuclearMatter-Backend EOS sequences, with the primary branch as the
+    default. PR 262 adds opt-in CIP --eos-affine-parameter central to include
+    every stable EOS branch with a dM-per-branch prior. CIP exports branch
+    IDs and multiplicities alongside posterior XML and keeps branch-prior
+    factors out of exported event likelihoods.
+
+Release candidate is rc15.
 
 0.0.17.13
 ---------
