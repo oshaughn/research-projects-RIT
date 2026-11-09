@@ -108,18 +108,25 @@ def _synthetic_sequence():
     nan_rows[10, FIELDS.index("Lambda")] = np.nan    # NaN inside rising run
     nan_rows[32, FIELDS.index("R")] = np.nan         # NaN in unstable tail
     nan_rows[-1, :] = np.nan                         # trailing NaN row
-    return np.stack([single, twin_high, twin_low, three, nan_rows])
+    # top branch only 1e-3 Msun wide, entirely above 0.999 * its own maximum
+    narrow = _eos_rows([(_segment(0.4, 2.0, 18), 1.0),
+                        (_segment(1.999, 1.9985, 3), 0.0),
+                        (_segment(1.9995, 2.0005, 6), 1.0),
+                        (_segment(2.0, 1.9, 4), 0.0)], N_PTS)
+    return np.stack([single, twin_high, twin_low, three, nan_rows, narrow])
 
 
-EXPECTED_BRANCH_COUNTS = [1, 2, 2, 3, 2]
+EXPECTED_BRANCH_COUNTS = [1, 2, 2, 3, 2, 2]
+NARROW = 5
 
 
-def _write_nss(path, seq):
+def _write_nss(path, seq, units=json.dumps({"M": "Msun", "R": "km"})):
     with h5py.File(path, "w") as f:
         f.attrs["representation"] = "tabular_hc/1"
         f.attrs["schema_version"] = "nmbackend.nss/1"
         f.attrs["fields"] = json.dumps(FIELDS)
-        f.attrs["units"] = json.dumps({"M": "Msun", "R": "km"})
+        if units is not None:
+            f.attrs["units"] = units
         f.create_dataset("sequence", data=seq)
     return str(path)
 
@@ -262,6 +269,34 @@ def test_branches_at_m_and_max_mass_all(nss_path):
     recs = seq.branches_of_indx(4)
     assert np.all(np.isfinite(recs[0]["Lambda"])) and np.all(np.isfinite(recs[1]["M"]))
     assert seq.branches_at_m_indx(1.4, 4) == [1]
+    # closed interval at both ends
+    for k in range(len(EXPECTED_BRANCH_COUNTS)):
+        for b, rec in enumerate(seq.branches_of_indx(k)):
+            assert b in seq.branches_at_m_indx(float(rec["M"][0]), k)
+            assert b in seq.branches_at_m_indx(float(rec["M"][-1]), k)
+    # minimum over all branches
+    assert seq.m_min_of_indx(3, branch="all") == seq.m_min_of_indx(3, branch=0)
+    assert seq.m_min_of_indx(3, branch=2) > seq.m_min_of_indx(3, branch="all")
+    # branch_id is an alias of branch on m_max/m_min
+    assert seq.m_max_of_indx(1, branch_id=1) == seq.m_max_of_indx(1, branch=1)
+    assert seq.m_min_of_indx(1, branch_id=1) == seq.m_min_of_indx(1, branch=1)
+    with pytest.raises(ValueError, match="only one"):
+        seq.m_max_of_indx(1, branch="all", branch_id=1)
+
+
+def test_branch_ids_must_be_integers(nss_path):
+    seq = EOSManager.EOSSequenceFromFile(fname=nss_path, load_ns=True, no_sort=True)
+    for bad in (1.7, 1.0, True, "1", "all"):
+        with pytest.raises(ValueError):
+            seq.lambda_of_m_indx(1.9, 1, branch_id=bad)
+    assert seq.lambda_of_m_indx(1.9, 1, branch_id=np.int64(1)) == \
+        seq.lambda_of_m_indx(1.9, 1, branch_id=1)
+    eos = EOSManager.EOSSequenceSingleIndex(fname=nss_path, index=1)
+    for bad in (1.7, True):
+        with pytest.raises(ValueError):
+            eos.lambda_from_m(1.9, branch_id=bad)
+        with pytest.raises(ValueError):
+            eos.for_branch(bad)
 
 
 def test_sorted_order_bookkeeping(tmp_path, seq_array):
@@ -336,12 +371,30 @@ def test_single_index_surface(nss_path, seq_array):
     # explicit branches
     assert eos.lambda_from_m(m, branch_id=1) == float(_ref_interp(m, M1, L1))
     assert eos.lambda_from_m(2.1, branch_id=1) == float(_ref_interp(2.1, M1, L1))
-    assert eos.lambda_from_m(0.9995 * eos.mMaxMsun_all, branch_id=1) == 1e-8
-    assert eos.lambda_from_m(2.1, branch_id=0) == 1e-8   # above branch-0 max
+    # no 0.999 cutoff inside an explicit branch
+    m_top = 0.9995 * eos.mMaxMsun_all
+    assert eos.lambda_from_m(m_top, branch_id=1) == float(_ref_interp(m_top, M1, L1))
+    assert eos.lambda_from_m(1.0001 * eos.mMaxMsun_all, branch_id=1) == 1e-8
+    assert eos.lambda_from_m(1.0001 * eos.mMaxMsun_all, branch_id=0) == 1e-8
+    with pytest.raises(ValueError, match="outside stable branch 0"):
+        eos.lambda_from_m(2.1, branch_id=0)     # above branch 0, on branch 1
     with pytest.raises(ValueError, match="outside stable branch 1"):
         eos.lambda_from_m(1.4, branch_id=1)
     with pytest.raises(ValueError, match="outside"):
         eos.lambda_from_m(1.4, branch_id=2)
+    with pytest.raises(ValueError, match="outside"):
+        eos.lambda_from_m_vector(np.array([1.4, 1.9]), branch_id=2)
+    # "primary" is the same as None
+    mv = np.array([1.4, 1.9, 2.1])
+    assert eos.lambda_from_m(m, branch_id="primary") == eos.lambda_from_m(m)
+    assert eos.radius_from_m(m, branch_id="primary") == eos.radius_from_m(m)
+    assert eos.R_from_m(m, branch_id="primary") == eos.R_from_m(m)
+    assert np.array_equal(eos.lambda_from_m_vector(mv, branch_id="primary"),
+                          eos.lambda_from_m_vector(mv))
+    assert eos.for_branch("primary").branch_id == 0
+    # kg detection: m >= 1e15 is SI, as in EOSConcrete.branches_for_m
+    assert eos.radius_from_m(1e15) == eos.radius_from_m(1e-3)
+    assert eos.radius_from_m(1e15) != eos.radius_from_m(3.0)
     assert eos.radius_from_m(m, branch_id=1) == pytest.approx(
         1e3 * float(_ref_interp(m, M1, R1)), rel=1e-15)
     with pytest.raises(ValueError):
@@ -367,6 +420,7 @@ def test_single_index_for_branch_view(nss_path, seq_array):
         assert view.branch_id == b
         assert view.name.endswith("[branch={}]".format(b))
         assert view.mMaxMsun == float(Mb[-1]) == view.mMaxMsun_all
+        assert view.number_of_branches == 1
         mid = float(0.5 * (Mb[1] + Mb[-2]))
         assert view.lambda_from_m(mid) == eos.lambda_from_m(mid, branch_id=b)
         assert view.lambda_from_m(mid * lal.MSUN_SI) == eos.lambda_from_m(mid, branch_id=b)
@@ -390,3 +444,48 @@ def test_single_index_default_matches_reference_for_all_eos(nss_path, seq_array)
         for m in np.linspace(0.2, 2.6, 25):
             ref = 1e-8 if m > 0.999 * eos.mMaxMsun else float(_ref_interp(m, M, Lam))
             assert eos.lambda_from_m(m) == ref
+
+
+def test_narrow_branch_not_masked(nss_path, seq_array):
+    seq = EOSManager.EOSSequenceFromFile(fname=nss_path, load_ns=True, no_sort=True)
+    eos = EOSManager.EOSSequenceSingleIndex(fname=nss_path, index=NARROW)
+    M1, R1, L1 = _ref_branches(seq_array, NARROW)[1]
+    assert M1[-1] - M1[0] == pytest.approx(1e-3)
+    assert M1[0] > 0.999 * M1[-1]                 # whole branch in the old mask
+    assert eos.mMaxMsun_all == float(M1[-1])
+    view = eos.for_branch(1)
+    for m in np.linspace(M1[0], M1[-1], 7):
+        expected = float(_ref_interp(m, M1, L1))
+        assert eos.lambda_from_m(m, branch_id=1) == expected
+        assert float(seq.lambda_of_m_indx(m, NARROW, branch_id=1)) == expected
+        assert view.lambda_from_m(m) == expected
+    m_mid = float(0.5 * (M1[0] + M1[-1]))       # SI round trip is inexact at the ends
+    assert view.lambda_from_m(m_mid * lal.MSUN_SI) == pytest.approx(
+        eos.lambda_from_m(m_mid, branch_id=1), rel=1e-12)
+    assert eos.lambda_from_m(2.0) == 1e-8        # primary path unchanged
+    assert eos.lambda_from_m(2.001, branch_id=1) == 1e-8
+    assert view.lambda_from_m(2.001) == 1e-8
+    # just below the branch: direct call is inside 0.999 * Mmax_all,
+    # the view (cut at its own maximum) rejects it
+    assert eos.lambda_from_m(1.999, branch_id=1) == 1e-8
+    with pytest.raises(ValueError):
+        view.lambda_from_m(1.999)
+    out = view.lambda_from_m_vector(np.array([1.4, 2.0]))
+    assert out[0] == -np.inf and out[1] == float(_ref_interp(2.0, M1, L1))
+
+
+@pytest.mark.parametrize("units, scale", [(None, 1e3), (json.dumps({"R": "m"}), 1.0),
+                                          (json.dumps({"R": "km"}), 1e3)])
+def test_radius_units(tmp_path, seq_array, units, scale):
+    path = _write_nss(tmp_path / "u.nss.h5", seq_array, units=units)
+    eos = EOSManager.EOSSequenceSingleIndex(fname=path, index=1)
+    assert eos._seq.R_unit_SI == scale
+    assert eos.radius_from_m(1.9) == scale * float(eos.R_from_m(1.9))
+    assert eos.radius_from_m(1.9, branch_id=1) == scale * float(eos.R_from_m(1.9, branch_id=1))
+
+
+def test_pca_radius_in_metres(tmp_path, seq_array):
+    path = _write_pca(tmp_path / "s.pca.h5", seq_array)
+    eos = EOSManager.EOSSequenceSingleIndex(fname=path, index=0)
+    assert eos.radius_from_m(1.4) == 1e3 * float(eos.R_from_m(1.4))
+    assert 9e3 < eos.radius_from_m(1.4) < 15e3

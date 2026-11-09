@@ -1937,6 +1937,11 @@ class EOSSequenceNMB(EOSSequenceLandry):
             return None
         if isinstance(branch_id, str):
             raise ValueError("unknown branch selector {!r}".format(branch_id))
+        if isinstance(branch_id, (bool, np.bool_)) or not isinstance(
+                branch_id, (int, np.integer)):
+            raise ValueError(
+                "branch_id must be an integer, None or 'primary', not "
+                "{!r}".format(branch_id))
         branch_id = int(branch_id)
         if branch_id < 0 or branch_id >= n_branches:
             raise ValueError("branch_id {} outside [0, {})".format(
@@ -1975,12 +1980,23 @@ class EOSSequenceNMB(EOSSequenceLandry):
         rec = recs[b]
         return self._interp_on_branch(m_Msun, rec["M"], np.log(rec["R"]))
 
-    def m_max_of_indx(self, indx, branch="primary"):
+    @staticmethod
+    def _branch_selector(branch, branch_id):
+        """Merge the ``branch`` and ``branch_id`` keywords of m_max/m_min."""
+        if branch_id is None:
+            return branch
+        if not (isinstance(branch, str) and branch == "primary"):
+            raise ValueError("pass only one of branch= and branch_id=")
+        return branch_id
+
+    def m_max_of_indx(self, indx, branch="primary", branch_id=None):
         """Maximum stable mass of EOS ``indx``.
 
         ``branch`` is ``"primary"`` (v1 default), ``"all"`` (largest mass on
-        any stable branch), or an integer branch id.
+        any stable branch), or an integer branch id; ``branch_id`` is an
+        alias for ``branch``.
         """
+        branch = self._branch_selector(branch, branch_id)
         if self._is_primary(branch):
             return EOSSequenceLandry.m_max_of_indx(self, indx)
         if isinstance(branch, str) and branch == "all":
@@ -1991,8 +2007,9 @@ class EOSSequenceNMB(EOSSequenceLandry):
         recs, b = self._branch_rec(indx, branch)
         return np.max(recs[b]["M"])
 
-    def m_min_of_indx(self, indx, branch="primary"):
+    def m_min_of_indx(self, indx, branch="primary", branch_id=None):
         """Minimum stored stable mass of EOS ``indx`` (``branch`` as in m_max_of_indx)."""
+        branch = self._branch_selector(branch, branch_id)
         if self._is_primary(branch):
             return np.min(self.eos_ns_tov[self._name_of_indx(indx)]["M"])
         recs = self.branches_of_indx(indx)
@@ -2075,6 +2092,14 @@ class EOSSequencePCA(EOSSequenceNMB):
     EOS's curves, take the stable rising branch, and populate the same in-memory
     ``eos_ns_tov`` dict EOSSequenceLandry/EOSSequenceNMB use -- so every inherited
     accessor works unchanged.  Self-contained (numpy only); no nmbackend dependency.
+
+    Branch ids are representation-specific.  The file carries no stability
+    flag, so a point counts as stable when M rises (``diff(M) > 0``).
+    Reconstruction wiggles therefore split curves into extra short branches
+    (17 branches of at most 6 points in the paper-1 prior archive), so the
+    branch count and ids of an EOS can differ from its ``nss`` original.  A
+    wiggle can also end the primary branch early (0.81 vs 1.59 Msun for some
+    EOS); this primary-branch behaviour is the v1 reader's and is unchanged.
     """
 
     def __init__(self, name=None, fname=None, load_eos=False, load_ns=True,
@@ -2191,6 +2216,8 @@ class EOSSequenceSingleIndex:
             raise ValueError("an explicit integer branch_id is required")
         return branch_id
 
+    _is_primary = staticmethod(EOSSequenceNMB._is_primary)
+
     def branch_minimum_mass_msun(self, branch_id):
         b = self._validate_branch_id(branch_id)
         return float(self._seq.m_min_of_indx(self.index, branch=b))
@@ -2217,18 +2244,35 @@ class EOSSequenceSingleIndex:
         return self._seq.branches_at_m_indx(self._mass_msun(m), self.index)
 
     def for_branch(self, branch_id):
-        """Return a legacy-scalar view restricted to one stable branch."""
+        """Return a legacy-scalar view restricted to one stable branch.
+
+        ``"primary"`` selects branch 0.
+        """
+        if self._is_primary(branch_id):
+            branch_id = 0
         return EOSSequenceBranchView(self, branch_id)
 
-    def lambda_from_m(self, m, branch_id=None):
-        if branch_id is not None:
-            m_Msun = self._mass_msun(m)
-            b = self._validate_branch_id(branch_id)
-            if m_Msun > 0.999 * self.branch_maximum_mass_msun(b):
+    def _lambda_on_branch(self, m_Msun, b, collapse_above_Msun):
+        """Lambda on branch ``b``: inside the branch, interpolate (no cutoff);
+        above ``collapse_above_Msun``, 1e-8; otherwise raise ValueError."""
+        if b not in self._seq.branches_at_m_indx(m_Msun, self.index):
+            if m_Msun > collapse_above_Msun:
                 return 1e-8
-            b = self._resolve_branch(m_Msun, b)
-            val = float(self._seq.lambda_of_m_indx(m_Msun, self.index, branch_id=b))
-            return LALSimNeutronStarFamilyAdapter._finite_observable("Lambda", val)
+            self._resolve_branch(m_Msun, b)   # raises with the branch list
+        val = float(self._seq.lambda_of_m_indx(m_Msun, self.index, branch_id=b))
+        return LALSimNeutronStarFamilyAdapter._finite_observable("Lambda", val)
+
+    def lambda_from_m(self, m, branch_id=None):
+        """Dimensionless Lambda(m); m in Msun or SI kg.
+
+        ``branch_id=None`` (or ``"primary"``): v1 primary branch, 1e-8 above
+        ``0.999 * mMaxMsun``.  Integer ``branch_id``: interpolate inside that
+        branch, 1e-8 above ``0.999 * mMaxMsun_all``, ValueError otherwise.
+        """
+        if not self._is_primary(branch_id):
+            b = self._validate_branch_id(branch_id)
+            return self._lambda_on_branch(self._mass_msun(m), b,
+                                          0.999 * self.mMaxMsun_all)
         # unit auto-detection as in EOSConcrete.lambda_from_m
         m_Msun = m / lal.MSUN_SI if m > 1e15 else m
         if m_Msun > 0.999 * self.mMaxMsun:
@@ -2237,7 +2281,7 @@ class EOSSequenceSingleIndex:
         return float(val) if np.isfinite(val) else 1e-8
 
     def lambda_from_m_vector(self, m, branch_id=None):
-        if branch_id is not None:
+        if not self._is_primary(branch_id):
             from RIFT.physics.lalsim_eos_compat import evaluate_eos_lambda
             self._validate_branch_id(branch_id)
             return evaluate_eos_lambda(self, m, use_vector=False, branch_id=branch_id)
@@ -2253,7 +2297,7 @@ class EOSSequenceSingleIndex:
         """
         m_Msun = self._mass_msun(m)
         unit = getattr(self._seq, "R_unit_SI", 1e3)
-        if branch_id is None:
+        if self._is_primary(branch_id):
             return float(self._seq.R_of_m_indx(m_Msun, self.index)) * unit
         b = self._resolve_branch(m_Msun, branch_id)
         val = float(self._seq.R_of_m_indx(m_Msun, self.index, branch_id=b)) * unit
@@ -2261,7 +2305,7 @@ class EOSSequenceSingleIndex:
 
     def R_from_m(self, m_Msun, branch_id=None):
         """Radius in the file's units (km); NaN outside an explicit branch."""
-        if branch_id is None:
+        if self._is_primary(branch_id):
             return self._seq.R_of_m_indx(m_Msun, self.index)
         b = self._validate_branch_id(branch_id)
         return self._seq.R_of_m_indx(m_Msun, self.index, branch_id=b)
@@ -2271,7 +2315,10 @@ class EOSSequenceBranchView(EOSBranchView):
     """:class:`EOSBranchView` for one stable branch of an NMB sequence EOS.
 
     Mass-radius-tidal queries are pinned to ``branch_id``; ``mMaxMsun`` (and
-    ``mMaxMsun_all``) is that branch's maximum mass.
+    ``mMaxMsun_all``) is that branch's maximum mass and ``number_of_branches``
+    is 1.  ``branches_for_m`` still reports the source's branch id.
+    ``lambda_from_m`` interpolates inside the branch, returns 1e-8 above it,
+    and raises ValueError below it.
     """
 
     def __init__(self, source, branch_id):
@@ -2282,6 +2329,11 @@ class EOSSequenceBranchView(EOSBranchView):
         self.eos_fam = None
         self.mMaxMsun = source.branch_maximum_mass_msun(self.branch_id)
         self.mMaxMsun_all = self.mMaxMsun
+        self.number_of_branches = 1
+
+    def lambda_from_m(self, m):
+        return self.source._lambda_on_branch(
+            self.source._mass_msun(m), self.branch_id, self.mMaxMsun)
 
     def R_from_m(self, m_Msun):
         return self.source.R_from_m(m_Msun, branch_id=self.branch_id)
