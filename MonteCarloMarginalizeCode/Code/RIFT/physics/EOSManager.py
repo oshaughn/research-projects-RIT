@@ -1834,6 +1834,173 @@ class EOSSequenceNMB(EOSSequenceLandry):
         empty = np.array([], dtype=float)
         return empty, empty.copy(), empty.copy()
 
+    _TOV_DTYPE = [("M", "f8"), ("R", "f8"), ("Lambda", "f8")]
+
+    @staticmethod
+    def _stable_branch_bounds(M, R, Lam, stable):
+        """Vectorized :meth:`_stable_branches` over a whole sequence.
+
+        Inputs are ``(n_eos, n_pts)`` arrays in central-coordinate order.
+        Returns integer arrays ``(eos, start, stop)``, one entry per stable
+        branch, so that ``M[eos, start:stop]`` is exactly the branch
+        ``_stable_branches`` returns for that row.  Entries are ordered by
+        ``eos`` and then by ``start``, so branch 0 of each EOS is its primary
+        branch.
+        """
+        M = np.atleast_2d(np.asarray(M)); R = np.atleast_2d(np.asarray(R))
+        Lam = np.atleast_2d(np.asarray(Lam))
+        stable = np.atleast_2d(np.asarray(stable))
+        valid = (np.isfinite(M) & np.isfinite(R) & np.isfinite(Lam)
+                 & (M > 0) & (stable > 0.5))
+        # cont[:, k]: row k extends the run that contains row k - 1.
+        cont = np.zeros_like(valid)
+        cont[:, 1:] = valid[:, 1:] & valid[:, :-1] & (M[:, 1:] > M[:, :-1])
+        cont_next = np.zeros_like(valid)
+        cont_next[:, :-1] = cont[:, 1:]
+        e_start, k_start = np.nonzero(valid & ~cont)
+        _, k_last = np.nonzero(valid & ~cont_next)
+        k_stop = k_last + 1
+        keep = (k_stop - k_start) >= 2
+        return e_start[keep], k_start[keep], k_stop[keep]
+
+    def _install_branches(self, M, R, Lam, stable):
+        """Populate ``eos_ns_tov`` (primary) and ``eos_ns_tov_branches`` (all).
+
+        ``eos_ns_tov_branches[name]`` lists every stable branch of one EOS in
+        central-coordinate order; element 0 is the same record as
+        ``eos_ns_tov[name]``, the v1 primary-branch contract.
+        """
+        n_eos = M.shape[0]
+        e, a, b = self._stable_branch_bounds(M, R, Lam, stable)
+        self.stable_branch_counts = np.bincount(e, minlength=n_eos).astype(int)
+        self.eos_ns_tov = {}
+        self.eos_ns_tov_branches = {}
+        branches = [[] for _ in range(n_eos)]
+        for k, start, stop in zip(e.tolist(), a.tolist(), b.tolist()):
+            rec = np.zeros(stop - start, dtype=self._TOV_DTYPE)
+            rec["M"] = M[k, start:stop]
+            rec["R"] = R[k, start:stop]
+            rec["Lambda"] = Lam[k, start:stop]
+            branches[k].append(rec)
+        for k in range(n_eos):
+            name = "eos_{}".format(k)
+            if branches[k]:
+                self.eos_ns_tov[name] = branches[k][0]
+            else:
+                self.eos_ns_tov[name] = np.zeros(0, dtype=self._TOV_DTYPE)
+            self.eos_ns_tov_branches[name] = branches[k]
+
+    @staticmethod
+    def _radius_unit_SI(units):
+        """Metres per stored radius unit; NMB files store R in km."""
+        import json
+        if units is None:
+            return 1e3
+        try:
+            unit = str(json.loads(units).get("R", "km")).strip().lower()
+        except Exception:
+            return 1e3
+        return {"km": 1e3, "m": 1.0, "cm": 1e-2}.get(unit, 1e3)
+
+    # ---- branch-aware accessors -------------------------------------------
+    # ``branch_id=None`` (or ``"primary"``) is the v1 contract and calls the
+    # inherited primary-branch code unchanged, including its np.interp
+    # clamping.  Integer branch ids select one stable branch (0 = primary) and
+    # return NaN outside that branch's closed [Mmin, Mmax].
+
+    def _name_of_indx(self, indx):
+        """EOS name for ``indx``, using the inherited sorted-order lookup."""
+        if self.eos_ns_tov is None:
+            raise Exception(" Did not load TOV results ")
+        indx_here = indx
+        if self.oned_order_sorted:   # undo  sorting, look up using ORIGINAL INDEXING
+            indx_here = self.oned_order_indx_original[indx]
+        return self.eos_names[indx_here]
+
+    def branches_of_indx(self, indx):
+        """List of ``{M, R, Lambda}`` records, one per stable branch."""
+        return self.eos_ns_tov_branches[self._name_of_indx(indx)]
+
+    def n_branches_of_indx(self, indx):
+        """Number of stable branches of EOS ``indx``."""
+        return len(self.branches_of_indx(indx))
+
+    @staticmethod
+    def _is_primary(branch_id):
+        return branch_id is None or (isinstance(branch_id, str)
+                                     and branch_id == "primary")
+
+    @classmethod
+    def _normalize_branch_id(cls, branch_id, n_branches):
+        """Return None for the primary contract, else a validated int."""
+        if cls._is_primary(branch_id):
+            return None
+        if isinstance(branch_id, str):
+            raise ValueError("unknown branch selector {!r}".format(branch_id))
+        branch_id = int(branch_id)
+        if branch_id < 0 or branch_id >= n_branches:
+            raise ValueError("branch_id {} outside [0, {})".format(
+                branch_id, n_branches))
+        return branch_id
+
+    def _branch_rec(self, indx, branch_id):
+        recs = self.branches_of_indx(indx)
+        return recs, self._normalize_branch_id(branch_id, len(recs))
+
+    def branches_at_m_indx(self, m_Msun, indx):
+        """Ids of the stable branches whose closed [Mmin, Mmax] contains m_Msun."""
+        return [b for b, rec in enumerate(self.branches_of_indx(indx))
+                if rec["M"][0] <= m_Msun <= rec["M"][-1]]
+
+    @staticmethod
+    def _interp_on_branch(m_Msun, M, log_val):
+        m = np.asarray(m_Msun, dtype=float)
+        out = np.exp(np.interp(m, M, log_val))
+        out = np.where((m >= M[0]) & (m <= M[-1]), out, np.nan)
+        return out[()] if out.ndim == 0 else out
+
+    def lambda_of_m_indx(self, m_Msun, indx, branch_id=None):
+        """Lambda(m) for EOS ``indx``; see the branch-aware accessor notes."""
+        if self._is_primary(branch_id):
+            return EOSSequenceLandry.lambda_of_m_indx(self, m_Msun, indx)
+        recs, b = self._branch_rec(indx, branch_id)
+        rec = recs[b]
+        return self._interp_on_branch(m_Msun, rec["M"], np.log(rec["Lambda"]))
+
+    def R_of_m_indx(self, m_Msun, indx, branch_id=None):
+        """R(m) in the file's units (km) for EOS ``indx``."""
+        if self._is_primary(branch_id):
+            return EOSSequenceLandry.R_of_m_indx(self, m_Msun, indx)
+        recs, b = self._branch_rec(indx, branch_id)
+        rec = recs[b]
+        return self._interp_on_branch(m_Msun, rec["M"], np.log(rec["R"]))
+
+    def m_max_of_indx(self, indx, branch="primary"):
+        """Maximum stable mass of EOS ``indx``.
+
+        ``branch`` is ``"primary"`` (v1 default), ``"all"`` (largest mass on
+        any stable branch), or an integer branch id.
+        """
+        if self._is_primary(branch):
+            return EOSSequenceLandry.m_max_of_indx(self, indx)
+        if isinstance(branch, str) and branch == "all":
+            recs = self.branches_of_indx(indx)
+            if not recs:
+                return EOSSequenceLandry.m_max_of_indx(self, indx)
+            return max(np.max(rec["M"]) for rec in recs)
+        recs, b = self._branch_rec(indx, branch)
+        return np.max(recs[b]["M"])
+
+    def m_min_of_indx(self, indx, branch="primary"):
+        """Minimum stored stable mass of EOS ``indx`` (``branch`` as in m_max_of_indx)."""
+        if self._is_primary(branch):
+            return np.min(self.eos_ns_tov[self._name_of_indx(indx)]["M"])
+        recs = self.branches_of_indx(indx)
+        if isinstance(branch, str) and branch == "all":
+            return min(np.min(rec["M"]) for rec in recs)
+        recs, b = self._branch_rec(indx, branch)
+        return np.min(recs[b]["M"])
+
     def __init__(self, name=None, fname=None, load_eos=False, load_ns=True,
                  oned_order_name=None, oned_order_mass=None, no_sort=True,
                  verbose=False, eos_tables_units=None):
@@ -1863,24 +2030,14 @@ class EOSSequenceNMB(EOSSequenceLandry):
             fields = json.loads(f.attrs["fields"])
             col = {k: j for j, k in enumerate(fields)}
             seq = f["sequence"][:]                      # (n_eos, n_pts, n_fields)
+            units = f.attrs.get("units", None)
 
         n_eos = seq.shape[0]
         self.eos_names = np.array(["eos_{}".format(k) for k in range(n_eos)], dtype=str)
         self.eos_ids = list(range(n_eos))
-        self.eos_ns_tov = {}
-        self.stable_branch_counts = np.zeros(n_eos, dtype=int)
-        for k in range(n_eos):
-            s = seq[k]
-            branches = self._stable_branches(
-                s[:, col["M"]], s[:, col["R"]],
-                s[:, col["Lambda"]], s[:, col["stable"]]
-            )
-            self.stable_branch_counts[k] = len(branches)
-            M, R, Lam = self._stable_rising(s[:, col["M"]], s[:, col["R"]],
-                                            s[:, col["Lambda"]], s[:, col["stable"]])
-            rec = np.zeros(M.size, dtype=[("M", "f8"), ("R", "f8"), ("Lambda", "f8")])
-            rec["M"], rec["R"], rec["Lambda"] = M, R, Lam
-            self.eos_ns_tov["eos_{}".format(k)] = rec
+        self.R_unit_SI = self._radius_unit_SI(units)
+        self._install_branches(seq[:, :, col["M"]], seq[:, :, col["R"]],
+                               seq[:, :, col["Lambda"]], seq[:, :, col["stable"]])
 
         # Build the 1-D ordering statistic exactly as EOSSequenceLandry does.
         create_order = False
@@ -1941,21 +2098,18 @@ class EOSSequencePCA(EOSSequenceNMB):
         iM, iR, iL = (channels.index("M"), channels.index("R"),
                       channels.index("logLambda"))
         n_eos = coeffs.shape[0]
+        n_pts = mean.shape[-1]
         self.eos_names = np.array(["eos_{}".format(k) for k in range(n_eos)], dtype=str)
         self.eos_ids = list(range(n_eos))
-        self.eos_ns_tov = {}
-        self.stable_branch_counts = np.zeros(n_eos, dtype=int)
+        self.R_unit_SI = 1e3   # NMB stores R in km
+        M = np.empty((n_eos, n_pts)); R = np.empty((n_eos, n_pts))
+        Lam = np.empty((n_eos, n_pts)); stable = np.empty((n_eos, n_pts))
         for k in range(n_eos):
+            # Per-EOS reconstruction kept as in the v1 reader (bitwise).
             rec_curves = mean + np.einsum("ck,ckp->cp", coeffs[k], comps)
-            M, R, Lam = rec_curves[iM], rec_curves[iR], np.exp(rec_curves[iL])
-            stable = np.concatenate([[True], np.diff(M) > 0])
-            self.stable_branch_counts[k] = len(
-                self._stable_branches(M, R, Lam, stable.astype(float))
-            )
-            Mb, Rb, Lb = self._stable_rising(M, R, Lam, stable.astype(float))
-            rec = np.zeros(Mb.size, dtype=[("M", "f8"), ("R", "f8"), ("Lambda", "f8")])
-            rec["M"], rec["R"], rec["Lambda"] = Mb, Rb, Lb
-            self.eos_ns_tov["eos_{}".format(k)] = rec
+            M[k], R[k], Lam[k] = rec_curves[iM], rec_curves[iR], np.exp(rec_curves[iL])
+            stable[k] = np.concatenate([[True], np.diff(M[k]) > 0])
+        self._install_branches(M, R, Lam, stable)
         self._build_ordering(oned_order_name, no_sort)
         return None
 
@@ -1994,6 +2148,13 @@ class EOSSequenceSingleIndex:
     realization, MARG-style) for tabular/compressed sequence files -- the
     reference computation against which the ordering-statistic (tabular
     hyperpipeline) approximation is validated.
+
+    Branch surface (NMB sequences only), mirroring :class:`EOSConcrete`:
+    ``branches_for_m``, ``for_branch``, and a ``branch_id`` keyword on
+    ``lambda_from_m``, ``lambda_from_m_vector``, ``radius_from_m`` and
+    ``R_from_m``.  ``branch_id=None`` keeps the v1 primary-branch projection
+    (it never raises for twin-star masses); ``mMaxMsun`` is the primary-branch
+    maximum and ``mMaxMsun_all`` the maximum over every stable branch.
     """
 
     def __init__(self, fname=None, index=0, name=None):
@@ -2005,8 +2166,69 @@ class EOSSequenceSingleIndex:
             raise ValueError("EOS index {} out of range (n={})".format(
                 self.index, len(self._seq.eos_names)))
         self.mMaxMsun = float(self._seq.m_max_of_indx(self.index))
+        if self._has_branches():
+            self.number_of_branches = int(self._seq.n_branches_of_indx(self.index))
+            self.mMaxMsun_all = float(self._seq.m_max_of_indx(self.index, branch="all"))
+        else:
+            self.number_of_branches = 1
+            self.mMaxMsun_all = self.mMaxMsun
 
-    def lambda_from_m(self, m):
+    def _has_branches(self):
+        return isinstance(self._seq, EOSSequenceNMB)
+
+    @staticmethod
+    def _mass_msun(m):
+        # unit auto-detection as in EOSConcrete.branches_for_m
+        return m / lal.MSUN_SI if m >= 10**15 else m
+
+    def _validate_branch_id(self, branch_id):
+        if not self._has_branches():
+            raise TypeError(
+                "branch selection requires an NMB (nss/pca) sequence file")
+        branch_id = EOSSequenceNMB._normalize_branch_id(
+            branch_id, self.number_of_branches)
+        if branch_id is None:
+            raise ValueError("an explicit integer branch_id is required")
+        return branch_id
+
+    def branch_minimum_mass_msun(self, branch_id):
+        b = self._validate_branch_id(branch_id)
+        return float(self._seq.m_min_of_indx(self.index, branch=b))
+
+    def branch_maximum_mass_msun(self, branch_id):
+        b = self._validate_branch_id(branch_id)
+        return float(self._seq.m_max_of_indx(self.index, branch=b))
+
+    def _resolve_branch(self, m_Msun, branch_id):
+        """Validate ``branch_id`` and require ``m_Msun`` on that branch."""
+        b = self._validate_branch_id(branch_id)
+        available = self._seq.branches_at_m_indx(m_Msun, self.index)
+        if b not in available:
+            raise ValueError(
+                "mass {!r} Msun is outside stable branch {} (available "
+                "branches: {})".format(m_Msun, b, available))
+        return b
+
+    def branches_for_m(self, m):
+        """Return stable branch ids whose closed mass interval contains ``m``."""
+        if not self._has_branches():
+            raise TypeError(
+                "branch selection requires an NMB (nss/pca) sequence file")
+        return self._seq.branches_at_m_indx(self._mass_msun(m), self.index)
+
+    def for_branch(self, branch_id):
+        """Return a legacy-scalar view restricted to one stable branch."""
+        return EOSSequenceBranchView(self, branch_id)
+
+    def lambda_from_m(self, m, branch_id=None):
+        if branch_id is not None:
+            m_Msun = self._mass_msun(m)
+            b = self._validate_branch_id(branch_id)
+            if m_Msun > 0.999 * self.branch_maximum_mass_msun(b):
+                return 1e-8
+            b = self._resolve_branch(m_Msun, b)
+            val = float(self._seq.lambda_of_m_indx(m_Msun, self.index, branch_id=b))
+            return LALSimNeutronStarFamilyAdapter._finite_observable("Lambda", val)
         # unit auto-detection as in EOSConcrete.lambda_from_m
         m_Msun = m / lal.MSUN_SI if m > 1e15 else m
         if m_Msun > 0.999 * self.mMaxMsun:
@@ -2014,13 +2236,55 @@ class EOSSequenceSingleIndex:
         val = self._seq.lambda_of_m_indx(m_Msun, self.index)
         return float(val) if np.isfinite(val) else 1e-8
 
-    def lambda_from_m_vector(self, m):
+    def lambda_from_m_vector(self, m, branch_id=None):
+        if branch_id is not None:
+            from RIFT.physics.lalsim_eos_compat import evaluate_eos_lambda
+            self._validate_branch_id(branch_id)
+            return evaluate_eos_lambda(self, m, use_vector=False, branch_id=branch_id)
         if not isinstance(m, np.ndarray):
             return self.lambda_from_m(m)
         return np.array([self.lambda_from_m(x) for x in m])
 
+    def radius_from_m(self, m, branch_id=None):
+        """Return radius in metres.
+
+        ``branch_id=None`` uses the primary-branch projection (as R_from_m);
+        an explicit branch raises ValueError outside that branch.
+        """
+        m_Msun = self._mass_msun(m)
+        unit = getattr(self._seq, "R_unit_SI", 1e3)
+        if branch_id is None:
+            return float(self._seq.R_of_m_indx(m_Msun, self.index)) * unit
+        b = self._resolve_branch(m_Msun, branch_id)
+        val = float(self._seq.R_of_m_indx(m_Msun, self.index, branch_id=b)) * unit
+        return LALSimNeutronStarFamilyAdapter._finite_observable("radius", val)
+
+    def R_from_m(self, m_Msun, branch_id=None):
+        """Radius in the file's units (km); NaN outside an explicit branch."""
+        if branch_id is None:
+            return self._seq.R_of_m_indx(m_Msun, self.index)
+        b = self._validate_branch_id(branch_id)
+        return self._seq.R_of_m_indx(m_Msun, self.index, branch_id=b)
+
+
+class EOSSequenceBranchView(EOSBranchView):
+    """:class:`EOSBranchView` for one stable branch of an NMB sequence EOS.
+
+    Mass-radius-tidal queries are pinned to ``branch_id``; ``mMaxMsun`` (and
+    ``mMaxMsun_all``) is that branch's maximum mass.
+    """
+
+    def __init__(self, source, branch_id):
+        self.source = source
+        self.branch_id = source._validate_branch_id(branch_id)
+        self.name = "{}[branch={}]".format(source.name, self.branch_id)
+        self.eos = None
+        self.eos_fam = None
+        self.mMaxMsun = source.branch_maximum_mass_msun(self.branch_id)
+        self.mMaxMsun_all = self.mMaxMsun
+
     def R_from_m(self, m_Msun):
-        return self._seq.R_of_m_indx(m_Msun, self.index)
+        return self.source.R_from_m(m_Msun, branch_id=self.branch_id)
 
 
 def EOSSequenceFromFile(fname=None, **kwargs):
