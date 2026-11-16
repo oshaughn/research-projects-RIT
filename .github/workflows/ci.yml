@@ -6,10 +6,6 @@ on:
   pull_request:
     branches: [rift_O4d, rift_O4d_junior, rift_O4d_gmm_gpu]
   workflow_dispatch:
-  schedule:
-    # Weekly canary so a fresh UPSTREAM release (e.g. swig>=4.4.0 -- see #136)
-    # is caught even when there is no RIFT commit. Mondays 06:00 UTC.
-    - cron: '0 6 * * 1'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}

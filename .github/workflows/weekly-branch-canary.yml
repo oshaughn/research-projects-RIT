@@ -1,0 +1,66 @@
+name: Weekly branch canary
+
+on:
+  schedule:
+    # GitHub schedules load from master; dispatch the science branch explicitly.
+    - cron: '17 6 * * 1'
+  workflow_dispatch:
+
+permissions:
+  actions: write
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  branch-canary:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - workflow: cip-startup.yml
+            workflow-name: CIP startup
+          - workflow: asimov-08.yml
+            workflow-name: Asimov 0.8 integration
+          - workflow: rimsky-integration.yml
+            workflow-name: Rimsky integration
+    name: Canary / ${{ matrix.workflow-name }}
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      GH_REPO: ${{ github.repository }}
+      TARGET_REF: rift_O4c
+      WORKFLOW: ${{ matrix.workflow }}
+      WORKFLOW_NAME: ${{ matrix.workflow-name }}
+    steps:
+      - name: Dispatch branch CI and propagate its result
+        shell: bash
+        run: |
+          set -euo pipefail
+          canary_id="${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${WORKFLOW}"
+          expected_title="${WORKFLOW_NAME} / ${canary_id} / ubuntu-latest"
+          gh workflow run "$WORKFLOW" --repo "$GH_REPO" --ref "$TARGET_REF" \
+            --field runner=ubuntu-latest --field canary_id="$canary_id"
+          run_id=""
+          for attempt in $(seq 1 18); do
+            run_id=$(gh run list --repo "$GH_REPO" --workflow "$WORKFLOW" \
+              --branch "$TARGET_REF" --event workflow_dispatch --limit 100 \
+              --json databaseId,displayTitle \
+              --jq ".[] | select(.displayTitle == \"${expected_title}\") | .databaseId")
+            if [ -n "$run_id" ]; then
+              break
+            fi
+            sleep 10
+          done
+          if [ -z "$run_id" ] || [[ "$run_id" == *$'\n'* ]]; then
+            echo "::error::Expected exactly one dispatched canary run for ${canary_id}"
+            exit 1
+          fi
+          run_url="${GITHUB_SERVER_URL}/${GH_REPO}/actions/runs/${run_id}"
+          echo "${WORKFLOW}: ${run_url}"
+          printf '%s\n' "- [${WORKFLOW_NAME}](${run_url}) (ref: ${TARGET_REF})" >> "$GITHUB_STEP_SUMMARY"
+          # Propagate downstream failure/cancellation; dispatch success alone is insufficient.
+          gh run watch "$run_id" --repo "$GH_REPO" --interval 30 --exit-status
