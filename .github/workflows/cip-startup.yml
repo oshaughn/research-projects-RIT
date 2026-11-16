@@ -1,4 +1,5 @@
 name: CIP startup
+run-name: ${{ github.workflow }} / ${{ inputs.canary_id || github.event_name }} / ${{ inputs.runner || 'ubuntu-24.04' }}
 
 on:
   push:
@@ -6,13 +7,25 @@ on:
   pull_request:
     branches: [rift_O4c]
   workflow_dispatch:
+    inputs:
+      runner:
+        description: Ubuntu runner (latest is the upstream migration canary)
+        type: choice
+        default: ubuntu-24.04
+        options:
+          - ubuntu-24.04
+          - ubuntu-latest
+      canary_id:
+        description: Correlation ID supplied by the default-branch scheduler
+        type: string
+        default: ''
 
 permissions:
   contents: read
 
 jobs:
   cip-startup:
-    runs-on: ubuntu-latest
+    runs-on: ${{ inputs.runner || 'ubuntu-24.04' }}
     timeout-minutes: 20
     env:
       GW_SURROGATE: ""
