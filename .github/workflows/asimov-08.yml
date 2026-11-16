@@ -1,4 +1,5 @@
 name: Asimov 0.8 integration
+run-name: ${{ github.workflow }} / ${{ inputs.canary_id || github.event_name }} / ${{ inputs.runner || 'ubuntu-24.04' }}
 
 on:
   push:
@@ -6,9 +7,23 @@ on:
   pull_request:
     branches: [rift_O4c]
 
+  workflow_dispatch:
+    inputs:
+      runner:
+        description: Ubuntu runner (latest is the upstream migration canary)
+        type: choice
+        default: ubuntu-24.04
+        options:
+          - ubuntu-24.04
+          - ubuntu-latest
+      canary_id:
+        description: Correlation ID supplied by the default-branch scheduler
+        type: string
+        default: ''
+
 jobs:
   asimov-integration:
-    runs-on: ubuntu-latest
+    runs-on: ${{ inputs.runner || 'ubuntu-24.04' }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
